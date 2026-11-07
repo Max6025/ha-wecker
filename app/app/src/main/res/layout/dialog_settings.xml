@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="22dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.3"
+            android:text="WECKRUF"
+            android:textColor="@color/accent"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/cfgInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/text_dim"
+            android:textSize="12sp" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="Vorwarnung in Minuten (0 = aus)" />
+
+        <EditText
+            android:id="@+id/cfgPrewarn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_strip"
+            android:inputType="number"
+            android:maxLength="3"
+            android:padding="13dp"
+            android:textColor="@color/text"
+            android:textSize="15sp"
+            tools:ignore="Autofill,LabelFor" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Stumme Benachrichtigung mit Knopf zum Abschalten. Sonst zeigt die App nichts an."
+            android:textColor="@color/text_off"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="24dp"
+            android:background="@color/line" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.3"
+            android:text="PUSH AN HOME ASSISTANT"
+            android:textColor="@color/accent"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Die App meldet den Stand selbst an HA - nur wenn sich etwas aendert, ohne Dienst und ohne Intervall. Funktioniert auch im Mobilfunk."
+            android:textColor="@color/text_off"
+            android:textSize="11sp" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Webhook-Adresse" />
+
+        <EditText
+            android:id="@+id/cfgHaUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_strip"
+            android:hint="https://ha.beispiel.de/api/webhook/ha_wecker"
+            android:inputType="textUri"
+            android:padding="13dp"
+            android:textColor="@color/text"
+            android:textColorHint="@color/text_off"
+            android:textSize="14sp"
+            tools:ignore="Autofill,LabelFor,TextFields" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Push aktiv"
+                android:textColor="@color/text"
+                android:textSize="15sp" />
+
+            <Switch
+                android:id="@+id/cfgPushEnabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:thumbTint="@color/accent"
+                android:trackTint="@color/accent_dim"
+                tools:ignore="UseSwitchCompatOrMaterialXml" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/cfgPushNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/btn_outline"
+            android:gravity="center"
+            android:letterSpacing="0.14"
+            android:paddingTop="13dp"
+            android:paddingBottom="13dp"
+            android:text="JETZT SENDEN UND TESTEN"
+            android:textColor="@color/text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/cfgPushStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/text_off"
+            android:textSize="11sp" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="24dp"
+            android:background="@color/line" />
+
+        <TextView
+            android:id="@+id/cfgFullscreen"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/btn_outline"
+            android:gravity="center"
+            android:letterSpacing="0.14"
+            android:paddingTop="13dp"
+            android:paddingBottom="13dp"
+            android:text="VOLLBILD-WECKRUF ERLAUBEN"
+            android:textColor="@color/text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/cfgBattery"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/btn_outline"
+            android:gravity="center"
+            android:letterSpacing="0.14"
+            android:paddingTop="13dp"
+            android:paddingBottom="13dp"
+            android:text="AKKU-OPTIMIERUNG AUSNEHMEN"
+            android:textColor="@color/text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/cfgExact"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/btn_outline"
+            android:gravity="center"
+            android:letterSpacing="0.14"
+            android:paddingTop="13dp"
+            android:paddingBottom="13dp"
+            android:text="EXAKTE ALARME ERLAUBEN"
+            android:textColor="@color/text_dim"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/cfgTest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/btn_primary"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center"
+            android:letterSpacing="0.14"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:text="TESTWECKRUF IN 15 SEKUNDEN"
+            android:textColor="#FF14181F"
+            android:textSize="11sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Nach dem Antippen Bildschirm ausschalten und warten."
+            android:textColor="@color/text_off"
+            android:textSize="11sp" />
+    </LinearLayout>
+</ScrollView>

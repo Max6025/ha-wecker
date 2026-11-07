@@ -1,0 +1,13 @@
+# Markdown-Karte: zeigt ALLE Wecker, auch die ausgeschalteten
+type: markdown
+title: Wecker
+content: >-
+  {% set a = state_attr('sensor.wecker_aktiv','alarms') or [] %}
+  **Naechster:** {{ state_attr('sensor.wecker_naechster','next_alarm_time') or '--:--' }}
+  ({{ state_attr('sensor.wecker_naechster','next_alarm_in') or 'keiner' }})
+
+  | | Zeit | Tage | Name | in |
+  |---|---|---|---|---|
+  {% for x in a -%}
+  | {{ '🟠' if x.enabled else '⚪' }} | {{ x.time }} | {{ x.days_label }} | {{ x.label }} | {{ x.next_trigger_in or '-' }} |
+  {% endfor %}

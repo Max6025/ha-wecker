@@ -1,0 +1,38 @@
+alarm_starten:
+  target:
+    entity:
+      integration: ha_wecker
+      domain: switch
+    device:
+      integration: ha_wecker
+  fields:
+    muster:
+      required: false
+      default: doppelblitz
+      selector:
+        select:
+          translation_key: muster
+          options:
+            - dauer
+            - blinken
+            - langsam
+            - schnell
+            - doppelblitz
+            - sos
+    dauer:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+
+alarm_stoppen:
+  target:
+    entity:
+      integration: ha_wecker
+      domain: switch
+    device:
+      integration: ha_wecker

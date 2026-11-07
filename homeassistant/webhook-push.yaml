@@ -1,0 +1,78 @@
+# ============================================================
+#  HA Wecker -> Home Assistant per Webhook  (EMPFOHLEN)
+#
+#  Die App sendet von sich aus, nur wenn sich etwas aendert.
+#  Kein Polling, kein Dauerdienst, funktioniert auch im Mobilfunk.
+#
+#  Benutzt nur Kern-Bausteine: Webhook-Trigger + Template-Entitaeten.
+#  Kein MQTT, kein HACS, kein Custom-Component.
+#
+#  1. webhook_id unten durch eine eigene, lange Zeichenfolge ersetzen -
+#     sie ist das einzige Geheimnis, also raten-sicher waehlen.
+#  2. In die configuration.yaml uebernehmen, HA neu starten.
+#  3. In der App unter API eintragen:
+#        https://DEINE-HA-ADRESSE/api/webhook/DEINE_WEBHOOK_ID
+#     und "JETZT SENDEN UND TESTEN" druecken.
+#
+#  Hinweis: Trigger-basierte Template-Entitaeten stellen ihren letzten
+#  Zustand nach einem HA-Neustart selbst wieder her. Es ist also kein
+#  regelmaessiges Nachsenden noetig.
+# ============================================================
+
+template:
+  - trigger:
+      - platform: webhook
+        webhook_id: ha_wecker_bitte_aendern_xyz123
+        allowed_methods:
+          - POST
+        local_only: false
+
+    sensor:
+      # --- Naechster Wecker als Zeitstempel ---------------------
+      - name: "Wecker naechster"
+        unique_id: hawecker_next
+        device_class: timestamp
+        icon: mdi:alarm
+        state: >-
+          {{ trigger.json.state if trigger.json.state else none }}
+        attributes:
+          next_alarm: "{{ trigger.json.next_alarm }}"
+          next_alarm_time: "{{ trigger.json.next_alarm_time }}"
+          next_alarm_name: "{{ trigger.json.next_alarm_name }}"
+          next_alarm_in: "{{ trigger.json.next_alarm_in }}"
+          device_time: "{{ trigger.json.device_time }}"
+          timezone: "{{ trigger.json.timezone }}"
+          empfangen: "{{ now().isoformat() }}"
+
+      # --- Alle Wecker, auch die ausgeschalteten ----------------
+      - name: "Wecker aktiv"
+        unique_id: hawecker_active
+        unit_of_measurement: "Wecker"
+        icon: mdi:alarm-multiple
+        state: "{{ trigger.json.active_count }}"
+        attributes:
+          alarms: "{{ trigger.json.alarms }}"
+          active_alarms: "{{ trigger.json.active_alarms }}"
+          inactive_alarms: "{{ trigger.json.inactive_alarms }}"
+          total_count: "{{ trigger.json.total_count }}"
+          inactive_count: "{{ trigger.json.inactive_count }}"
+          skipped_count: "{{ trigger.json.skipped_count }}"
+          summary: "{{ trigger.json.summary }}"
+          empfangen: "{{ now().isoformat() }}"
+
+      # --- Nur der Text, praktisch fuer Ansagen -----------------
+      - name: "Wecker naechster in"
+        unique_id: hawecker_next_in
+        icon: mdi:timer-sand
+        state: >-
+          {{ trigger.json.next_alarm_in if trigger.json.next_alarm_in else 'keiner' }}
+
+    binary_sensor:
+      - name: "Wecker klingelt"
+        unique_id: hawecker_ringing
+        device_class: running
+        icon: mdi:alarm-bell
+        state: "{{ trigger.json.ringing }}"
+        attributes:
+          ringing_id: "{{ trigger.json.ringing_id }}"
+          snoozed: "{{ trigger.json.snoozed }}"

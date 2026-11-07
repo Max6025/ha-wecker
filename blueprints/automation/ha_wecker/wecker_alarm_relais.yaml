@@ -1,0 +1,83 @@
+blueprint:
+  name: "HA Wecker: Relais blinkt, solange der Wecker klingelt"
+  description: >-
+    Sobald die Wecker-App „klingelt“ meldet, laesst die Relaisbox die gewaehlten
+    Relais ein Muster laufen (Standard Doppelblitz). Wird der Wecker gestoppt
+    oder geschlummert, stoppt auch das Relais.
+  domain: automation
+  source_url: https://github.com/Max6025/ha-wecker/blob/main/blueprints/automation/ha_wecker/wecker_alarm_relais.yaml
+  input:
+    klingelt:
+      name: Wecker klingelt
+      description: Der Binaersensor „Klingelt“ des Weckers.
+      selector:
+        entity:
+          filter:
+            - integration: ha_wecker
+              domain: binary_sensor
+    relais:
+      name: Relais
+      description: Ein oder mehrere Relais-Schalter der Relaisbox.
+      selector:
+        target:
+          entity:
+            - integration: ha_wecker
+              domain: switch
+    muster:
+      name: Muster
+      default: doppelblitz
+      selector:
+        select:
+          options:
+            - label: Doppelblitz (wie Brandmeldezentrale)
+              value: doppelblitz
+            - label: Blinken (1 s / 1 s)
+              value: blinken
+            - label: Langsam blinken
+              value: langsam
+            - label: Schnell blinken
+              value: schnell
+            - label: SOS
+              value: sos
+            - label: Dauerhaft an
+              value: dauer
+    hoechstdauer:
+      name: Hoechstdauer
+      description: Sicherheitsnetz in Sekunden, falls das Ende des Weckrufs nicht ankommt. 0 = ohne.
+      default: 900
+      selector:
+        number:
+          min: 0
+          max: 7200
+          unit_of_measurement: s
+          mode: box
+
+mode: restart
+
+triggers:
+  - trigger: state
+    entity_id: !input klingelt
+    to: "on"
+    id: an
+  - trigger: state
+    entity_id: !input klingelt
+    to: "off"
+    id: aus
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: an
+        sequence:
+          - action: ha_wecker.alarm_starten
+            target: !input relais
+            data:
+              muster: !input muster
+              dauer: !input hoechstdauer
+      - conditions:
+          - condition: trigger
+            id: aus
+        sequence:
+          - action: ha_wecker.alarm_stoppen
+            target: !input relais

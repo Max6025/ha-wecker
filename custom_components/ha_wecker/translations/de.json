@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA Wecker – was soll hinzugefügt werden?",
+        "menu_options": {
+          "wecker": "Wecker (Android-App)",
+          "relais": "Relaisbox (ESP32)"
+        }
+      },
+      "wecker": {
+        "title": "Wecker einrichten",
+        "description": "Die App meldet ihren Weckerstand per Webhook – sie läuft nicht im Hintergrund, und nichts fragt sie ab. Die Webhook-Adresse wird jetzt erzeugt und danach im Diagnose-Sensor „Webhook“ und unter „Konfigurieren“ angezeigt; das ist die Adresse für die App.",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "relais": {
+        "title": "Relaisbox einrichten",
+        "description": "Adresse der Relaisbox im Netz, z. B. relaisbox.local oder 192.168.1.60.",
+        "data": {
+          "name": "Name",
+          "host": "Adresse"
+        }
+      },
+      "relais_bestaetigen": {
+        "title": "Relaisbox gefunden",
+        "description": "Relaisbox unter {host} (Firmware {version}) hinzufügen?",
+        "data": {
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "host_fehlt": "Bitte eine Adresse eingeben.",
+      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits eingerichtet.",
+      "nicht_relaisbox": "Gefundenes Gerät ist keine Relaisbox.",
+      "nicht_erreichbar": "Die gefundene Relaisbox antwortet nicht."
+    },
+    "flow_title": "{name}"
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HA Wecker",
+        "description": "Adresse für die App:\n{webhook_url}",
+        "data": {}
+      },
+      "relais": {
+        "title": "Relaisbox",
+        "description": "Derzeit: {url}",
+        "data": {
+          "host": "Adresse der Relaisbox"
+        }
+      }
+    },
+    "error": {
+      "host_fehlt": "Bitte eine Adresse eingeben.",
+      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_alarm": {
+        "name": "Nächster Wecker"
+      }
+    }
+  },
+  "selector": {
+    "muster": {
+      "options": {
+        "dauer": "Dauerhaft an",
+        "blinken": "Blinken (1 s / 1 s)",
+        "langsam": "Langsam blinken (2 s / 2 s)",
+        "schnell": "Schnell blinken (¼ s)",
+        "doppelblitz": "Doppelblitz (wie Brandmeldezentrale)",
+        "sos": "SOS"
+      }
+    }
+  },
+  "services": {
+    "alarm_starten": {
+      "name": "Alarm starten",
+      "description": "Lässt die gewählten Relais der Relaisbox ein Muster laufen, z. B. Doppelblitz, bis „Alarm stoppen“ oder bis die Dauer abgelaufen ist.",
+      "fields": {
+        "muster": {
+          "name": "Muster",
+          "description": "Wie das Relais schalten soll."
+        },
+        "dauer": {
+          "name": "Dauer",
+          "description": "Sekunden, nach denen das Muster von selbst endet. 0 = bis „Alarm stoppen“."
+        }
+      }
+    },
+    "alarm_stoppen": {
+      "name": "Alarm stoppen",
+      "description": "Beendet das Muster auf den gewählten Relais und schaltet sie aus."
+    }
+  }
+}

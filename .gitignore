@@ -1,0 +1,14 @@
+# PlatformIO
+firmware/*/.pio/
+firmware/*/secrets.ini
+# Android
+app/.gradle/
+app/build/
+app/app/build/
+app/local.properties
+app/.kotlin/
+*.apk
+# Python
+__pycache__/
+.pytest_cache/
+.venv/

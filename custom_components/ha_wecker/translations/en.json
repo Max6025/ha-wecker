@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA Wecker – what do you want to add?",
+        "menu_options": {
+          "wecker": "Alarm clock (Android app)",
+          "relais": "Relay box (ESP32)"
+        }
+      },
+      "wecker": {
+        "title": "Set up alarm clock",
+        "description": "The app reports its alarm list via webhook – it runs no background service and nothing polls it. The webhook address is generated now and shown afterwards in the diagnostic sensor \"Webhook\" and under \"Configure\"; that is the address for the app.",
+        "data": {
+          "name": "Name"
+        }
+      },
+      "relais": {
+        "title": "Set up relay box",
+        "description": "Network address of the relay box, e.g. relaisbox.local or 192.168.1.60.",
+        "data": {
+          "name": "Name",
+          "host": "Address"
+        }
+      },
+      "relais_bestaetigen": {
+        "title": "Relay box found",
+        "description": "Add the relay box at {host} (firmware {version})?",
+        "data": {
+          "name": "Name"
+        }
+      }
+    },
+    "error": {
+      "host_fehlt": "Please enter an address.",
+      "nicht_erreichbar": "No relay box answers at this address."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "nicht_relaisbox": "The discovered device is not a relay box.",
+      "nicht_erreichbar": "The discovered relay box does not answer."
+    },
+    "flow_title": "{name}"
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HA Wecker",
+        "description": "Address for the app:\n{webhook_url}",
+        "data": {}
+      },
+      "relais": {
+        "title": "Relay box",
+        "description": "Currently: {url}",
+        "data": {
+          "host": "Address of the relay box"
+        }
+      }
+    },
+    "error": {
+      "host_fehlt": "Please enter an address.",
+      "nicht_erreichbar": "No relay box answers at this address."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_alarm": {
+        "name": "Next alarm"
+      }
+    }
+  },
+  "selector": {
+    "muster": {
+      "options": {
+        "dauer": "Permanently on",
+        "blinken": "Blink (1 s / 1 s)",
+        "langsam": "Slow blink (2 s / 2 s)",
+        "schnell": "Fast blink (¼ s)",
+        "doppelblitz": "Double flash (fire alarm style)",
+        "sos": "SOS"
+      }
+    }
+  },
+  "services": {
+    "alarm_starten": {
+      "name": "Start alarm",
+      "description": "Runs a pattern (e.g. double flash) on the selected relays of the relay box until \"Stop alarm\" or until the duration has passed.",
+      "fields": {
+        "muster": {
+          "name": "Pattern",
+          "description": "How the relay should switch."
+        },
+        "dauer": {
+          "name": "Duration",
+          "description": "Seconds after which the pattern ends by itself. 0 = until \"Stop alarm\"."
+        }
+      }
+    },
+    "alarm_stoppen": {
+      "name": "Stop alarm",
+      "description": "Ends the pattern on the selected relays and switches them off."
+    }
+  }
+}
