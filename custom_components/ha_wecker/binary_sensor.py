@@ -46,7 +46,10 @@ async def async_setup_entry(
 ) -> None:
     obj = hass.data[DOMAIN][entry.entry_id]
     if isinstance(obj, RelaisCoordinator):
-        async_add_entities([RelaisAlarmBinarySensor(obj)])
+        entities: list[BinarySensorEntity] = [RelaisAlarmBinarySensor(obj)]
+        if isinstance((obj.data or {}).get("eingang"), dict):
+            entities.append(RelaisEingangBinarySensor(obj))
+        async_add_entities(entities)
         return
     data: WeckerData = obj
     async_add_entities([RingingBinarySensor(data)])
@@ -246,3 +249,35 @@ class RelaisAlarmBinarySensor(RelaisEntity, BinarySensorEntity):
             if isinstance(r, dict) and r.get("muster") not in (None, "aus", "dauer")
         ]
         return {"relais": aktiv, "muster_verfuegbar": self.daten.get("muster")}
+
+
+class RelaisEingangBinarySensor(RelaisEntity, BinarySensorEntity):
+    """Digitaler Eingang der Relaisbox (GPIO 8): an = Signal liegt an."""
+
+    _attr_name = "Eingang"
+
+    def __init__(self, coordinator: RelaisCoordinator) -> None:
+        super().__init__(coordinator, "eingang")
+
+    @property
+    def _eingang(self) -> dict[str, Any]:
+        e = self.daten.get("eingang")
+        return e if isinstance(e, dict) else {}
+
+    @property
+    def available(self) -> bool:
+        return super().available and bool(self._eingang)
+
+    @property
+    def is_on(self) -> bool | None:
+        v = self._eingang.get("aktiv")
+        return bool(v) if v is not None else None
+
+    @property
+    def icon(self) -> str:
+        return "mdi:electric-switch-closed" if self.is_on else "mdi:electric-switch"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        e = self._eingang
+        return {"gpio": e.get("gpio"), "seit_s": e.get("seit_s"), "zaehler": e.get("zaehler")}

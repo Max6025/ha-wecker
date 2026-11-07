@@ -9,7 +9,7 @@ TYP_RELAIS = "relais"
 
 # Relaisbox (ESP32)
 CONF_HOST = "host"
-RELAIS_ABFRAGE_S = 5
+RELAIS_ABFRAGE_S = 3
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 

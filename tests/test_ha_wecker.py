@@ -187,10 +187,11 @@ async def test_config_flow(hass: HomeAssistant) -> None:
 RELAIS_URL = "http://192.168.1.60"
 
 
-def relais_state(an1=False, muster1="aus", an3=False, muster3="aus"):
+def relais_state(an1=False, muster1="aus", an3=False, muster3="aus", eingang=False):
     return {
-        "name": "Relaisbox", "version": "1.0.0", "mac": "1c:db:d4:5b:d2:d4",
+        "name": "Relaisbox", "version": "1.1.0", "mac": "1c:db:d4:5b:d2:d4",
         "ip": "192.168.1.60", "rssi": -61, "uptime_s": 120,
+        "eingang": {"gpio": 8, "aktiv": eingang, "seit_s": 7, "zaehler": 3 if eingang else 2},
         "alarm": muster1 not in ("aus", "dauer") or muster3 not in ("aus", "dauer"),
         "muster": ["aus", "dauer", "blinken", "langsam", "schnell", "doppelblitz", "sos"],
         "relais": [
@@ -230,6 +231,19 @@ async def test_relaisbox_entities_und_schalter(hass: HomeAssistant, aioclient_mo
     assert hass.states.get("switch.relaisbox_relais_4").state == "off"
     assert hass.states.get("binary_sensor.relaisbox_alarm").state == "off"
     assert hass.states.get("button.relaisbox_alarm_stoppen") is not None
+    eingang = hass.states.get("binary_sensor.relaisbox_eingang")
+    assert eingang.state == "off" and eingang.attributes["gpio"] == 8
+
+    # Eingang geht an -> naechste Abfrage zeigt es
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{RELAIS_URL}/api/state", json=relais_state(eingang=True))
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+    await hass.async_block_till_done()
+    eingang = hass.states.get("binary_sensor.relaisbox_eingang")
+    assert eingang.state == "on" and eingang.attributes["zaehler"] == 3
 
     # Einschalten -> POST /api/relais/1?an=1, Antwort wird direkt uebernommen
     aioclient_mock.post(f"{RELAIS_URL}/api/relais/1", json=relais_state(an1=True, muster1="dauer"))

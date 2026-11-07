@@ -250,7 +250,8 @@ Im Normalbetrieb zeigt die App nichts an und hat keine Daueranzeige. Ausnahmen:
 Hardware: ESP32-S3-DevKitC-1 (zwei USB-C, RGB-LED, N16R8) mit einer
 4-fach-Relaisplatine am 3V3-Pin. Relais an GPIO 38, 36, 35 (aktiv HIGH), GPIO 37
 ist auf dem vorhandenen Board defekt und in der Firmware stillgelegt, GPIO 42
-geht beim Start dauerhaft auf HIGH. Pins und Polaritaet stehen oben in
+geht beim Start dauerhaft auf HIGH. GPIO 8 ist ein **Eingang** (HIGH = Signal,
+max. 3,3 V, intern auf LOW gezogen, 30 ms entprellt). Pins und Polaritaet stehen oben in
 `firmware/relaisbox/src/main.cpp`.
 
 **Flashen**
@@ -272,7 +273,7 @@ pulsierend = Alarmmuster laeuft.
 
 | Methode | Pfad | Zweck |
 |---|---|---|
-| GET | `/api/state` | Zustand aller Relais als JSON |
+| GET | `/api/state` | Zustand aller Relais und des Eingangs als JSON |
 | GET | `/api/ping` | Erreichbarkeitstest |
 | POST | `/api/relais/<nr>?an=1` | Relais schalten (beendet ein Muster) |
 | POST | `/api/alarm?relais=1,3&muster=doppelblitz&dauer=0` | Muster starten; `relais=alle`, `dauer` in s, 0 = bis Stopp |
@@ -289,6 +290,7 @@ Muster laufen auf dem ESP, HA sagt nur, welches wie lange.
 |---|---|
 | `switch.relaisbox_relais_1` ... | je brauchbares Relais ein Schalter; Attribute `muster`, `rest_s` |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
+| `binary_sensor.relaisbox_eingang` | Signal an GPIO 8; Attribute `seit_s`, `zaehler` |
 | `button.relaisbox_alarm_stoppen` | alles aus |
 | `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
 

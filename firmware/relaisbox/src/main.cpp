@@ -9,6 +9,8 @@
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
 //   GPIO 38, 36, 35: Relais 1, 3, 4 (IN der Relaisplatine, aktiv HIGH)
 //   GPIO 37: Relais 2, DEFEKT - bleibt dauerhaft LOW
+//   GPIO 8:  Eingang, HIGH = Signal liegt an (max. 3,3 V!), INPUT_PULLDOWN,
+//            offener Eingang zaehlt als "kein Signal"; 30 ms entprellt
 //   GPIO 48: RGB-LED (Status: blau = WLAN sucht, gruen = verbunden, amber = Alarm)
 //
 // HTTP (Port 80)
@@ -43,10 +45,12 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.0.1";
+static const char* VERSION   = "1.1.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
+static const int PIN_EINGANG    = 8;
+static const uint32_t ENTPRELL_MS = 30;
 static const bool RELAIS_AKTIV_LOW = false;   // Platine zieht bei HIGH an
 
 struct Relais {
@@ -152,6 +156,28 @@ static void musterTakt() {
       l.pos = (l.pos + 1) % m.anzahl;
       ausgang(i, (l.pos % 2) == 0);
     }
+  }
+}
+
+// --- Eingang ------------------------------------------------------------------
+
+static bool eingangAktiv = false;        // entprellter Zustand
+static uint32_t eingangSeit = 0;         // millis() der letzten Aenderung
+static uint32_t eingangZaehler = 0;      // wie oft "an" seit dem Start
+
+static void eingangTakt() {
+  static bool rohAlt = false;
+  static uint32_t rohSeit = 0;
+  bool roh = digitalRead(PIN_EINGANG) == HIGH;
+  uint32_t jetzt = millis();
+  if (roh != rohAlt) {
+    rohAlt = roh;
+    rohSeit = jetzt;
+  } else if (roh != eingangAktiv && jetzt - rohSeit >= ENTPRELL_MS) {
+    eingangAktiv = roh;
+    eingangSeit = jetzt;
+    if (eingangAktiv) eingangZaehler++;
+    Serial.printf("Eingang GPIO %d: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
   }
 }
 
@@ -294,6 +320,10 @@ static String stateJson() {
   s += ",\"rssi\":" + String(WiFi.RSSI());
   s += ",\"uptime_s\":" + String(millis() / 1000);
   s += ",\"alarm\":" + String(alarmAktiv() ? "true" : "false");
+  s += ",\"eingang\":{\"gpio\":" + String(PIN_EINGANG);
+  s += ",\"aktiv\":" + String(eingangAktiv ? "true" : "false");
+  s += ",\"seit_s\":" + String((millis() - eingangSeit) / 1000);
+  s += ",\"zaehler\":" + String(eingangZaehler) + "}";
   s += ",\"muster\":[";
   for (size_t i = 0; i < MUSTER_ANZAHL; i++) {
     if (i) s += ",";
@@ -420,7 +450,8 @@ static void handleStatusseite() {
     h += "<button onclick=\"f('/api/relais/" + String(i + 1) + "?an=0')\">aus</button>";
     h += "<button onclick=\"f('/api/alarm?relais=" + String(i + 1) + "&muster=doppelblitz')\">Doppelblitz</button></td></tr>";
   }
-  h += "</table><p><button onclick=\"f('/api/alarm?relais=alle&muster=blinken')\">alle blinken</button>"
+  h += "</table><p>Eingang GPIO " + String(PIN_EINGANG) + ": <b>" + String(eingangAktiv ? "AN" : "aus") + "</b></p>";
+  h += "<p><button onclick=\"f('/api/alarm?relais=alle&muster=blinken')\">alle blinken</button>"
        "<button onclick=\"f('/api/alarm/stop')\">alles stopp</button></p>";
   if (apModus) h += "<p style='color:#ffb23f'>Einrichtungsmodus: WLAN-Zugang unten eintragen, die Box startet dann neu.</p>";
   h += "<h3>WLAN</h3><form method=post action='/api/wifi'>SSID <input name=ssid value='" + wifiSsid + "'> "
@@ -485,6 +516,7 @@ void setup() {
     pinMode(RELAIS[i].gpio, OUTPUT);
     ausgang(i, false);
   }
+  pinMode(PIN_EINGANG, INPUT_PULLDOWN);
   pinMode(PIN_VERSORGUNG, OUTPUT);
   gpio_set_drive_capability((gpio_num_t)PIN_VERSORGUNG, GPIO_DRIVE_CAP_3);
   digitalWrite(PIN_VERSORGUNG, HIGH);
@@ -497,6 +529,9 @@ void setup() {
   for (size_t i = 0; i < RELAIS_ANZAHL; i++)
     Serial.printf(" %d%s", RELAIS[i].gpio, RELAIS[i].defekt ? "(defekt)" : "");
   Serial.println();
+  eingangAktiv = digitalRead(PIN_EINGANG) == HIGH;
+  eingangSeit = millis();
+  Serial.printf("Eingang GPIO %d beim Start: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
 
   led(0, 0, 30);
   wifiLaden();
@@ -508,6 +543,7 @@ void loop() {
   wifiTakt();
   server.handleClient();
   musterTakt();
+  eingangTakt();
   ledTakt();
   seriellTakt();
   delay(2);
