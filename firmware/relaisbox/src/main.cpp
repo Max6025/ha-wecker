@@ -43,7 +43,7 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.0.0";
+static const char* VERSION   = "1.0.1";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
@@ -200,10 +200,17 @@ static void wifiSpeichern(const String& ssid, const String& pass) {
 
 static void apStarten() {
   apModus = true;
-  WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP("Relaisbox-Setup");
-  Serial.printf("Einrichtungs-WLAN 'Relaisbox-Setup' offen, Seite: http://%s/\n",
-                WiFi.softAPIP().toString().c_str());
+  // Keine weiteren Verbindungsversuche: die wechseln den Kanal und lassen
+  // den Zugangspunkt immer wieder verschwinden. Neuer Versuch erst nach
+  // dem Speichern neuer Zugangsdaten (Neustart).
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false, false);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  bool ok = WiFi.softAP("Relaisbox-Setup", nullptr, 1, 0, 4);
+  delay(100);
+  Serial.printf("Einrichtungs-WLAN 'Relaisbox-Setup' %s, Kanal 1, Seite: http://%s/\n",
+                ok ? "offen" : "FEHLGESCHLAGEN", WiFi.softAPIP().toString().c_str());
 }
 
 static void wifiScan() {
@@ -223,7 +230,7 @@ static void wifiEreignis(WiFiEvent_t ev, WiFiEventInfo_t info) {
 static void wifiVerbinden() {
   static bool ereignisDa = false;
   if (!ereignisDa) { WiFi.onEvent(wifiEreignis); ereignisDa = true; }
-  WiFi.mode(apModus ? WIFI_AP_STA : WIFI_STA);
+  WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
   WiFi.setSleep(false);
   if (wifiSsid.isEmpty()) {
@@ -262,16 +269,17 @@ static void wifiTakt() {
     wifiScan();
     WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
   }
-  // Nach 30 s ohne Verbindung das Einrichtungs-WLAN dazu oeffnen, weiter versuchen
+  // Nach 30 s ohne Verbindung auf das Einrichtungs-WLAN umschalten
   if (!verbunden && !apModus && !wifiSsid.isEmpty() && millis() - wifiVersuchSeit > 30000) {
-    Serial.println("WLAN nicht erreichbar - Einrichtungs-WLAN wird zusaetzlich geoeffnet");
+    Serial.println("WLAN nicht erreichbar - Einrichtungs-WLAN wird geoeffnet");
     apStarten();
-    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
   }
-  // Im AP-Modus alle 20 s erneut ins WLAN versuchen
-  if (!verbunden && apModus && !wifiSsid.isEmpty() && millis() - wifiVersuchSeit > 20000) {
-    wifiVersuchSeit = millis();
-    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+  // Im AP-Modus alle 15 s melden, ob jemand verbunden ist
+  static uint32_t apMeldung = 0;
+  if (apModus && millis() - apMeldung > 15000) {
+    apMeldung = millis();
+    Serial.printf("Einrichtungs-WLAN: %d Gerät(e) verbunden, IP %s\n",
+                  WiFi.softAPgetStationNum(), WiFi.softAPIP().toString().c_str());
   }
 }
 
@@ -414,6 +422,7 @@ static void handleStatusseite() {
   }
   h += "</table><p><button onclick=\"f('/api/alarm?relais=alle&muster=blinken')\">alle blinken</button>"
        "<button onclick=\"f('/api/alarm/stop')\">alles stopp</button></p>";
+  if (apModus) h += "<p style='color:#ffb23f'>Einrichtungsmodus: WLAN-Zugang unten eintragen, die Box startet dann neu.</p>";
   h += "<h3>WLAN</h3><form method=post action='/api/wifi'>SSID <input name=ssid value='" + wifiSsid + "'> "
        "Kennwort <input name=pass type=password> <button>speichern &amp; neu starten</button></form>";
   h += "<p><a style='color:#ffb23f' href='/api/state'>/api/state</a></p>";
