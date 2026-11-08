@@ -202,12 +202,11 @@ def relais_state(an1=False, muster1="aus", an3=False, muster3="aus", eingang=Fal
     return {
         "name": "Relaisbox", "version": "1.1.0", "mac": "1c:db:d4:5b:d2:d4",
         "ip": "192.168.1.60", "rssi": -61, "uptime_s": 120,
-        "eingang": {"gpio": 8, "aktiv": eingang, "seit_s": 7, "zaehler": 3 if eingang else 2},
+        "eingang": {"gpio": 37, "aktiv": eingang, "seit_s": 7, "zaehler": 3 if eingang else 2},
         "alarm": muster1 not in ("aus", "dauer") or muster3 not in ("aus", "dauer"),
         "muster": ["aus", "dauer", "blinken", "langsam", "schnell", "doppelblitz", "sos"],
         "relais": [
             {"nr": 1, "gpio": 38, "defekt": False, "an": an1, "muster": muster1, "rest_s": -1},
-            {"nr": 2, "gpio": 37, "defekt": True, "an": False, "muster": "aus", "rest_s": -1},
             {"nr": 3, "gpio": 36, "defekt": False, "an": an3, "muster": muster3, "rest_s": -1},
             {"nr": 4, "gpio": 35, "defekt": False, "an": False, "muster": "aus", "rest_s": -1},
         ],
@@ -243,7 +242,7 @@ async def test_relaisbox_entities_und_schalter(hass: HomeAssistant, aioclient_mo
     assert hass.states.get("binary_sensor.relaisbox_alarm").state == "off"
     assert hass.states.get("button.relaisbox_alarm_stoppen") is not None
     eingang = hass.states.get("binary_sensor.relaisbox_eingang")
-    assert eingang.state == "off" and eingang.attributes["gpio"] == 8
+    assert eingang.state == "off" and eingang.attributes["gpio"] == 37
 
     # Eingang geht an -> naechste Abfrage zeigt es
     from datetime import timedelta

@@ -293,7 +293,7 @@ class RelaisAlarmBinarySensor(RelaisEntity, BinarySensorEntity):
 
 
 class RelaisEingangBinarySensor(RelaisEntity, BinarySensorEntity):
-    """Digitaler Eingang der Relaisbox (GPIO 8): an = Signal liegt an."""
+    """Digitaler Eingang der Relaisbox: an = Signal liegt an."""
 
     _attr_name = "Eingang"
 

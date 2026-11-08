@@ -13,8 +13,9 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   in `.gitignore`. Webhook-IDs einer echten HA-Instanz nie in Beispiele
   schreiben, Platzhalter `DEINE_WEBHOOK_ID` verwenden.
 - **Relaisbox-Pins:** Relaisplatine zieht bei **HIGH** an (`RELAIS_AKTIV_LOW =
-  false`). Relais 2 (GPIO 37) ist auf Max' Board defekt und in der Firmware
-  als `defekt` markiert. GPIO 42 geht beim Start dauerhaft HIGH.
+  false`). Relais 1/3/4 an GPIO 38/36/35; Relais 2 der Platine ist defekt und
+  nicht angeschlossen, die Nummern bleiben trotzdem 1, 3, 4 (`Relais.nr`).
+  GPIO 37 ist der Eingang, GPIO 42 geht beim Start dauerhaft HIGH.
 - **PSRAM nie einschalten** (`-DBOARD_HAS_PSRAM`): das N16R8-Modul legt sein
   Octal-PSRAM auf GPIO 33–37, dann sind die Relais-Pins blockiert.
 - Die HTTP-Schnittstelle der Box (`/api/state`, `/api/relais/<nr>`,

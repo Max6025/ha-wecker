@@ -7,9 +7,9 @@
 //
 // Pins
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
-//   GPIO 38, 36, 35: Relais 1, 3, 4 (IN der Relaisplatine, aktiv HIGH)
-//   GPIO 37: Relais 2, DEFEKT - bleibt dauerhaft LOW
-//   GPIO 8:  Eingang, HIGH = Signal liegt an (max. 3,3 V!), INPUT_PULLDOWN,
+//   GPIO 38, 36, 35: Relais 1, 3, 4 (IN der Relaisplatine, aktiv HIGH).
+//            Relais 2 der Platine ist defekt und nicht angeschlossen.
+//   GPIO 37: Eingang, HIGH = Signal liegt an (max. 3,3 V!), INPUT_PULLDOWN,
 //            offener Eingang zaehlt als "kein Signal"; 30 ms entprellt
 //   GPIO 48: RGB-LED (Status: blau = WLAN sucht, gruen = verbunden, amber = Alarm)
 //
@@ -45,25 +45,33 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.1.0";
+static const char* VERSION   = "1.2.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
-static const int PIN_EINGANG    = 8;
+static const int PIN_EINGANG    = 37;
 static const uint32_t ENTPRELL_MS = 30;
 static const bool RELAIS_AKTIV_LOW = false;   // Platine zieht bei HIGH an
 
 struct Relais {
+  int nr;      // Nummer wie auf der Platine (bleibt stabil, auch wenn eins fehlt)
   int gpio;
   bool defekt;
 };
-// Nummern 1-4 wie auf der Platine; Relais 2 (GPIO 37) ist kaputt.
+// Relais 2 der Platine ist kaputt und nicht angeschlossen; sein alter Pin
+// GPIO 37 ist jetzt der Eingang.
 static Relais RELAIS[] = {
-  {38, false},
-  {37, true},
-  {36, false},
-  {35, false},
+  {1, 38, false},
+  {3, 36, false},
+  {4, 35, false},
 };
+
+// Index zu einer Platinennummer, -1 wenn es die nicht gibt
+static int relaisIndex(int nr) {
+  for (size_t i = 0; i < sizeof(RELAIS) / sizeof(RELAIS[0]); i++)
+    if (RELAIS[i].nr == nr) return (int)i;
+  return -1;
+}
 static const size_t RELAIS_ANZAHL = sizeof(RELAIS) / sizeof(RELAIS[0]);
 
 // --- Muster ----------------------------------------------------------------
@@ -146,7 +154,7 @@ static void musterTakt() {
     if (l.muster == MUSTER_AUS) continue;
     if (l.endeMs && (int32_t)(jetzt - l.endeMs) >= 0) {
       musterStoppen(i);
-      Serial.printf("Relais %u: Dauer abgelaufen, aus\n", (unsigned)(i + 1));
+      Serial.printf("Relais %d: Dauer abgelaufen, aus\n", RELAIS[i].nr);
       continue;
     }
     if (l.muster == MUSTER_DAUER) continue;
@@ -333,7 +341,7 @@ static String stateJson() {
   uint32_t jetzt = millis();
   for (size_t i = 0; i < RELAIS_ANZAHL; i++) {
     if (i) s += ",";
-    s += "{\"nr\":" + String(i + 1);
+    s += "{\"nr\":" + String(RELAIS[i].nr);
     s += ",\"gpio\":" + String(RELAIS[i].gpio);
     s += ",\"defekt\":" + String(RELAIS[i].defekt ? "true" : "false");
     s += ",\"an\":" + String(lauf[i].an ? "true" : "false");
@@ -371,9 +379,9 @@ static bool relaisListe(const String& arg, bool leerIstAlle, std::vector<size_t>
     String teil = arg.substring(start, ende);
     teil.trim();
     if (!teil.isEmpty()) {
-      int nr = teil.toInt();
-      if (nr < 1 || nr > (int)RELAIS_ANZAHL) return false;
-      out.push_back(nr - 1);
+      int idx = relaisIndex(teil.toInt());
+      if (idx < 0) return false;
+      out.push_back((size_t)idx);
     }
     start = ende + 1;
   }
@@ -388,8 +396,9 @@ static void handleRelais() {
   // Pfad /api/relais/<nr>
   String pfad = server.uri();
   int nr = pfad.substring(pfad.lastIndexOf('/') + 1).toInt();
-  if (nr < 1 || nr > (int)RELAIS_ANZAHL) return sendeFehler(404, "unbekanntes Relais");
-  size_t i = nr - 1;
+  int idx = relaisIndex(nr);
+  if (idx < 0) return sendeFehler(404, "unbekanntes Relais");
+  size_t i = (size_t)idx;
   if (server.method() == HTTP_GET) {
     return sendeJson(200, stateJson());
   }
@@ -443,12 +452,12 @@ static void handleStatusseite() {
   h += "<p>Version " + String(VERSION) + " &middot; " + WiFi.localIP().toString() + " &middot; RSSI " + String(WiFi.RSSI()) + " dBm</p>";
   h += "<table><tr><th>Relais</th><th>GPIO</th><th>Zustand</th><th>Muster</th><th></th></tr>";
   for (size_t i = 0; i < RELAIS_ANZAHL; i++) {
-    h += "<tr><td>" + String(i + 1) + "</td><td>" + String(RELAIS[i].gpio) + "</td>";
+    h += "<tr><td>" + String(RELAIS[i].nr) + "</td><td>" + String(RELAIS[i].gpio) + "</td>";
     if (RELAIS[i].defekt) { h += "<td class=aus colspan=3>defekt, nicht benutzt</td></tr>"; continue; }
     h += "<td>" + String(lauf[i].an ? "AN" : "aus") + "</td><td>" + String(MUSTER[lauf[i].muster].name) + "</td><td>";
-    h += "<button onclick=\"f('/api/relais/" + String(i + 1) + "?an=1')\">an</button>";
-    h += "<button onclick=\"f('/api/relais/" + String(i + 1) + "?an=0')\">aus</button>";
-    h += "<button onclick=\"f('/api/alarm?relais=" + String(i + 1) + "&muster=doppelblitz')\">Doppelblitz</button></td></tr>";
+    h += "<button onclick=\"f('/api/relais/" + String(RELAIS[i].nr) + "?an=1')\">an</button>";
+    h += "<button onclick=\"f('/api/relais/" + String(RELAIS[i].nr) + "?an=0')\">aus</button>";
+    h += "<button onclick=\"f('/api/alarm?relais=" + String(RELAIS[i].nr) + "&muster=doppelblitz')\">Doppelblitz</button></td></tr>";
   }
   h += "</table><p>Eingang GPIO " + String(PIN_EINGANG) + ": <b>" + String(eingangAktiv ? "AN" : "aus") + "</b></p>";
   h += "<p><button onclick=\"f('/api/alarm?relais=alle&muster=blinken')\">alle blinken</button>"
