@@ -7,11 +7,17 @@
 //
 // Pins
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
-//   GPIO 38, 36, 35: Relais 1, 3, 4 (IN der Relaisplatine, aktiv HIGH).
-//            Relais 2 der Platine ist defekt und nicht angeschlossen.
-//   GPIO 37: Eingang fuer einen Taster/Kontakt nach GND (INPUT_PULLUP,
+//   GPIO 38, 39, 40, 41: Relais 1-4 (IN der Relaisplatine, aktiv HIGH),
+//            nebeneinander am rechten Stecker.
+//   GPIO 2:  Eingang fuer einen Taster/Kontakt nach GND (INPUT_PULLUP,
 //            LOW = gedrueckt). Fuer ein 3,3-V-Signal EINGANG_AKTIV_LOW auf
 //            false setzen. 30 ms entprellt.
+//
+//   NIE GPIO 33-37 benutzen: beim N16R8-Modul haengen die intern am
+//   PSRAM-Chip. Relais daran klicken nur leise, statt zu schalten, und ein
+//   Eingang dort liest ohne Taster HIGH. Das war am 07./08.11. der Grund fuer
+//   das vermeintlich defekte Relais 2 (GPIO 37) und die schwachen Relais an
+//   GPIO 35/36.
 //   GPIO 48: RGB-LED (Status: blau = WLAN sucht, gruen = verbunden, amber = Alarm)
 //
 // HTTP (Port 80)
@@ -48,11 +54,11 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.3.0";
+static const char* VERSION   = "1.4.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
-static const int PIN_EINGANG    = 37;
+static const int PIN_EINGANG    = 2;
 static const bool EINGANG_AKTIV_LOW = true;   // Taster nach GND: LOW = gedrueckt
 static const uint32_t ENTPRELL_MS = 30;
 static const uint16_t SSE_PORT = 8081;
@@ -63,12 +69,11 @@ struct Relais {
   int gpio;
   bool defekt;
 };
-// Relais 2 der Platine ist kaputt und nicht angeschlossen; sein alter Pin
-// GPIO 37 ist jetzt der Eingang.
 static Relais RELAIS[] = {
   {1, 38, false},
-  {3, 36, false},
-  {4, 35, false},
+  {2, 39, false},
+  {3, 40, false},
+  {4, 41, false},
 };
 
 // Index zu einer Platinennummer, -1 wenn es die nicht gibt

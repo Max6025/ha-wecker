@@ -268,11 +268,15 @@ Im Normalbetrieb zeigt die App nichts an und hat keine Daueranzeige. Ausnahmen:
 ## 6. Relaisbox (ESP32-S3)
 
 Hardware: ESP32-S3-DevKitC-1 (zwei USB-C, RGB-LED, N16R8) mit einer
-4-fach-Relaisplatine am 3V3-Pin. Relais 1, 3, 4 an GPIO 38, 36, 35 (aktiv HIGH);
-Relais 2 der Platine ist defekt und nicht angeschlossen. GPIO 42 geht beim Start
-dauerhaft auf HIGH. GPIO 37 ist ein **Eingang** fuer einen Taster oder Kontakt
-nach GND (interner Pullup, gedrueckt = an, 30 ms entprellt). Fuer ein
-3,3-V-Signal `EINGANG_AKTIV_LOW` in `main.cpp` auf false setzen. Pins und Polaritaet stehen oben in
+4-fach-Relaisplatine am 3V3-Pin. Relais 1-4 an GPIO 38, 39, 40, 41 (aktiv HIGH,
+nebeneinander am rechten Stecker). GPIO 42 geht beim Start dauerhaft auf HIGH.
+GPIO 2 ist ein **Eingang** fuer einen Taster oder Kontakt nach GND (interner
+Pullup, gedrueckt = an, 30 ms entprellt). Fuer ein 3,3-V-Signal
+`EINGANG_AKTIV_LOW` in `main.cpp` auf false setzen.
+
+**Nie GPIO 33-37 benutzen.** Beim N16R8-Modul haengen diese Pins intern am
+PSRAM-Chip. Relais daran klicken nur leise statt zu schalten, ein Eingang liest
+ohne Taster HIGH - das sah aus wie ein defektes Relais, war aber der Pin. Pins und Polaritaet stehen oben in
 `firmware/relaisbox/src/main.cpp`.
 
 **Flashen**
@@ -315,9 +319,9 @@ zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 
 | Entity | Inhalt |
 |---|---|
-| `switch.relaisbox_relais_1` ... | je brauchbares Relais ein Schalter; Attribute `muster`, `rest_s` |
+| `switch.relaisbox_relais_1` ... `_4` | je Relais ein Schalter; Attribute `muster`, `rest_s` |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
-| `binary_sensor.relaisbox_eingang` | Signal an GPIO 37; Attribute `seit_s`, `zaehler` |
+| `binary_sensor.relaisbox_eingang` | Taster an GPIO 2; Attribute `seit_s`, `zaehler` |
 | `button.relaisbox_alarm_stoppen` | alles aus |
 | `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
 
