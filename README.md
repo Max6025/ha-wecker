@@ -276,7 +276,28 @@ Pullup, gedrueckt = an, 30 ms entprellt). Fuer ein 3,3-V-Signal
 
 **Nie GPIO 33-37 benutzen.** Beim N16R8-Modul haengen diese Pins intern am
 PSRAM-Chip. Relais daran klicken nur leise statt zu schalten, ein Eingang liest
-ohne Taster HIGH - das sah aus wie ein defektes Relais, war aber der Pin. Pins und Polaritaet stehen oben in
+ohne Taster HIGH - das sah aus wie ein defektes Relais, war aber der Pin.
+
+**5-V-Relaismodule am 3,3-V-ESP.** Die ueblichen Module (SRD-05VDC mit
+Optokoppler) sind fuer 5 V gebaut. An 3,3 V ziehen die Spulen nur knapp an,
+mal ja, mal nein; an 5 V reicht ihnen das 3,3-V-Signal vom ESP nicht mehr. Zwei
+saubere Wege, beide ohne Zusatzbauteile:
+
+1. Modul mit **JD-VCC-Jumper** (dreipoliger Stift VCC/JD-VCC): Jumper ab,
+   `VCC` an 3V3, `JD-VCC` an 5V des ESP. Logik 3,3 V, Spule 5 V. Firmware
+   `esp32s3` (HIGH-Trigger) bleibt.
+2. Modul mit **H/L-Jumper** (High/Low-Trigger): Jumper auf **L**, `VCC` an 5V.
+   Firmware `esp32s3-lowtrigger` flashen: die Ausgaenge sind dann Open-Drain,
+   „an" zieht nach GND, „aus" laesst den Pin los und das Modul zieht ihn selbst
+   auf 5 V. So bekommt das Modul echten 5-V-Pegel.
+
+   ```bash
+   pio run -e esp32s3-lowtrigger -t upload
+   ```
+
+Hat das Modul keinen Jumper und ist fest HIGH-Trigger, braucht es einen
+Pegelwandler (74HCT125) oder je Kanal einen NPN-Transistor - oder gleich
+3,3-V-Module. Pins und Polaritaet stehen oben in
 `firmware/relaisbox/src/main.cpp`.
 
 **Flashen**

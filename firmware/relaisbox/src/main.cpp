@@ -55,7 +55,7 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.4.1";
+static const char* VERSION   = "1.5.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
@@ -63,7 +63,21 @@ static const int PIN_EINGANG    = 2;
 static const bool EINGANG_AKTIV_LOW = true;   // Taster nach GND: LOW = gedrueckt
 static const uint32_t ENTPRELL_MS = 30;
 static const uint16_t SSE_PORT = 8081;
+// Ansteuerung der Relaismodule - zwei Bauweisen, Auswahl ueber platformio.ini:
+//
+//  Standard (env esp32s3): Modul auf HIGH-Trigger, VCC 3,3 V, Pin schaltet
+//    aktiv HIGH/LOW (Gegentakt).
+//  -DRELAIS_LOW_OPEN_DRAIN (env esp32s3-lowtrigger): Modul auf LOW-Trigger
+//    mit VCC 5 V. Der Pin ist Open-Drain: "an" = Pin zieht nach GND,
+//    "aus" = Pin hochohmig, das Modul zieht IN selbst auf seine 5 V. So sieht
+//    ein 5-V-Modul sauberen 5-V-Pegel, obwohl der ESP nur 3,3 V kann.
+#ifdef RELAIS_LOW_OPEN_DRAIN
+static const bool RELAIS_AKTIV_LOW = true;
+static const bool RELAIS_OPEN_DRAIN = true;
+#else
 static const bool RELAIS_AKTIV_LOW = false;   // Platine zieht bei HIGH an
+static const bool RELAIS_OPEN_DRAIN = false;
+#endif
 
 struct Relais {
   int nr;      // Nummer wie auf der Platine (bleibt stabil, auch wenn eins fehlt)
@@ -371,6 +385,7 @@ static String stateJson() {
   s += ",\"rssi\":" + String(WiFi.RSSI());
   s += ",\"uptime_s\":" + String(millis() / 1000);
   s += ",\"events_port\":" + String(SSE_PORT);
+  s += ",\"ansteuerung\":\"" + String(RELAIS_OPEN_DRAIN ? "low-trigger-open-drain" : "high-trigger") + "\"";
   s += ",\"start\":{\"grund\":\"" + String(startGrund) + "\"";
   s += ",\"starts\":" + String(startZaehler);
   s += ",\"brownouts\":" + String(brownoutZaehler) + "}";
@@ -644,7 +659,7 @@ static void seriellTakt() {
 
 void setup() {
   for (size_t i = 0; i < RELAIS_ANZAHL; i++) {
-    pinMode(RELAIS[i].gpio, OUTPUT);
+    pinMode(RELAIS[i].gpio, RELAIS_OPEN_DRAIN ? OUTPUT_OPEN_DRAIN : OUTPUT);
     ausgang(i, false);
   }
   pinMode(PIN_EINGANG, EINGANG_AKTIV_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
@@ -656,6 +671,8 @@ void setup() {
   delay(300);
   Serial.println();
   Serial.printf("Relaisbox %s bereit\n", VERSION);
+  Serial.printf("Relais: %s-Trigger, %s\n", RELAIS_AKTIV_LOW ? "LOW" : "HIGH",
+                RELAIS_OPEN_DRAIN ? "Open-Drain (5-V-Module)" : "Gegentakt 3,3 V");
   Serial.printf("GPIO %d dauerhaft AN; Relais an GPIO", PIN_VERSORGUNG);
   for (size_t i = 0; i < RELAIS_ANZAHL; i++)
     Serial.printf(" %d%s", RELAIS[i].gpio, RELAIS[i].defekt ? "(defekt)" : "");
