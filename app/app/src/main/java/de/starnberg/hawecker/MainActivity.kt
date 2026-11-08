@@ -129,7 +129,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        RingPlayer.stopPreview()
+        RingPlayer.stopPreview(this)
     }
 
     override fun onDestroy() {

@@ -45,7 +45,7 @@ class UiBridge(private val act: MainActivity) {
     fun tonVorschau(name: String) = act.runOnUiThread { RingPlayer.preview(ctx, name) }
 
     @JavascriptInterface
-    fun tonStopp() = act.runOnUiThread { RingPlayer.stopPreview() }
+    fun tonStopp() = act.runOnUiThread { RingPlayer.stopPreview(ctx) }
 
     @JavascriptInterface
     fun vibrationVorschau(vibe: String) {

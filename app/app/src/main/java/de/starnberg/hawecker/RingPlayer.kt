@@ -20,6 +20,10 @@ object RingPlayer {
     private var fadeRunnable: Runnable? = null
     private var previewEnde: Runnable? = null
 
+    /** Alarm-Lautstaerke des Handys vor der Vorschau; -1 = nichts verstellt. */
+    private var lautstaerkeVorher = -1
+    private const val VORSCHAU_ANTEIL = 0.03f
+
     @Volatile
     private var playing = false
 
@@ -43,6 +47,7 @@ object RingPlayer {
     }
 
     fun start(ctx: Context, alarm: Alarm) {
+        stopPreview(ctx)
         stop()
         val vol = Prefs.vol(ctx) / 100f
         val fade = Prefs.fade(ctx)
@@ -95,22 +100,26 @@ object RingPlayer {
         Haptik.stopp()
     }
 
-    /** Anspielen eines Tons in der Auswahlliste, hoechstens ein paar Sekunden. */
+    /**
+     * Anspielen eines Tons in der Auswahlliste, hoechstens ein paar Sekunden.
+     * Dabei steht der Alarm-Kanal des Handys auf 3 %; nach der Vorschau kommt
+     * der vorherige Wert zurueck.
+     */
     fun preview(ctx: Context, uriText: String) {
-        stopPreview()
+        stopPreview(ctx)
+        leiseStellen(ctx)
         neuerPlayer(ctx, uriText, loop = false)?.let { mp ->
-            val vol = Prefs.vol(ctx) / 100f
-            mp.setVolume(vol, vol)
-            mp.setOnCompletionListener { stopPreview() }
+            mp.setVolume(1f, 1f)
+            mp.setOnCompletionListener { stopPreview(ctx) }
             mp.start()
             preview = mp
-            val r = Runnable { stopPreview() }
+            val r = Runnable { stopPreview(ctx) }
             previewEnde = r
             handler.postDelayed(r, 6000)
         }
     }
 
-    fun stopPreview() {
+    fun stopPreview(ctx: Context? = null) {
         previewEnde?.let { handler.removeCallbacks(it) }
         previewEnde = null
         runCatching {
@@ -120,5 +129,25 @@ object RingPlayer {
             }
         }
         preview = null
+        ctx?.let { zurueckstellen(it) }
+    }
+
+    private fun leiseStellen(ctx: Context) {
+        runCatching {
+            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            if (lautstaerkeVorher < 0) lautstaerkeVorher = am.getStreamVolume(AudioManager.STREAM_ALARM)
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            val leise = Math.round(max * VORSCHAU_ANTEIL).coerceAtLeast(1)
+            am.setStreamVolume(AudioManager.STREAM_ALARM, leise, 0)
+        }
+    }
+
+    private fun zurueckstellen(ctx: Context) {
+        if (lautstaerkeVorher < 0) return
+        runCatching {
+            val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            am.setStreamVolume(AudioManager.STREAM_ALARM, lautstaerkeVorher, 0)
+        }
+        lautstaerkeVorher = -1
     }
 }
