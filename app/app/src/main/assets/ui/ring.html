@@ -42,7 +42,7 @@ var k=w.cat||{bild:"sonne",c:"#FF9A4D",n:""};
 $("#ring").style.setProperty("--rc",k.c||"#FF9A4D");
 $("#ringKicker").textContent=w.vorschau?"Vorschau":"Weckruf";
 $("#ringTime").textContent=pad(w.h)+":"+pad(w.m);
-$("#ringChip").innerHTML=bild(k.bild,22)+esc(w.label||k.n||"Wecker");
+$("#ringChip").innerHTML=bild(k.bild,22)+esc(w.label||"Wecker");
 var n=new Date();
 $("#ringDate").textContent=DLONG[n.getDay()]+", "+n.getDate()+". "+MON[n.getMonth()];
 var sn=$("#ringSnooze");

@@ -191,7 +191,7 @@ object Notifications {
         val b = NotificationCompat.Builder(ctx, CH_PREWARN)
             .setSmallIcon(R.drawable.ic_stat_alarm)
             .setContentTitle(title)
-            .setContentText("Klingelt in $kurz · ${kat.name}")
+            .setContentText("Klingelt in $kurz")
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

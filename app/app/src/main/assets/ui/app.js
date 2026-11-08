@@ -186,7 +186,7 @@ function renderAlarms(){
    bild(k.bild,128,"art")+
    '<div class="hrow"><span class="eyebrow">Nächster Weckruf</span><span class="countdown" id="heroCd">in '+dur(nx.d-new Date())+'</span></div>'+
    '<div class="htime">'+fmt(a.h,a.m)+'</div>'+
-   '<div class="hlabel">'+esc(a.label)+'</div>'+
+   '<div class="hlabel">'+esc(a.label||"Wecker")+'</div>'+
    '<div class="hmeta"><i></i>'+relDay(nx.d)+' · '+esc(k.n)+' · '+repeatText(a)+'</div>';
   hero.addEventListener("click",function(){openEdit(a.id)});
  }else{
@@ -206,11 +206,11 @@ function renderAlarms(){
   var k=kat(a.cat);
   var t=document.createElement("button");
   t.className="tile"+(a.on?"":" off"); t.style.setProperty("--c",k.c);
-  t.setAttribute("aria-label",a.label+" "+fmt(a.h,a.m));
+  t.setAttribute("aria-label",(a.label||"Wecker")+" "+fmt(a.h,a.m));
   var days=a.days.length===0
    ? '<span class="once">Einmalig</span>'
    : DAYS.map(function(d,i){return '<span class="d'+(a.days.indexOf(d)>-1?" on":"")+'">'+DL[i]+'</span>'}).join('');
-  var label=esc(a.label);
+  var label=esc(a.label||"Wecker");
   if(a.on&&a.skipNext) label+=' <span class="skip">· nächster übersprungen</span>';
   else if(a.on&&a.snoozedUntil&&a.snoozedUntil>Date.now()) label+=' <span class="skip">· schlummert</span>';
   t.innerHTML=
@@ -325,7 +325,7 @@ function openEdit(id){
  var a=id?S.alarms.filter(function(x){return x.id===id})[0]:null;
  editingId=id||null;
  draft=a?JSON.parse(JSON.stringify(a))
-  :{id:0,h:6,m:30,label:"",cat:S.cats[0].id,days:[1,2,3,4,5],on:true,tone:S.defTone||"",vibe:"Herzschlag",snooze:S.defSnooze};
+  :{id:0,h:6,m:30,label:"",cat:S.cats[0].id,days:[],on:true,tone:S.defTone||"",vibe:"Herzschlag",snooze:S.defSnooze};
  if(!kat(draft.cat)||kat(draft.cat).id!==draft.cat) draft.cat=S.cats[0].id;
  $("#e-title").textContent=a?"Wecker bearbeiten":"Neuer Wecker";
  $("#e-delete").hidden=!a;
@@ -438,7 +438,7 @@ function readPicker(){ draft.h=radH.wert; draft.m=radM.wert; }
 $("#e-cancel").addEventListener("click",function(){closeSheet("#s-edit")});
 $("#e-save").addEventListener("click",function(){
  readPicker();
- draft.label=$("#e-label").value.trim()||kat(draft.cat).n;
+ draft.label=$("#e-label").value.trim();
  if(editingId){for(var i=0;i<S.alarms.length;i++)if(S.alarms[i].id===editingId)S.alarms[i]=draft;}
  else{draft.id=0;draft.on=true;S.alarms.push(draft);}
  save(); renderAlarms(); closeSheet("#s-edit"); show("alarms");
@@ -449,7 +449,7 @@ $("#e-delete").addEventListener("click",function(){
 });
 $("#e-preview").addEventListener("click",function(){
  readPicker();
- var d=JSON.parse(JSON.stringify(draft)); d.label=$("#e-label").value.trim()||kat(d.cat).n; d.kat=kat(d.cat);
+ var d=JSON.parse(JSON.stringify(draft)); d.label=$("#e-label").value.trim(); d.kat=kat(d.cat);
  if(A)A.weckrufVorschau(JSON.stringify(d));
 });
 

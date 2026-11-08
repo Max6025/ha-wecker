@@ -138,7 +138,6 @@ object UiState {
                     snoozedUntil = j.optLong("snoozedUntil", 0L)
                 )
                 if (!catIds.contains(a.catId)) a.catId = cats[0].id
-                if (a.label.isEmpty()) a.label = cats.first { it.id == a.catId }.name
                 if (!a.enabled) {
                     a.skipNext = false
                     a.snoozedUntil = 0L
