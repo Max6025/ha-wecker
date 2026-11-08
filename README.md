@@ -119,6 +119,10 @@ Die Release-APK wird mit dem Debug-Key signiert und ist direkt installierbar.
 }
 ```
 
+Dazu seit App 1.6 (`api_version` 2) ein Block `sleep` mit `enabled`, `active`,
+`start`, `end`, `days_mask`, `next_start`, `next_end`, `remaining_minutes`, sowie
+`sleep_active` und `prewarn_minutes` auf oberster Ebene.
+
 Jeder Eintrag in `alarms` hat: `id`, `name`, `label`, `time`, `hour`, `minute`,
 `enabled`, `repeating`, `days_mask`, `days_label`, `days`, `vibrate`,
 `snooze_minutes`, `skip_next`, `snoozed`, `snoozed_until`, `ringing`,
@@ -158,6 +162,7 @@ selbst.
 | `sensor.ha_wecker_naechster_wecker_in` | "12 Std 13 Min" |
 | `sensor.ha_wecker_aktive_wecker` | Anzahl aktiver Wecker, Attribut `alarms` mit **allen** |
 | `binary_sensor.ha_wecker_klingelt` | klingelt gerade |
+| `binary_sensor.ha_wecker_schlafenszeit` | Schlafenszeit laeuft (Attribute von, bis, rest_minuten) |
 | `binary_sensor.ha_wecker_06_30_arbeit` ... | **je Wecker eine Entitaet**: an = eingeschaltet, Attribute Uhrzeit, Tage, naechster Termin, heute uebersprungen, geschlummert |
 | `sensor.ha_wecker_letzte_meldung` | wann sich das Handy zuletzt gemeldet hat (Diagnose) |
 | `sensor.ha_wecker_webhook` | Webhook-ID, Attribut mit der Adresse fuer die App (Diagnose) |
@@ -236,6 +241,21 @@ laeuft dauerhaft, nichts wird abgefragt.
 ## 5c. Benachrichtigungen
 
 Im Normalbetrieb zeigt die App nichts an und hat keine Daueranzeige. Ausnahmen:
+
+- **Vorwarnung als Live-Benachrichtigung** (seit 1.6): standardmaessig 5 Minuten
+  vor dem Weckruf erscheint oben eine laufende Benachrichtigung mit Countdown
+  („Klingelt in 04:59"). Auf Android 16 wird sie als *Live Update* angefordert
+  (Statusleisten-Chip, Sperrbildschirm, Samsung Now Bar), darunter ist sie eine
+  normale laufende Benachrichtigung mit Countdown. Knoepfe: **Nur heute aus**
+  (wiederkehrender Wecker) und **Ausschalten**. Antippen oeffnet einen kleinen
+  Dialog mit denselben Wahlmoeglichkeiten plus „Klingeln lassen", auch ueber dem
+  Sperrbildschirm. Minuten einstellbar, 0 schaltet sie ab.
+- **Schlafenszeit** (seit 1.6): in den Einstellungen ein taegliches Fenster
+  „von - bis" (Ende darf nach Mitternacht liegen). Waehrend des Fensters zeigt
+  die App eine stille Live-Anzeige mit Countdown bis zum Ende bzw. bis zum
+  Wecker, und Home Assistant bekommt Beginn und Ende gemeldet
+  (`binary_sensor ... schlafenszeit`) - z. B. fuer Licht aus, Rollos, Nicht
+  stoeren. Die Anzeige laesst sich abschalten, die Meldung an HA bleibt.
 
 - **Vorwarnung**: standardmaessig 10 Minuten vor dem Weckruf eine stumme
   Benachrichtigung mit einem Knopf. Bei einem wiederkehrenden Wecker heisst er

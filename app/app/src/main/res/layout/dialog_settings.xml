@@ -53,7 +53,143 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:text="Stumme Benachrichtigung mit Knopf zum Abschalten. Sonst zeigt die App nichts an."
+            android:text="Live-Benachrichtigung oben mit Countdown. Antippen: nur heute aus, ausschalten oder klingeln lassen."
+            android:textColor="@color/text_off"
+            android:textSize="11sp" />
+
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="24dp"
+            android:background="@color/line" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.3"
+            android:text="SCHLAFENSZEIT"
+            android:textColor="@color/accent"
+            android:textSize="13sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Schlafenszeit aktiv"
+                android:textColor="@color/text"
+                android:textSize="15sp" />
+
+            <Switch
+                android:id="@+id/cfgSleepEnabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:thumbTint="@color/accent"
+                android:trackTint="@color/accent_dim"
+                tools:ignore="UseSwitchCompatOrMaterialXml" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Von" />
+
+                <EditText
+                    android:id="@+id/cfgSleepStart"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_strip"
+                    android:hint="22:30"
+                    android:inputType="time"
+                    android:padding="13dp"
+                    android:textColor="@color/text"
+                    android:textColorHint="@color/text_off"
+                    android:textSize="15sp"
+                    tools:ignore="Autofill,LabelFor" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/Label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bis" />
+
+                <EditText
+                    android:id="@+id/cfgSleepEnd"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_strip"
+                    android:hint="06:30"
+                    android:inputType="time"
+                    android:padding="13dp"
+                    android:textColor="@color/text"
+                    android:textColorHint="@color/text_off"
+                    android:textSize="15sp"
+                    tools:ignore="Autofill,LabelFor" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Live-Anzeige waehrend der Schlafenszeit"
+                android:textColor="@color/text"
+                android:textSize="15sp" />
+
+            <Switch
+                android:id="@+id/cfgSleepNotify"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:thumbTint="@color/accent"
+                android:trackTint="@color/accent_dim"
+                tools:ignore="UseSwitchCompatOrMaterialXml" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Taeglich. Home Assistant bekommt Beginn und Ende gemeldet (Schlafenszeit an/aus)."
             android:textColor="@color/text_off"
             android:textSize="11sp" />
 

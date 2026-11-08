@@ -52,7 +52,7 @@ async def async_setup_entry(
         async_add_entities(entities)
         return
     data: WeckerData = obj
-    async_add_entities([RingingBinarySensor(data)])
+    async_add_entities([RingingBinarySensor(data), SleepBinarySensor(data)])
 
     known: dict[int, AlarmBinarySensor] = {}
 
@@ -134,6 +134,47 @@ class RingingBinarySensor(WeckerEntity, BinarySensorEntity):
             "ringing_id": p.get("ringing_id"),
             "name": (ringing or {}).get("label") or (ringing or {}).get("name"),
             "snoozed": p.get("snoozed"),
+        }
+
+
+class SleepBinarySensor(WeckerEntity, BinarySensorEntity):
+    """Schlafenszeit der App: an, solange das eingestellte Fenster laeuft."""
+
+    _attr_name = "Schlafenszeit"
+    _attr_icon = "mdi:sleep"
+
+    def __init__(self, data: WeckerData) -> None:
+        super().__init__(data, "sleep")
+
+    @property
+    def _sleep(self) -> dict[str, Any]:
+        s = self.payload.get("sleep")
+        return s if isinstance(s, dict) else {}
+
+    @property
+    def available(self) -> bool:
+        # Aeltere App-Versionen (api_version 1) kennen keine Schlafenszeit
+        return super().available and bool(self._sleep)
+
+    @property
+    def is_on(self) -> bool | None:
+        v = self._sleep.get("active")
+        return bool(v) if v is not None else None
+
+    @property
+    def icon(self) -> str:
+        return "mdi:sleep" if self.is_on else "mdi:sleep-off"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        s = self._sleep
+        return {
+            "eingeschaltet": s.get("enabled"),
+            "von": s.get("start"),
+            "bis": s.get("end"),
+            "naechster_beginn": s.get("next_start"),
+            "naechstes_ende": s.get("next_end"),
+            "rest_minuten": s.get("remaining_minutes"),
         }
 
 

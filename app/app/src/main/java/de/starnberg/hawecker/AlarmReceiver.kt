@@ -16,6 +16,8 @@ class AlarmReceiver : BroadcastReceiver() {
         const val ACTION_SKIP_TODAY = "de.starnberg.hawecker.SKIP_TODAY"
         const val ACTION_DISABLE = "de.starnberg.hawecker.DISABLE"
         const val ACTION_PUSH_RETRY = "de.starnberg.hawecker.PUSH_RETRY"
+        const val ACTION_SLEEP_START = "de.starnberg.hawecker.SLEEP_START"
+        const val ACTION_SLEEP_END = "de.starnberg.hawecker.SLEEP_END"
         const val EXTRA_ID = "alarm_id"
         const val RING_NOTIFICATION_ID = 4711
 
@@ -58,6 +60,14 @@ class AlarmReceiver : BroadcastReceiver() {
             ACTION_DISMISS -> {
                 stopRinging(ctx)
                 if (id >= 0) AlarmScheduler.dismiss(ctx, id)
+                HaPush.pushAsync(ctx, pending)
+                return
+            }
+
+            ACTION_SLEEP_START, ACTION_SLEEP_END -> {
+                // Anzeige nach dem tatsaechlichen Fenster richten und das
+                // naechste Ereignis planen; HA bekommt den neuen Zustand.
+                AlarmScheduler.scheduleSleep(ctx)
                 HaPush.pushAsync(ctx, pending)
                 return
             }

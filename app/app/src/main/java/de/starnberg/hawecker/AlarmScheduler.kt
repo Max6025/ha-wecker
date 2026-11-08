@@ -12,6 +12,8 @@ object AlarmScheduler {
     private const val REQ_BASE = 100000
     private const val REQ_PRE = 300000
     private const val REQ_PUSH_RETRY = 400001
+    private const val REQ_SLEEP_START = 400011
+    private const val REQ_SLEEP_END = 400012
 
     private fun am(ctx: Context) =
         ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -43,6 +45,7 @@ object AlarmScheduler {
     }
 
     fun scheduleAll(ctx: Context) {
+        scheduleSleep(ctx)
         val now = System.currentTimeMillis()
         for (a in AlarmStore.all(ctx)) {
             val at = a.nextTriggerAt(now)
@@ -123,6 +126,51 @@ object AlarmScheduler {
         pendingPrewarn(ctx, id, false)?.let {
             am(ctx).cancel(it)
             it.cancel()
+        }
+    }
+
+    // --- Schlafenszeit -----------------------------------------------------
+
+    private fun pendingSleep(ctx: Context, action: String, req: Int, create: Boolean): PendingIntent? {
+        val i = Intent(ctx, AlarmReceiver::class.java).apply {
+            this.action = action
+            data = android.net.Uri.parse("hawecker://sleep/$req")
+        }
+        var flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        if (!create) flags = flags or PendingIntent.FLAG_NO_CREATE
+        return PendingIntent.getBroadcast(ctx, req, i, flags)
+    }
+
+    /**
+     * Zeigt oder entfernt die Schlafenszeit-Anzeige passend zum Fenster und
+     * plant den naechsten Wechsel (Beginn oder Ende) exakt.
+     */
+    fun scheduleSleep(ctx: Context) {
+        for ((action, req) in listOf(
+            AlarmReceiver.ACTION_SLEEP_START to REQ_SLEEP_START,
+            AlarmReceiver.ACTION_SLEEP_END to REQ_SLEEP_END
+        )) {
+            pendingSleep(ctx, action, req, false)?.let { am(ctx).cancel(it); it.cancel() }
+        }
+        val now = System.currentTimeMillis()
+        val w = SleepTime.window(ctx, now)
+        if (w == null) {
+            Notifications.cancelSleep(ctx)
+            return
+        }
+        val active = w.contains(now)
+        if (active && Prefs.sleepNotify(ctx)) Notifications.showSleep(ctx, w)
+        else Notifications.cancelSleep(ctx)
+
+        val (action, req, at) = if (active)
+            Triple(AlarmReceiver.ACTION_SLEEP_END, REQ_SLEEP_END, w.end)
+        else
+            Triple(AlarmReceiver.ACTION_SLEEP_START, REQ_SLEEP_START, w.start)
+        val pi = pendingSleep(ctx, action, req, true) ?: return
+        try {
+            am(ctx).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        } catch (_: Exception) {
+            runCatching { am(ctx).set(AlarmManager.RTC_WAKEUP, at, pi) }
         }
     }
 

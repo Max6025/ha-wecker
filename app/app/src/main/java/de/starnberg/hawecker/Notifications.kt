@@ -15,8 +15,12 @@ object Notifications {
     /** v2, weil eine bereits angelegte Kanal-Wichtigkeit nicht mehr aenderbar ist. */
     const val CH_PREWARN = "hawecker_prewarn"
 
+    /** Schlafenszeit: stille Dauer-Anzeige, solange das Fenster laeuft. */
+    const val CH_SLEEP = "hawecker_sleep"
+
     /** Benachrichtigungs-IDs der Vorwarnungen: Basis plus Wecker-ID. */
     const val PRE_NOTIF_BASE = 5000
+    const val SLEEP_NOTIF_ID = 4800
 
     private fun nm(ctx: Context) =
         ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -36,7 +40,17 @@ object Notifications {
 
         manager.createNotificationChannel(
             NotificationChannel(CH_PREWARN, "Vorwarnung", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Stummer Hinweis kurz vor dem Weckruf"
+                description = "Stiller Hinweis kurz vor dem Weckruf, als Live-Benachrichtigung"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(CH_SLEEP, "Schlafenszeit", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Stille Anzeige waehrend der Schlafenszeit"
                 setSound(null, null)
                 enableVibration(false)
                 setShowBadge(false)
@@ -46,6 +60,41 @@ object Notifications {
 
         // Alten Dienst-Kanal aufraeumen
         runCatching { manager.deleteNotificationChannel("hawecker_service") }
+        runCatching { manager.deleteNotificationChannel("hawecker_service_v2") }
+    }
+
+    // ------------------------------------------------------------------
+    //  Live-Benachrichtigung (Android 16 "Live Updates", Samsung-Leiste)
+    // ------------------------------------------------------------------
+
+    /**
+     * Bittet das System, die Benachrichtigung als Live-Update oben zu zeigen
+     * (Statusleisten-Chip, Sperrbildschirm, Samsung Now Bar). Gibt es die
+     * Schnittstelle nicht (vor Android 16), bleibt es eine normale laufende
+     * Benachrichtigung mit Countdown. Ueber Reflexion, damit die App mit
+     * compileSdk 35 gebaut werden kann.
+     */
+    private fun promote(b: Notification.Builder, shortText: String) {
+        if (Build.VERSION.SDK_INT < 36) return
+        runCatching {
+            Notification.Builder::class.java
+                .getMethod("setRequestPromotedOngoing", Boolean::class.javaPrimitiveType)
+                .invoke(b, true)
+        }
+        runCatching {
+            Notification.Builder::class.java
+                .getMethod("setShortCriticalText", CharSequence::class.java)
+                .invoke(b, shortText)
+        }
+    }
+
+    /** Darf die App Live-Benachrichtigungen zeigen? Vor Android 16 immer "ja". */
+    fun canPromote(ctx: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 36) return true
+        return runCatching {
+            NotificationManager::class.java.getMethod("canPostPromotedNotifications")
+                .invoke(nm(ctx)) as Boolean
+        }.getOrDefault(true)
     }
 
     // ------------------------------------------------------------------
@@ -76,7 +125,7 @@ object Notifications {
         val dismiss = broadcast(ctx, 920 + alarm.id, AlarmReceiver.ACTION_DISMISS, alarm.id)
 
         val title = if (alarm.label.isBlank()) "Wecker" else alarm.label
-        return Notification.Builder(ctx, CH_RING)
+        val b = Notification.Builder(ctx, CH_RING)
             .setSmallIcon(R.drawable.ic_stat_alarm)
             .setContentTitle("$title - ${alarm.timeString()}")
             .setContentText("Weckruf laeuft")
@@ -88,54 +137,105 @@ object Notifications {
             .setContentIntent(full)
             .addAction(action("Schlummern", snooze))
             .addAction(action("Stopp", dismiss))
-            .build()
+        promote(b, "Weckruf")
+        return b.build()
     }
 
     // ------------------------------------------------------------------
-    //  Stumme Vorwarnung
+    //  Vorwarnung als Live-Benachrichtigung
     // ------------------------------------------------------------------
 
+    /**
+     * Erscheint [minutesBefore] Minuten vor dem Weckruf oben als Live-Update
+     * mit laufendem Countdown. Antippen oeffnet den kleinen Dialog
+     * (heute aus / ausschalten / lassen), die Knoepfe tun es direkt.
+     */
     fun showPrewarn(ctx: Context, alarm: Alarm, minutesBefore: Int) {
         ensureChannels(ctx)
+        val fireAt = alarm.nextTriggerAt()
+        if (fireAt <= 0L) return
 
         val open = PendingIntent.getActivity(
             ctx, 930 + alarm.id,
-            Intent(ctx, MainActivity::class.java),
+            Intent(ctx, PrewarnActivity::class.java)
+                .putExtra(AlarmReceiver.EXTRA_ID, alarm.id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
-        // Wiederkehrender Wecker: nur der naechste Termin faellt aus.
-        // Einmaliger Wecker: er wird abgeschaltet.
-        val isRepeating = alarm.isRepeating()
-        val actionLabel = if (isRepeating) "Nur heute aus" else "Ausschalten"
-        val actionIntent = broadcast(
-            ctx, 940 + alarm.id,
-            if (isRepeating) AlarmReceiver.ACTION_SKIP_TODAY else AlarmReceiver.ACTION_DISABLE,
-            alarm.id
-        )
+        val skip = broadcast(ctx, 940 + alarm.id, AlarmReceiver.ACTION_SKIP_TODAY, alarm.id)
+        val off = broadcast(ctx, 950 + alarm.id, AlarmReceiver.ACTION_DISABLE, alarm.id)
 
         val title = if (alarm.label.isBlank()) "Wecker ${alarm.timeString()}"
         else "${alarm.label} - ${alarm.timeString()}"
 
-        val n = Notification.Builder(ctx, CH_PREWARN)
+        val b = Notification.Builder(ctx, CH_PREWARN)
             .setSmallIcon(R.drawable.ic_stat_alarm)
             .setContentTitle(title)
-            .setContentText("Klingelt in $minutesBefore Minuten")
-            .setCategory(Notification.CATEGORY_REMINDER)
+            .setContentText("Klingelt in")
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setAutoCancel(true)
-            .setShowWhen(false)
+            .setAutoCancel(false)
+            // Countdown bis zum Weckruf laeuft in der Anzeige mit
+            .setWhen(fireAt)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setColor(0xFFFFB23F.toInt())
+            .setColorized(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setTimeoutAfter(minutesBefore * 60_000L + 60_000L)
+            .setTimeoutAfter(fireAt - System.currentTimeMillis() + 60_000L)
             .setContentIntent(open)
-            .addAction(action(actionLabel, actionIntent))
-            .build()
+        if (alarm.isRepeating()) b.addAction(action("Nur heute aus", skip))
+        b.addAction(action("Ausschalten", off))
+        promote(b, "Wecker ${alarm.timeString()}")
 
-        nm(ctx).notify(PRE_NOTIF_BASE + alarm.id, n)
+        nm(ctx).notify(PRE_NOTIF_BASE + alarm.id, b.build())
     }
 
     fun cancelPrewarn(ctx: Context, id: Int) {
         runCatching { nm(ctx).cancel(PRE_NOTIF_BASE + id) }
+    }
+
+    // ------------------------------------------------------------------
+    //  Schlafenszeit
+    // ------------------------------------------------------------------
+
+    /** Stille Live-Anzeige "Schlafenszeit bis HH:MM", Countdown bis zum Ende. */
+    fun showSleep(ctx: Context, window: SleepTime.Window) {
+        ensureChannels(ctx)
+        val open = PendingIntent.getActivity(
+            ctx, 960,
+            Intent(ctx, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val next = AlarmScheduler.nextAlarm(ctx)
+        val text = if (next != null && next.second <= window.end + 60_000L)
+            "Wecker ${next.first.timeString()} - noch"
+        else
+            "Bis ${SleepTime.timeString(Prefs.sleepEnd(ctx))} - noch"
+
+        val b = Notification.Builder(ctx, CH_SLEEP)
+            .setSmallIcon(R.drawable.ic_stat_sleep)
+            .setContentTitle("Schlafenszeit")
+            .setContentText(text)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(false)
+            .setWhen(window.end)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setTimeoutAfter(window.end - System.currentTimeMillis() + 60_000L)
+            .setContentIntent(open)
+        promote(b, "Schlafen")
+        nm(ctx).notify(SLEEP_NOTIF_ID, b.build())
+    }
+
+    fun cancelSleep(ctx: Context) {
+        runCatching { nm(ctx).cancel(SLEEP_NOTIF_ID) }
     }
 
     // ------------------------------------------------------------------

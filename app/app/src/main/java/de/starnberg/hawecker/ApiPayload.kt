@@ -115,9 +115,25 @@ object ApiPayload {
         }
         root.put("summary", sum.toString().trim())
 
+        // Schlafenszeit
+        val sleep = JSONObject()
+        val w = SleepTime.window(ctx, now)
+        val sleepActive = w?.contains(now) == true
+        sleep.put("enabled", Prefs.sleepEnabled(ctx))
+        sleep.put("active", sleepActive)
+        sleep.put("start", SleepTime.timeString(Prefs.sleepStart(ctx)))
+        sleep.put("end", SleepTime.timeString(Prefs.sleepEnd(ctx)))
+        sleep.put("days_mask", Prefs.sleepDays(ctx))
+        sleep.put("next_start", if (w != null && !sleepActive) iso(w.start) else JSONObject.NULL)
+        sleep.put("next_end", if (w != null) iso(w.end) else JSONObject.NULL)
+        sleep.put("remaining_minutes", if (w != null && sleepActive) (w.end - now) / 60000L else JSONObject.NULL)
+        root.put("sleep", sleep)
+        root.put("sleep_active", sleepActive)
+
+        root.put("prewarn_minutes", Prefs.prewarnMinutes(ctx))
         root.put("device_time", iso(now))
         root.put("timezone", TimeZone.getDefault().id)
-        root.put("api_version", 1)
+        root.put("api_version", 2)
         return root
     }
 }

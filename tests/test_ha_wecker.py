@@ -49,9 +49,14 @@ PAYLOAD = {
     "active_alarms": [],
     "inactive_alarms": [],
     "summary": "AN   06:30  Mo-Fr  (Arbeit)\nAUS  08:00  Sa+So",
+    "sleep": {"enabled": True, "active": False, "start": "22:30", "end": "06:30", "days_mask": 127,
+              "next_start": "2026-11-07T22:30:00+01:00", "next_end": "2026-11-08T06:30:00+01:00",
+              "remaining_minutes": None},
+    "sleep_active": False,
+    "prewarn_minutes": 5,
     "device_time": "2026-11-07T18:17:00+01:00",
     "timezone": "Europe/Berlin",
-    "api_version": 1,
+    "api_version": 2,
 }
 
 
@@ -107,6 +112,8 @@ async def test_webhook_fills_entities(
     assert aktiv.state == "1"
     assert len(aktiv.attributes["alarms"]) == 2
     assert hass.states.get("binary_sensor.ha_wecker_klingelt").state == "off"
+    schlaf = hass.states.get("binary_sensor.ha_wecker_schlafenszeit")
+    assert schlaf.state == "off" and schlaf.attributes["von"] == "22:30"
 
     # Je Wecker eine Entitaet
     a1 = hass.states.get("binary_sensor.ha_wecker_06_30_arbeit")
@@ -130,12 +137,16 @@ async def test_webhook_fills_entities(
     p2["alarms"][0]["ringing"] = True
     p2["ringing"] = True
     p2["ringing_id"] = 1
+    p2["sleep"] = dict(p2["sleep"], active=True, remaining_minutes=412)
+    p2["sleep_active"] = True
     resp = await client.post("/api/webhook/hawecker_test123", json=p2)
     assert resp.status == 200
     await hass.async_block_till_done()
 
     assert hass.states.get("binary_sensor.ha_wecker_klingelt").state == "on"
     assert hass.states.get("binary_sensor.ha_wecker_klingelt").attributes["name"] == "Arbeit"
+    schlaf = hass.states.get("binary_sensor.ha_wecker_schlafenszeit")
+    assert schlaf.state == "on" and schlaf.attributes["rest_minuten"] == 412
     assert hass.states.get("binary_sensor.ha_wecker_08_00") is None
     assert reg.async_get_entity_id("binary_sensor", DOMAIN, f"{entry.entry_id}_alarm_2") is None
     a3 = hass.states.get("binary_sensor.ha_wecker_09_15_sonntag")

@@ -108,6 +108,15 @@ class MainActivity : Activity() {
             if (pushOn) "Home Assistant - ${Prefs.lastPushResult(this)}"
             else "Keine Anbindung an Home Assistant - hier einrichten"
 
+        val sleepLine = findViewById<TextView>(R.id.sleepLine)
+        if (Prefs.sleepEnabled(this)) {
+            sleepLine.visibility = View.VISIBLE
+            sleepLine.text = if (SleepTime.isActive(this)) "Schlafenszeit laeuft - bis ${SleepTime.timeString(Prefs.sleepEnd(this))}"
+            else "Schlafenszeit ${SleepTime.label(this)}"
+        } else {
+            sleepLine.visibility = View.GONE
+        }
+
         val warn = findViewById<TextView>(R.id.warnLine)
         val issue = firstIssue()
         if (issue == null) {
@@ -178,16 +187,25 @@ class MainActivity : Activity() {
         val info = view.findViewById<TextView>(R.id.cfgInfo)
 
         val prewarn = view.findViewById<EditText>(R.id.cfgPrewarn)
+        val sleepOn = view.findViewById<Switch>(R.id.cfgSleepEnabled)
+        val sleepStart = view.findViewById<EditText>(R.id.cfgSleepStart)
+        val sleepEnd = view.findViewById<EditText>(R.id.cfgSleepEnd)
+        val sleepNotify = view.findViewById<Switch>(R.id.cfgSleepNotify)
         val haUrl = view.findViewById<EditText>(R.id.cfgHaUrl)
         val pushEnabled = view.findViewById<Switch>(R.id.cfgPushEnabled)
         val pushStatus = view.findViewById<TextView>(R.id.cfgPushStatus)
 
         prewarn.setText(Prefs.prewarnMinutes(this).toString())
+        sleepOn.isChecked = Prefs.sleepEnabled(this)
+        sleepStart.setText(SleepTime.timeString(Prefs.sleepStart(this)))
+        sleepEnd.setText(SleepTime.timeString(Prefs.sleepEnd(this)))
+        sleepNotify.isChecked = Prefs.sleepNotify(this)
         haUrl.setText(Prefs.webhookUrl(this))
         pushEnabled.isChecked = Prefs.pushEnabled(this)
         pushStatus.text = "Letzter Push: ${Prefs.lastPushResult(this)}"
         info.text = "Vollbild: ${if (Notifications.canUseFullScreenIntent(this)) "erlaubt" else "GESPERRT"}\n" +
-            "Exakte Alarme: ${if (AlarmScheduler.canScheduleExact(this)) "erlaubt" else "GESPERRT"}"
+            "Exakte Alarme: ${if (AlarmScheduler.canScheduleExact(this)) "erlaubt" else "GESPERRT"}\n" +
+            "Live-Benachrichtigung: ${if (Notifications.canPromote(this)) "erlaubt" else "GESPERRT"}"
 
         view.findViewById<View>(R.id.cfgPushNow).setOnClickListener {
             // Eingaben zuerst sichern, sonst testet man die alten Werte
@@ -217,6 +235,10 @@ class MainActivity : Activity() {
                 Prefs.setPrewarnMinutes(
                     this, prewarn.text.toString().toIntOrNull()?.coerceIn(0, 240) ?: 0
                 )
+                Prefs.setSleepEnabled(this, sleepOn.isChecked)
+                Prefs.setSleepNotify(this, sleepNotify.isChecked)
+                SleepTime.parse(sleepStart.text.toString())?.let { Prefs.setSleepStart(this, it) }
+                SleepTime.parse(sleepEnd.text.toString())?.let { Prefs.setSleepEnd(this, it) }
                 Prefs.setWebhookUrl(this, haUrl.text.toString())
                 Prefs.setPushEnabled(this, pushEnabled.isChecked)
                 AlarmScheduler.scheduleAll(this)
