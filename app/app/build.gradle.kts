@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "de.starnberg.hawecker"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "de.starnberg.hawecker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "2.2"
+        versionCode = 12
+        versionName = "2.3"
     }
 
     buildTypes {
@@ -47,5 +47,5 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-ktx:1.17.0")
 }

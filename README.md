@@ -68,8 +68,9 @@ ha-wecker/
   Vibrationsmuster Herzschlag / Kurz / Stakkato / Welle
 - Wiederholung pro Wochentag, Kategorie, Schlummern 5 / 7 / 9 Minuten oder
   eigene Zeit, Lautstaerketaste = Schlummern
-- Vorwarnung als Live-Benachrichtigung (5 Minuten vorher oder sofort, wenn der
-  Weckruf naeher ist; auch bei geschlossener App), Schlafenszeit, „heute ueberspringen"
+- Vorwarnung als Live-Benachrichtigung mit Balken oben (Android 16), 5 Minuten
+  vorher oder sofort, wenn der Weckruf naeher ist; nur in diesem Fenster laeuft
+  ein kurzer Dienst, davor nichts. Schlafenszeit, „heute ueberspringen"
 - Ueberlebt Neustart (BOOT_COMPLETED), Zeit- und Zeitzonenwechsel
 
 **Home Assistant**
@@ -85,7 +86,7 @@ Keine externen Bibliotheken ausser `androidx.core`. Release-APK ca. 470 KB
 
 ## 2. Bauen (App)
 
-Android-Projekt liegt in `app/` (AGP 8.7.2, Kotlin 2.0.21, Gradle 8.9-8.11).
+Android-Projekt liegt in `app/` (AGP 8.9.3, Kotlin 2.0.21, Gradle 8.11.1, compileSdk 36).
 
 ```bash
 cd app

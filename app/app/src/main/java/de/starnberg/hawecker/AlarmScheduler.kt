@@ -116,7 +116,7 @@ object AlarmScheduler {
         if (preAt <= now) {
             // Der Weckruf ist schon naeher als die Vorwarnzeit (Wecker eben erst
             // gestellt, geschlummert, Neustart): Vorwarnung sofort zeigen.
-            Notifications.showPrewarn(ctx, a, minutes)
+            VorwarnService.start(ctx, a.id)
             return
         }
         val pi = pendingPrewarn(ctx, a.id, true) ?: return

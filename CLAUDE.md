@@ -36,7 +36,10 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   vorher selbst ein, zeigt Android (ohne Sperre) statt der Weckruf-Seite nur den
   Hinweis oben. Vorwarnung: Kanal `hawecker_prewarn_v2` mit IMPORTANCE_DEFAULT
   (Live-Benachrichtigungen brauchen das), wird sofort gezeigt, wenn der Weckruf
-  naeher ist als die Vorwarnzeit.
+  naeher ist als die Vorwarnzeit. Den Live-Balken oben macht `VorwarnService`
+  (Vordergrunddienst specialUse, nur in den Minuten vor dem Weckruf, Takt 20 s)
+  mit `NotificationCompat.ProgressStyle` wie in der Kalender-App - braucht
+  compileSdk 36, androidx.core 1.17 und AGP >= 8.9.1 (siehe Verlauf.kt).
 
 ## Pruefen
 
@@ -48,7 +51,7 @@ python -m venv .venv && .venv/bin/pip install pytest-homeassistant-custom-compon
 # Firmware
 cd firmware/relaisbox && pio run -e esp32s3            # -t upload zum Flashen
 
-# App (Gradle 8.x, nicht 9)
+# App (Gradle 8.11.x, nicht 9; AGP 8.9.3, compileSdk 36)
 cd app && echo "sdk.dir=$HOME/Android/Sdk" > local.properties && gradle assembleRelease
 ```
 

@@ -77,7 +77,7 @@ class AlarmReceiver : BroadcastReceiver() {
             ACTION_PREWARN -> {
                 val a = if (id >= 0) AlarmStore.get(ctx, id) else null
                 if (a != null && a.enabled && !a.skipNext) {
-                    Notifications.showPrewarn(ctx, a, Prefs.prewarnMinutes(ctx))
+                    VorwarnService.start(ctx, a.id)
                 }
                 runCatching { pending.finish() }
                 return

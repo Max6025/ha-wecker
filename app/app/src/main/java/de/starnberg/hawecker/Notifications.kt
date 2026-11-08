@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import android.os.Build
 
 object Notifications {
@@ -93,13 +95,8 @@ object Notifications {
     }
 
     /** Darf die App Live-Benachrichtigungen zeigen? Vor Android 16 immer "ja". */
-    fun canPromote(ctx: Context): Boolean {
-        if (Build.VERSION.SDK_INT < 36) return true
-        return runCatching {
-            NotificationManager::class.java.getMethod("canPostPromotedNotifications")
-                .invoke(nm(ctx)) as Boolean
-        }.getOrDefault(true)
-    }
+    fun canPromote(ctx: Context): Boolean =
+        runCatching { NotificationManagerCompat.from(ctx).canPostPromotedNotifications() }.getOrDefault(true)
 
     // ------------------------------------------------------------------
     //  Weckruf
@@ -155,9 +152,26 @@ object Notifications {
      * (heute aus / ausschalten / lassen), die Knoepfe tun es direkt.
      */
     fun showPrewarn(ctx: Context, alarm: Alarm, minutesBefore: Int) {
+        if (alarm.nextTriggerAt() <= 0L) return
+        runCatching { nm(ctx).notify(PRE_NOTIF_BASE + alarm.id, buildPrewarn(ctx, alarm, minutesBefore)) }
+    }
+
+    /**
+     * Live-Benachrichtigung wie in der Kalender-App: ongoing, promoted, kurzer
+     * Text fuer den Chip in der Statusleiste und ein Verlaufsbalken in der
+     * Kategoriefarbe, der sich bis zum Weckruf fuellt. Der VorwarnService
+     * stellt sie alle 20 s neu; der Countdown-Text laeuft dazwischen als
+     * Chronometer weiter.
+     */
+    fun buildPrewarn(ctx: Context, alarm: Alarm, minutesBefore: Int): Notification {
         ensureChannels(ctx)
-        val fireAt = alarm.nextTriggerAt()
-        if (fireAt <= 0L) return
+        val now = System.currentTimeMillis()
+        val fireAt = alarm.nextTriggerAt(now).let { if (it > 0) it else now + 60_000L }
+        val fenster = (minutesBefore.coerceAtLeast(1) * 60_000L)
+        val rest = (fireAt - now).coerceAtLeast(0L)
+        val prozent = (100 - rest * 100 / fenster).toInt().coerceIn(0, 100)
+        val kat = CategoryStore.get(ctx, alarm.catId)
+        val farbe = Verlauf.farbe(kat.farbe)
 
         val open = PendingIntent.getActivity(
             ctx, 930 + alarm.id,
@@ -170,37 +184,37 @@ object Notifications {
         val off = broadcast(ctx, 950 + alarm.id, AlarmReceiver.ACTION_DISABLE, alarm.id)
 
         val title = if (alarm.label.isBlank()) "Wecker ${alarm.timeString()}"
-        else "${alarm.label} - ${alarm.timeString()}"
+        else "${alarm.label} · ${alarm.timeString()}"
+        val restMin = (rest + 59_999L) / 60_000L
+        val kurz = if (rest >= 60_000L) "$restMin Min" else "${(rest / 1000L).coerceAtLeast(1)} s"
 
-        val b = Notification.Builder(ctx, CH_PREWARN)
+        val b = NotificationCompat.Builder(ctx, CH_PREWARN)
             .setSmallIcon(R.drawable.ic_stat_alarm)
             .setContentTitle(title)
-            .setContentText("Klingelt in")
-            .setCategory(Notification.CATEGORY_ALARM)
+            .setContentText("Klingelt in $kurz · ${kat.name}")
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
-            // Countdown bis zum Weckruf laeuft in der Anzeige mit
-            .setWhen(fireAt)
-            .setShowWhen(true)
-            .setUsesChronometer(true)
-            .setChronometerCountDown(true)
-            .setColor(0xFFFFB23F.toInt())
-            .setColorized(true)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setTimeoutAfter(fireAt - System.currentTimeMillis() + 60_000L)
+            .setShowWhen(false)
+            .setColor(farbe)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setContentIntent(open)
-        if (alarm.isRepeating()) b.addAction(action("Nur heute aus", skip))
-        b.addAction(action("Ausschalten", off))
-        b.style = Notification.BigTextStyle().bigText(
-            "Klingelt um ${alarm.timeString()}. Antippen: nur heute aus, ausschalten oder klingeln lassen."
-        )
-        promote(b, alarm.timeString())
-
-        nm(ctx).notify(PRE_NOTIF_BASE + alarm.id, b.build())
+            .setRequestPromotedOngoing(true)
+            .setShortCriticalText(kurz)
+            .setStyle(
+                NotificationCompat.ProgressStyle()
+                    .setStyledByProgress(false)
+                    .setProgressSegments(Verlauf.segmente(Verlauf.hell(farbe), farbe, prozent))
+                    .setProgress(prozent)
+            )
+        if (alarm.isRepeating()) b.addAction(NotificationCompat.Action.Builder(0, "Nur heute aus", skip).build())
+        b.addAction(NotificationCompat.Action.Builder(0, "Ausschalten", off).build())
+        return b.build()
     }
 
     fun cancelPrewarn(ctx: Context, id: Int) {
+        VorwarnService.stop(ctx)
         runCatching { nm(ctx).cancel(PRE_NOTIF_BASE + id) }
     }
 
@@ -222,11 +236,11 @@ object Notifications {
         else
             "Bis ${SleepTime.timeString(Prefs.sleepEnd(ctx))} - noch"
 
-        val b = Notification.Builder(ctx, CH_SLEEP)
+        val b = NotificationCompat.Builder(ctx, CH_SLEEP)
             .setSmallIcon(R.drawable.ic_stat_sleep)
             .setContentTitle("Schlafenszeit")
             .setContentText(text)
-            .setCategory(Notification.CATEGORY_STATUS)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
@@ -234,10 +248,11 @@ object Notifications {
             .setShowWhen(true)
             .setUsesChronometer(true)
             .setChronometerCountDown(true)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setTimeoutAfter(window.end - System.currentTimeMillis() + 60_000L)
             .setContentIntent(open)
-        promote(b, "Schlafen")
+            .setRequestPromotedOngoing(true)
+            .setShortCriticalText("Schlafen")
         nm(ctx).notify(SLEEP_NOTIF_ID, b.build())
     }
 
