@@ -147,6 +147,21 @@ function dur(ms){
  var min=Math.max(0,Math.round(ms/60000)),h=Math.floor(min/60),m=min%60;
  return h?(h+" Std "+m+" Min"):(m+" Min");
 }
+/* Restzeit-Pille der Hero-Box: unter 12 Stunden eine Dauer ("in 2 Std 10 Min"),
+   sonst Tag und Uhrzeit ("morgen 09:00", "Samstag 09:00", "Sa, 15.11. 09:00") */
+function heroRest(d){
+ var n=new Date(), ms=d-n;
+ if(ms<=12*3600e3) return "in "+dur(ms);
+ var tag;
+ if(d.toDateString()===n.toDateString()) tag="heute";
+ else{
+  var t=new Date(n.getFullYear(),n.getMonth(),n.getDate()+1);
+  if(d.toDateString()===t.toDateString()) tag="morgen";
+  else if(ms<6*86400e3) tag=DLONG[d.getDay()];
+  else tag=DL[DAYS.indexOf(d.getDay())]+", "+d.getDate()+"."+(d.getMonth()+1)+".";
+ }
+ return tag+" "+fmt(d.getHours(),d.getMinutes());
+}
 function relDay(d){
  var n=new Date();
  if(d.toDateString()===n.toDateString())return "heute";
@@ -184,7 +199,7 @@ function renderAlarms(){
   hero.style.setProperty("--c",k.c);
   hero.innerHTML=
    bild(k.bild,128,"art")+
-   '<div class="hrow"><span class="eyebrow">Nächster Weckruf</span><span class="countdown" id="heroCd">in '+dur(nx.d-new Date())+'</span></div>'+
+   '<div class="hrow"><span class="eyebrow">Nächster Weckruf</span><span class="countdown" id="heroCd">'+heroRest(nx.d)+'</span></div>'+
    '<div class="htime">'+fmt(a.h,a.m)+'</div>'+
    '<div class="hlabel">'+esc(a.label||"Wecker")+'</div>'+
    '<div class="hmeta"><i></i>'+relDay(nx.d)+' · '+esc(k.n)+' · '+repeatText(a)+'</div>';
@@ -673,14 +688,20 @@ var zuletztGeladen=Date.now();
 function tick(){
  var n=new Date(), up=upcoming();
  var cd=$("#heroCd");
- if(cd&&up.length) cd.textContent="in "+dur(up[0].d-n);
+ if(cd&&up.length) cd.textContent=heroRest(up[0].d);
  if(n.getSeconds()===0){
   /* jede Minute den Stand aus dem Backend holen (Schlummern, Ueberspringen, Rechte) */
-  if(!$$(".sheet.on").length) window.aktualisieren(); else renderAlarms();
+  if(!$$(".sheet.on").length) window.aktualisieren(true); else renderAlarms();
  }
 }
-window.aktualisieren=function(){
- laden(); renderAlarms();
+/* Stand aus dem Backend holen. Neu gezeichnet wird nur, wenn sich etwas
+   geaendert hat - sonst wuerde die Hero-Animation nach einem Schalten sofort
+   wieder abgebrochen, weil das Backend die Aenderung ein zweites Mal meldet. */
+window.aktualisieren=function(erzwingen){
+ var vorher=JSON.stringify([S.alarms,S.cats,S.perms,S.sleep]);
+ laden();
+ var nachher=JSON.stringify([S.alarms,S.cats,S.perms,S.sleep]);
+ if(erzwingen||vorher!==nachher) renderAlarms();
  if($("#v-settings").classList.contains("on")) renderSettings();
 };
 window.setInsets=function(t,r,b,l){
