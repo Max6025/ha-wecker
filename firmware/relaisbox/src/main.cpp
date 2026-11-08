@@ -7,11 +7,12 @@
 //
 // Pins
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
-//   GPIO 38, 39, 40, 41: Relais 1-4 (IN der Relaisplatine, aktiv HIGH),
-//            nebeneinander am rechten Stecker.
-//   GPIO 2:  Eingang fuer einen Taster/Kontakt nach GND (INPUT_PULLUP,
-//            LOW = gedrueckt). Fuer ein 3,3-V-Signal EINGANG_AKTIV_LOW auf
-//            false setzen. 30 ms entprellt.
+//   GPIO 4, 5, 6: Relais 1-3 (IN der Module, aktiv HIGH, VCC 3,3 V).
+//            Linker Stecker, direkt hinter den beiden 3V3-Pins. Reine GPIOs:
+//            keine Strapping-, PSRAM-, JTAG- oder USB-Funktion, beim Start still.
+//   GPIO 7:  Eingang fuer einen Taster/Kontakt nach GND (INPUT_PULLUP,
+//            LOW = gedrueckt), gleich daneben. Fuer ein 3,3-V-Signal
+//            EINGANG_AKTIV_LOW auf false setzen. 30 ms entprellt.
 //
 //   NIE GPIO 33-37 benutzen: beim N16R8-Modul haengen die intern am
 //   PSRAM-Chip. Relais daran klicken nur leise, statt zu schalten, und ein
@@ -55,11 +56,11 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.5.0";
+static const char* VERSION   = "1.5.1";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
-static const int PIN_EINGANG    = 2;
+static const int PIN_EINGANG    = 7;
 static const bool EINGANG_AKTIV_LOW = true;   // Taster nach GND: LOW = gedrueckt
 static const uint32_t ENTPRELL_MS = 30;
 static const uint16_t SSE_PORT = 8081;
@@ -85,10 +86,9 @@ struct Relais {
   bool defekt;
 };
 static Relais RELAIS[] = {
-  {1, 38, false},
-  {2, 39, false},
-  {3, 40, false},
-  {4, 41, false},
+  {1, 4, false},
+  {2, 5, false},
+  {3, 6, false},
 };
 
 // Index zu einer Platinennummer, -1 wenn es die nicht gibt
