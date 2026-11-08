@@ -78,15 +78,18 @@ var buehne=null;
 /* ===================== Daten ===================== */
 var DAYS=[1,2,3,4,5,6,0], DL=["Mo","Di","Mi","Do","Fr","Sa","So"];
 var DLONG={0:"Sonntag",1:"Montag",2:"Dienstag",3:"Mittwoch",4:"Donnerstag",5:"Freitag",6:"Samstag"};
-var TONES=["Radar","Morgentau","Werkstatt","Vogelzug","Signalhorn","Sanfter Anstieg","Funkwecker","Isar"];
+/* Wecktoene kommen aus dem Handy (Alarm- und Klingeltoene), Wert ist die URI, leer = Standard */
+var TONES=[{n:"Standard (Alarmton des Handys)",v:""}];
+try{ if(A) TONES=JSON.parse(A.toene()); }catch(e){}
+function tonName(v){ for(var i=0;i<TONES.length;i++) if(TONES[i].v===(v||"")) return TONES[i].n.replace(" (Alarmton des Handys)",""); return v?"Eigener Ton":"Standard"; }
 var VIBES=["Herzschlag","Kurz","Stakkato","Welle","Aus"];
-var SNOOZE=[5,9,10,15,20];
+var SNOOZE=[5,7,9];
 var VORWARN=[2,5,10,15,30];
 var PERMS={notify:"Benachrichtigungen",fullscreen:"Vollbild-Weckruf",exact:"Exakte Alarme",battery:"Akku-Optimierung",promote:"Live-Benachrichtigung"};
 
 var S=null;
 function leer(){
- return {vol:75,fade:true,vib:true,defTone:"Radar",defSnooze:9,
+ return {vol:75,fade:true,vib:true,defTone:"",defSnooze:9,
   cats:[{id:"k1",n:"Aufstehen",bild:"sonne",c:"#FFB457"}],alarms:[],
   api:{url:"",id:"",on:true,letzter:""},prewarn:5,
   sleep:{on:false,start:"22:30",end:"06:30",notify:true,active:false},perms:{},version:""};
@@ -99,13 +102,13 @@ function demo(){
   {id:"k5",n:"Abfahrt",bild:"transporter",c:"#FF8FA3"},{id:"k6",n:"Pause",bild:"tasse",c:"#A98BFF"},
   {id:"k7",n:"Erinnerung",bild:"klemmbrett",c:"#7FE0A0"}];
  s.alarms=[
-  {id:1,h:5,m:30,label:"Frühschicht",cat:"k2",days:[1,2,3,4,5],on:true,tone:"Radar",vibe:"Herzschlag",snooze:9,next:t+15*3600e3},
-  {id:2,h:6,m:10,label:"Aufstehen",cat:"k1",days:[1,2,3,4,5],on:true,tone:"Sanfter Anstieg",vibe:"Welle",snooze:9,next:t+16*3600e3},
-  {id:3,h:6,m:45,label:"Laufrunde Isar",cat:"k4",days:[2,4],on:true,tone:"Vogelzug",vibe:"Kurz",snooze:5,next:t+40*3600e3},
-  {id:4,h:7,m:15,label:"Abfahrt Baustelle",cat:"k5",days:[1,2,3,4,5],on:true,tone:"Signalhorn",vibe:"Stakkato",snooze:5,next:t+17*3600e3},
-  {id:5,h:9,m:30,label:"Brotzeit",cat:"k6",days:[1,2,3,4,5],on:false,tone:"Morgentau",vibe:"Aus",snooze:5,next:null},
-  {id:6,h:12,m:0,label:"Material bestellen",cat:"k7",days:[3],on:true,tone:"Funkwecker",vibe:"Kurz",snooze:10,next:t+60*3600e3},
-  {id:7,h:13,m:30,label:"Messgerät kalibrieren",cat:"k3",days:[],on:false,tone:"Werkstatt",vibe:"Stakkato",snooze:10,next:null}];
+  {id:1,h:5,m:30,label:"Frühschicht",cat:"k2",days:[1,2,3,4,5],on:true,tone:"",vibe:"Herzschlag",snooze:9,next:t+15*3600e3},
+  {id:2,h:6,m:10,label:"Aufstehen",cat:"k1",days:[1,2,3,4,5],on:true,tone:"",vibe:"Welle",snooze:9,next:t+16*3600e3},
+  {id:3,h:6,m:45,label:"Laufrunde Isar",cat:"k4",days:[2,4],on:true,tone:"",vibe:"Kurz",snooze:5,next:t+40*3600e3},
+  {id:4,h:7,m:15,label:"Abfahrt Baustelle",cat:"k5",days:[1,2,3,4,5],on:true,tone:"",vibe:"Stakkato",snooze:5,next:t+17*3600e3},
+  {id:5,h:9,m:30,label:"Brotzeit",cat:"k6",days:[1,2,3,4,5],on:false,tone:"",vibe:"Aus",snooze:5,next:null},
+  {id:6,h:12,m:0,label:"Material bestellen",cat:"k7",days:[3],on:true,tone:"",vibe:"Kurz",snooze:10,next:t+60*3600e3},
+  {id:7,h:13,m:30,label:"Messgerät kalibrieren",cat:"k3",days:[],on:false,tone:"",vibe:"Stakkato",snooze:10,next:null}];
  s.perms={notify:true,fullscreen:true,exact:true,battery:true,promote:true};
  return s;
 }
@@ -289,7 +292,7 @@ window.zurueck=function(){
 /* ===================== Einstellungen ===================== */
 function renderSettings(){
  $("#p-cats-v").textContent=S.cats.length+" ›";
- $("#p-tone-v").textContent=S.defTone+" ›";
+ $("#p-tone-v").textContent=tonName(S.defTone)+" ›";
  $("#p-snooze-v").textContent=(S.defSnooze?S.defSnooze+" Min":"Aus")+" ›";
  $("#p-vol").value=S.vol; $("#p-vol-v").textContent=S.vol+"%";
  $("#p-fade").setAttribute("aria-checked",String(!!S.fade));
@@ -322,7 +325,7 @@ function openEdit(id){
  var a=id?S.alarms.filter(function(x){return x.id===id})[0]:null;
  editingId=id||null;
  draft=a?JSON.parse(JSON.stringify(a))
-  :{id:0,h:6,m:30,label:"",cat:S.cats[0].id,days:[1,2,3,4,5],on:true,tone:S.defTone,vibe:"Herzschlag",snooze:S.defSnooze};
+  :{id:0,h:6,m:30,label:"",cat:S.cats[0].id,days:[1,2,3,4,5],on:true,tone:S.defTone||"",vibe:"Herzschlag",snooze:S.defSnooze};
  if(!kat(draft.cat)||kat(draft.cat).id!==draft.cat) draft.cat=S.cats[0].id;
  $("#e-title").textContent=a?"Wecker bearbeiten":"Neuer Wecker";
  $("#e-delete").hidden=!a;
@@ -337,7 +340,7 @@ function akzent(){
 function syncEditRows(){
  var k=kat(draft.cat);
  $("#e-cat-v").innerHTML='<span class="catdot" style="background:'+k.c+'22">'+bild(k.bild,22)+'</span>'+esc(k.n)+' ›';
- $("#e-tone-v").textContent=draft.tone+" ›";
+ $("#e-tone-v").textContent=tonName(draft.tone)+" ›";
  $("#e-vibe-v").textContent=draft.vibe+" ›";
  $("#e-snooze-v").textContent=(draft.snooze?draft.snooze+" Min":"Aus")+" ›";
  akzent();
@@ -451,18 +454,34 @@ $("#e-preview").addEventListener("click",function(){
 });
 
 /* ===================== Auswahllisten ===================== */
-function openPick(title,items,current,onPick,render){
+/* eigene: {n:"Eigene Zeit", einheit:"Min", min:1, max:180} haengt eine Zeile mit Eingabefeld an */
+function openPick(title,items,current,onPick,render,eigene){
  $("#k-title").textContent=title;
  var l=$("#k-list"); l.innerHTML="";
+ var alle=function(){Array.prototype.forEach.call(l.children,function(c){c.firstChild.classList.remove("on")})};
  items.forEach(function(it){
   var b=document.createElement("button"); b.className="item";
   b.innerHTML='<span class="radio'+(it.v===current?" on":"")+'"></span>'+esc(it.n)+'<span class="val">'+(render?render(it):"")+'</span>';
-  b.addEventListener("click",function(){
-   Array.prototype.forEach.call(l.children,function(c){c.firstChild.classList.remove("on")});
-   b.firstChild.classList.add("on"); onPick(it.v);
-  });
+  b.addEventListener("click",function(){ alle(); b.firstChild.classList.add("on"); onPick(it.v); });
   l.appendChild(b);
  });
+ if(eigene){
+  var fest=items.some(function(it){return it.v===current});
+  var row=document.createElement("div"); row.className="item";
+  row.innerHTML='<span class="radio'+(!fest&&current>0?" on":"")+'"></span>'+esc(eigene.n)+
+   '<input type="number" inputmode="numeric" min="'+eigene.min+'" max="'+eigene.max+'" placeholder="'+(eigene.platzhalter||"")+'" value="'+(!fest&&current>0?current:"")+'">'+
+   '<span class="val">'+esc(eigene.einheit||"")+'</span>';
+  var inp=row.querySelector("input");
+  function uebernehmen(){
+   var v=Math.round(Number(inp.value));
+   if(!(v>=eigene.min&&v<=eigene.max)) return;
+   alle(); row.firstChild.classList.add("on"); onPick(v);
+  }
+  inp.addEventListener("input",uebernehmen);
+  inp.addEventListener("focus",function(){ if(inp.value) uebernehmen(); });
+  row.querySelector(".radio").addEventListener("click",function(){ inp.focus(); });
+  l.appendChild(row);
+ }
  openSheet("#s-pick");
 }
 $("#k-back").addEventListener("click",function(){closeSheet("#s-pick")});
@@ -478,24 +497,24 @@ $("#e-cat").addEventListener("click",function(){
   function(it){var k=kat(it.v);return '<span class="catdot" style="background:'+k.c+'22">'+bild(k.bild,26)+'</span>'});
 });
 $("#e-tone").addEventListener("click",function(){
- openPick("Weckton",TONES.map(function(t){return{n:t,v:t}}),draft.tone,function(v){draft.tone=v;syncEditRows();playTone(v)});
+ openPick("Weckton",TONES,draft.tone||"",function(v){draft.tone=v;syncEditRows();playTone(v)});
 });
 $("#e-vibe").addEventListener("click",function(){
  openPick("Vibration",VIBES.map(function(t){return{n:t,v:t}}),draft.vibe,function(v){draft.vibe=v;syncEditRows();if(A&&v!=="Aus")A.vibrationVorschau(v)},vibeBars);
 });
+var EIGENE_ZEIT={n:"Eigene Zeit",einheit:"Min",min:1,max:180,platzhalter:"z. B. 12"};
+function snoozeItems(){ var items=SNOOZE.map(function(s){return{n:s+" Minuten",v:s}}); items.push({n:"Aus",v:0}); return items; }
 $("#e-snooze").addEventListener("click",function(){
- var items=SNOOZE.map(function(s){return{n:s+" Minuten",v:s}}); items.push({n:"Aus",v:0});
- openPick("Schlummern",items,draft.snooze,function(v){draft.snooze=v;syncEditRows()});
+ openPick("Schlummern",snoozeItems(),draft.snooze,function(v){draft.snooze=v;syncEditRows()},null,EIGENE_ZEIT);
 });
 $("#p-tone").addEventListener("click",function(){
  $("#s-pick").style.setProperty("--accent","#74B4FF");
- openPick("Standardton",TONES.map(function(t){return{n:t,v:t}}),S.defTone,
+ openPick("Standardton",TONES,S.defTone||"",
   function(v){S.defTone=v;save(false);renderSettings();playTone(v)});
 });
 $("#p-snooze").addEventListener("click",function(){
  $("#s-pick").style.setProperty("--accent","#74B4FF");
- var items=SNOOZE.map(function(s){return{n:s+" Minuten",v:s}}); items.push({n:"Aus",v:0});
- openPick("Schlummerdauer",items,S.defSnooze,function(v){S.defSnooze=v;save(false);renderSettings()});
+ openPick("Schlummerdauer",snoozeItems(),S.defSnooze,function(v){S.defSnooze=v;save(false);renderSettings()},null,EIGENE_ZEIT);
 });
 $("#p-prewarn").addEventListener("click",function(){
  $("#s-pick").style.setProperty("--accent","#74B4FF");

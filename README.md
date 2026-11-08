@@ -63,10 +63,11 @@ ha-wecker/
 - Exakte Alarme ueber `AlarmManager.setAlarmClock()` – erscheint auch im
   Android-Statusbalken wie jeder andere Wecker
 - Vollbild-Weckruf ueber dem Sperrbildschirm, Bildschirm geht an
-- Acht erzeugte Wecktoene (ToneSynth, wie im Mockup), Alarm-Kanal, sanft
-  lauter werdend, Vibrationsmuster Herzschlag / Kurz / Stakkato / Welle
-- Wiederholung pro Wochentag, Kategorie, Schlummern pro Wecker,
-  Lautstaerketaste = Schlummern
+- Wecktoene aus dem Handy (Alarm- und Klingeltoene des Systems) in der eigenen
+  Auswahlseite, kein Systemdialog; Alarm-Kanal, sanft lauter werdend,
+  Vibrationsmuster Herzschlag / Kurz / Stakkato / Welle
+- Wiederholung pro Wochentag, Kategorie, Schlummern 5 / 7 / 9 Minuten oder
+  eigene Zeit, Lautstaerketaste = Schlummern
 - Vorwarnung als Live-Benachrichtigung, Schlafenszeit, „heute ueberspringen"
 - Ueberlebt Neustart (BOOT_COMPLETED), Zeit- und Zeitzonenwechsel
 

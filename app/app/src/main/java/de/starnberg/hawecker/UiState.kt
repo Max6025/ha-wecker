@@ -23,6 +23,7 @@ object UiState {
         root.put("fade", Prefs.fade(ctx))
         root.put("vib", Prefs.vib(ctx))
         root.put("defTone", Prefs.defTone(ctx))
+        root.put("defToneName", Toene.name(ctx, Prefs.defTone(ctx)))
         root.put("defSnooze", Prefs.defSnooze(ctx))
         root.put("prewarn", Prefs.prewarnMinutes(ctx))
 
@@ -41,6 +42,7 @@ object UiState {
             o.put("days", a.daysJs())
             o.put("on", a.enabled)
             o.put("tone", a.tone)
+            o.put("toneName", Toene.name(ctx, a.tone))
             o.put("vibe", a.vibe)
             o.put("snooze", a.snoozeMinutes)
             o.put("skipNext", a.skipNext)
@@ -129,9 +131,9 @@ object UiState {
                     days = Alarm.daysFromJs(j.optJSONArray("days")),
                     enabled = j.optBoolean("on", true),
                     catId = j.optString("cat", cats[0].id),
-                    tone = j.optString("tone", Prefs.defTone(ctx)).ifEmpty { Prefs.defTone(ctx) },
+                    tone = j.optString("tone", "").let { if (it.contains("://")) it else "" },
                     vibe = j.optString("vibe", "Herzschlag").ifEmpty { "Herzschlag" },
-                    snoozeMinutes = j.optInt("snooze", Prefs.defSnooze(ctx)).coerceIn(0, 60),
+                    snoozeMinutes = j.optInt("snooze", Prefs.defSnooze(ctx)).coerceIn(0, 180),
                     skipNext = j.optBoolean("skipNext", false),
                     snoozedUntil = j.optLong("snoozedUntil", 0L)
                 )

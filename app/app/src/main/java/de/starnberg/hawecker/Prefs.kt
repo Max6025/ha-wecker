@@ -22,11 +22,15 @@ object Prefs {
     fun vib(ctx: Context): Boolean = p(ctx).getBoolean("vib", true)
     fun setVib(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("vib", v).apply()
 
-    fun defTone(ctx: Context): String = p(ctx).getString("def_tone", "Radar")?.ifEmpty { "Radar" } ?: "Radar"
+    /** Weckton-URI fuer neue Wecker; leer = Standard-Alarmton des Handys. Alte Namen (bis 2.0) zaehlen als leer. */
+    fun defTone(ctx: Context): String {
+        val v = p(ctx).getString("def_tone", "") ?: ""
+        return if (v.contains("://")) v else ""
+    }
     fun setDefTone(ctx: Context, v: String) = p(ctx).edit().putString("def_tone", v).apply()
 
     fun defSnooze(ctx: Context): Int = p(ctx).getInt("def_snooze", 9)
-    fun setDefSnooze(ctx: Context, v: Int) = p(ctx).edit().putInt("def_snooze", v.coerceIn(0, 60)).apply()
+    fun setDefSnooze(ctx: Context, v: Int) = p(ctx).edit().putInt("def_snooze", v.coerceIn(0, 180)).apply()
 
     /** Minuten vor dem Weckruf fuer die Vorwarnung (Live-Benachrichtigung). 0 = aus. */
     fun prewarnMinutes(ctx: Context): Int = p(ctx).getInt("prewarn_minutes", 5)

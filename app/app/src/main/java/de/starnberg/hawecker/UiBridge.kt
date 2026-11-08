@@ -37,6 +37,10 @@ class UiBridge(private val act: MainActivity) {
         }.apply { isDaemon = true }.start()
     }
 
+    /** Wecktoene des Handys fuer die eigene Auswahlseite. */
+    @JavascriptInterface
+    fun toene(): String = Toene.json(ctx)
+
     @JavascriptInterface
     fun tonVorschau(name: String) = act.runOnUiThread { RingPlayer.preview(ctx, name) }
 

@@ -1,20 +1,21 @@
 package de.starnberg.hawecker
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
-import android.media.AudioTrack
+import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 
 /**
- * Spielt den Weckton (ToneSynth, Alarm-Kanal, Schleife alle 1,6 s) und laesst
- * das Vibrationsmuster des Weckers laufen. Lautstaerke und „langsam lauter
- * werden" kommen aus den Einstellungen.
+ * Spielt den Weckton des Handys (Toene, Alarm-Kanal, Schleife) und laesst das
+ * Vibrationsmuster des Weckers laufen. Lautstaerke und „langsam lauter werden"
+ * kommen aus den Einstellungen.
  */
 object RingPlayer {
 
-    private var track: AudioTrack? = null
-    private var preview: AudioTrack? = null
+    private var player: MediaPlayer? = null
+    private var preview: MediaPlayer? = null
     private val handler = Handler(Looper.getMainLooper())
     private var fadeRunnable: Runnable? = null
     private var previewEnde: Runnable? = null
@@ -24,17 +25,33 @@ object RingPlayer {
 
     fun isPlaying(): Boolean = playing
 
+    private fun neuerPlayer(ctx: Context, uriText: String, loop: Boolean): MediaPlayer? {
+        val uri = Toene.uri(ctx, uriText) ?: return null
+        return runCatching {
+            val mp = MediaPlayer()
+            mp.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            mp.setDataSource(ctx, uri)
+            mp.isLooping = loop
+            mp.prepare()
+            mp
+        }.getOrNull()
+    }
+
     fun start(ctx: Context, alarm: Alarm) {
         stop()
         val vol = Prefs.vol(ctx) / 100f
         val fade = Prefs.fade(ctx)
 
-        runCatching {
-            val t = ToneSynth.track(alarm.tone, fade, loop = true)
+        neuerPlayer(ctx, alarm.tone, loop = true)?.let { mp ->
             val startPegel = if (fade) 0.15f else 1f
-            t.setVolume(vol * startPegel)
-            t.play()
-            track = t
+            mp.setVolume(vol * startPegel, vol * startPegel)
+            mp.start()
+            player = mp
             playing = true
 
             if (fade) {
@@ -43,7 +60,7 @@ object RingPlayer {
                     override fun run() {
                         schritt++
                         val p = (0.15f + schritt * 0.085f).coerceAtMost(1f)
-                        runCatching { track?.setVolume(vol * p) }
+                        runCatching { player?.setVolume(vol * p, vol * p) }
                         if (p < 1f) handler.postDelayed(this, 2500)
                     }
                 }
@@ -68,27 +85,28 @@ object RingPlayer {
         fadeRunnable?.let { handler.removeCallbacks(it) }
         fadeRunnable = null
         runCatching {
-            track?.let {
-                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.stop()
+            player?.let {
+                if (it.isPlaying) it.stop()
                 it.release()
             }
         }
-        track = null
+        player = null
         playing = false
         Haptik.stopp()
     }
 
-    /** Einmaliges Anspielen eines Tons in der Auswahlliste. */
-    fun preview(ctx: Context, tone: String) {
+    /** Anspielen eines Tons in der Auswahlliste, hoechstens ein paar Sekunden. */
+    fun preview(ctx: Context, uriText: String) {
         stopPreview()
-        runCatching {
-            val t = ToneSynth.track(tone, Prefs.fade(ctx), loop = false)
-            t.setVolume(Prefs.vol(ctx) / 100f)
-            t.play()
-            preview = t
+        neuerPlayer(ctx, uriText, loop = false)?.let { mp ->
+            val vol = Prefs.vol(ctx) / 100f
+            mp.setVolume(vol, vol)
+            mp.setOnCompletionListener { stopPreview() }
+            mp.start()
+            preview = mp
             val r = Runnable { stopPreview() }
             previewEnde = r
-            handler.postDelayed(r, 1700)
+            handler.postDelayed(r, 6000)
         }
     }
 
@@ -97,7 +115,7 @@ object RingPlayer {
         previewEnde = null
         runCatching {
             preview?.let {
-                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.stop()
+                if (it.isPlaying) it.stop()
                 it.release()
             }
         }

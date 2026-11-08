@@ -47,7 +47,7 @@ object ApiPayload {
         o.put("days", dl)
         o.put("vibrate", a.vibrate)
         o.put("vibration", a.vibe)
-        o.put("ton", a.tone)
+        o.put("ton", Toene.name(ctx, a.tone))
         val k = CategoryStore.get(ctx, a.catId)
         o.put("kategorie", JSONObject()
             .put("id", k.id).put("name", k.name).put("bild", k.bild).put("farbe", k.farbe))

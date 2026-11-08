@@ -19,8 +19,8 @@ data class Alarm(
     var enabled: Boolean = true,
     /** Kategorie (CategoryStore), bestimmt Bild und Farbe. */
     var catId: String = "k1",
-    /** Weckton-Name aus ToneSynth.TONES. */
-    var tone: String = "Radar",
+    /** Weckton als URI aus dem Handy (Toene); leer = Standard-Alarmton. */
+    var tone: String = "",
     /** Vibrationsmuster: Herzschlag, Kurz, Stakkato, Welle oder Aus. */
     var vibe: String = "Herzschlag",
     var snoozeMinutes: Int = 9,
@@ -125,7 +125,8 @@ data class Alarm(
             days = o.optInt("days", 0),
             enabled = o.optBoolean("enabled", true),
             catId = o.optString("cat", "k1").ifEmpty { "k1" },
-            tone = o.optString("tone", "Radar").ifEmpty { "Radar" },
+            // Ton ist eine URI; Namen aus 2.0 (Radar, Isar ...) und leer = Standard-Alarmton
+            tone = o.optString("tone", "").let { if (it.contains("://")) it else "" },
             // bis 1.7 gab es nur den Schalter "vibrate"
             vibe = o.optString(
                 "vibe",
