@@ -42,6 +42,7 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <driver/gpio.h>
+#include <esp_system.h>
 #include <vector>
 
 #ifndef WIFI_SSID
@@ -54,7 +55,7 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.4.0";
+static const char* VERSION   = "1.4.1";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
@@ -179,6 +180,30 @@ static void musterTakt() {
       l.pos = (l.pos + 1) % m.anzahl;
       ausgang(i, (l.pos % 2) == 0);
     }
+  }
+}
+
+// --- Startdiagnose -------------------------------------------------------------
+//
+// Zaehlt Starts und Brownouts (Versorgung eingebrochen) im Flash. Bricht der
+// 3,3-V-Regler beim Anziehen mehrerer Relais ein, steht es hier.
+
+static uint32_t startZaehler = 0;
+static uint32_t brownoutZaehler = 0;
+static const char* startGrund = "unbekannt";
+
+static const char* resetGrundText(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:   return "Einschalten";
+    case ESP_RST_SW:        return "Software";
+    case ESP_RST_PANIC:     return "Absturz";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:       return "Watchdog";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT (Versorgung eingebrochen)";
+    case ESP_RST_DEEPSLEEP: return "Tiefschlaf";
+    case ESP_RST_EXT:       return "Reset-Taste/USB";
+    default:                return "unbekannt";
   }
 }
 
@@ -346,6 +371,9 @@ static String stateJson() {
   s += ",\"rssi\":" + String(WiFi.RSSI());
   s += ",\"uptime_s\":" + String(millis() / 1000);
   s += ",\"events_port\":" + String(SSE_PORT);
+  s += ",\"start\":{\"grund\":\"" + String(startGrund) + "\"";
+  s += ",\"starts\":" + String(startZaehler);
+  s += ",\"brownouts\":" + String(brownoutZaehler) + "}";
   s += ",\"alarm\":" + String(alarmAktiv() ? "true" : "false");
   s += ",\"eingang\":{\"gpio\":" + String(PIN_EINGANG);
   s += ",\"aktiv\":" + String(eingangAktiv ? "true" : "false");
@@ -436,7 +464,14 @@ static void handleAlarm() {
   int m = musterIndex(mName);
   if (m < 0) return sendeFehler(400, "muster unbekannt");
   uint32_t dauer = server.hasArg("dauer") ? (uint32_t)server.arg("dauer").toInt() : 0;
-  for (size_t i : liste) musterStarten(i, m, dauer);
+  // Nacheinander statt gleichzeitig: drei Spulen auf einmal reissen den
+  // 3,3-V-Regler eher in die Knie als drei im Abstand von 40 ms.
+  bool erstes = true;
+  for (size_t i : liste) {
+    if (!erstes) delay(40);
+    erstes = false;
+    musterStarten(i, m, dauer);
+  }
   Serial.printf("Alarm: Muster %s auf %u Relais, Dauer %lu s\n",
                 MUSTER[m].name, (unsigned)liste.size(), (unsigned long)dauer);
   sendeJson(200, stateJson());
@@ -479,6 +514,7 @@ static void handleStatusseite() {
     h += "<button onclick=\"f('/api/alarm?relais=" + String(RELAIS[i].nr) + "&muster=doppelblitz')\">Doppelblitz</button></td></tr>";
   }
   h += "</table><p>Eingang GPIO " + String(PIN_EINGANG) + ": <b>" + String(eingangAktiv ? "AN" : "aus") + "</b></p>";
+  h += "<p>Start " + String(startZaehler) + " (" + String(startGrund) + "), Brownouts: <b>" + String(brownoutZaehler) + "</b></p>";
   h += "<p><button onclick=\"f('/api/alarm?relais=alle&muster=blinken')\">alle blinken</button>"
        "<button onclick=\"f('/api/alarm/stop')\">alles stopp</button></p>";
   if (apModus) h += "<p style='color:#ffb23f'>Einrichtungsmodus: WLAN-Zugang unten eintragen, die Box startet dann neu.</p>";
@@ -629,7 +665,17 @@ void setup() {
   Serial.printf("Eingang GPIO %d beim Start: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
 
   led(0, 0, 30);
-  wifiLaden();
+  wifiLaden();   // oeffnet auch die Preferences
+  {
+    esp_reset_reason_t r = esp_reset_reason();
+    startGrund = resetGrundText(r);
+    startZaehler = prefs.getUInt("starts", 0) + 1;
+    brownoutZaehler = prefs.getUInt("brownouts", 0) + (r == ESP_RST_BROWNOUT ? 1 : 0);
+    prefs.putUInt("starts", startZaehler);
+    prefs.putUInt("brownouts", brownoutZaehler);
+    Serial.printf("Start %lu, Grund: %s, Brownouts bisher: %lu\n",
+                  (unsigned long)startZaehler, startGrund, (unsigned long)brownoutZaehler);
+  }
   wifiVerbinden();
   httpStarten();
 }
