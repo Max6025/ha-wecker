@@ -32,6 +32,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Seiten und im README. Der Ereignisstrom laeuft auf einem eigenen Port, weil
   der Arduino-WebServer keine Verbindung offen halten kann.
 
+- **Weckruf:** Im Empfaenger nur PARTIAL_WAKE_LOCK. Schaltet man den Bildschirm
+  vorher selbst ein, zeigt Android (ohne Sperre) statt der Weckruf-Seite nur den
+  Hinweis oben. Vorwarnung: Kanal `hawecker_prewarn_v2` mit IMPORTANCE_DEFAULT
+  (Live-Benachrichtigungen brauchen das), wird sofort gezeigt, wenn der Weckruf
+  naeher ist als die Vorwarnzeit.
+
 ## Pruefen
 
 ```bash

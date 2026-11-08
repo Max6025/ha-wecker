@@ -68,7 +68,8 @@ ha-wecker/
   Vibrationsmuster Herzschlag / Kurz / Stakkato / Welle
 - Wiederholung pro Wochentag, Kategorie, Schlummern 5 / 7 / 9 Minuten oder
   eigene Zeit, Lautstaerketaste = Schlummern
-- Vorwarnung als Live-Benachrichtigung, Schlafenszeit, „heute ueberspringen"
+- Vorwarnung als Live-Benachrichtigung (5 Minuten vorher oder sofort, wenn der
+  Weckruf naeher ist; auch bei geschlossener App), Schlafenszeit, „heute ueberspringen"
 - Ueberlebt Neustart (BOOT_COMPLETED), Zeit- und Zeitzonenwechsel
 
 **Home Assistant**

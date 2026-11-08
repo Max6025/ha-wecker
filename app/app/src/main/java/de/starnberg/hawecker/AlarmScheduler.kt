@@ -113,7 +113,12 @@ object AlarmScheduler {
             return
         }
         val preAt = at - minutes * 60_000L
-        if (preAt <= now) return
+        if (preAt <= now) {
+            // Der Weckruf ist schon naeher als die Vorwarnzeit (Wecker eben erst
+            // gestellt, geschlummert, Neustart): Vorwarnung sofort zeigen.
+            Notifications.showPrewarn(ctx, a, minutes)
+            return
+        }
         val pi = pendingPrewarn(ctx, a.id, true) ?: return
         try {
             am(ctx).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, preAt, pi)

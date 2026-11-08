@@ -115,12 +115,12 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
 
+        // Nur die CPU wach halten. Den Bildschirm weckt die Vollbild-
+        // Benachrichtigung selbst - schaltet man ihn hier vorher ein, gilt das
+        // Geraet ohne Sperre als "in Benutzung" und es kommt nur ein Hinweis
+        // oben statt der Weckruf-Seite.
         val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
-        @Suppress("DEPRECATION")
-        val wl = pm.newWakeLock(
-            PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "hawecker:fire"
-        )
+        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "hawecker:fire")
         runCatching { wl.acquire(30_000L) }
 
         // Snooze-Marker loeschen, sonst wuerde sofort wieder geplant werden

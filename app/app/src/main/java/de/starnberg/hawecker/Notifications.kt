@@ -13,10 +13,10 @@ object Notifications {
     const val CH_RING = "hawecker_ring"
 
     /** v2, weil eine bereits angelegte Kanal-Wichtigkeit nicht mehr aenderbar ist. */
-    const val CH_PREWARN = "hawecker_prewarn"
+    const val CH_PREWARN = "hawecker_prewarn_v2"
 
     /** Schlafenszeit: stille Dauer-Anzeige, solange das Fenster laeuft. */
-    const val CH_SLEEP = "hawecker_sleep"
+    const val CH_SLEEP = "hawecker_sleep_v2"
 
     /** Benachrichtigungs-IDs der Vorwarnungen: Basis plus Wecker-ID. */
     const val PRE_NOTIF_BASE = 5000
@@ -39,7 +39,9 @@ object Notifications {
         )
 
         manager.createNotificationChannel(
-            NotificationChannel(CH_PREWARN, "Vorwarnung", NotificationManager.IMPORTANCE_LOW).apply {
+            // IMPORTANCE_DEFAULT, aber ohne Ton: Live-Benachrichtigungen (Android 16)
+            // werden bei niedriger Wichtigkeit nicht oben eingeblendet.
+            NotificationChannel(CH_PREWARN, "Vorwarnung", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Stiller Hinweis kurz vor dem Weckruf, als Live-Benachrichtigung"
                 setSound(null, null)
                 enableVibration(false)
@@ -49,7 +51,7 @@ object Notifications {
         )
 
         manager.createNotificationChannel(
-            NotificationChannel(CH_SLEEP, "Schlafenszeit", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CH_SLEEP, "Schlafenszeit", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "Stille Anzeige waehrend der Schlafenszeit"
                 setSound(null, null)
                 enableVibration(false)
@@ -61,6 +63,8 @@ object Notifications {
         // Alten Dienst-Kanal aufraeumen
         runCatching { manager.deleteNotificationChannel("hawecker_service") }
         runCatching { manager.deleteNotificationChannel("hawecker_service_v2") }
+        runCatching { manager.deleteNotificationChannel("hawecker_prewarn") }
+        runCatching { manager.deleteNotificationChannel("hawecker_sleep") }
     }
 
     // ------------------------------------------------------------------
@@ -188,7 +192,10 @@ object Notifications {
             .setContentIntent(open)
         if (alarm.isRepeating()) b.addAction(action("Nur heute aus", skip))
         b.addAction(action("Ausschalten", off))
-        promote(b, "Wecker ${alarm.timeString()}")
+        b.style = Notification.BigTextStyle().bigText(
+            "Klingelt um ${alarm.timeString()}. Antippen: nur heute aus, ausschalten oder klingeln lassen."
+        )
+        promote(b, alarm.timeString())
 
         nm(ctx).notify(PRE_NOTIF_BASE + alarm.id, b.build())
     }
