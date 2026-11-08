@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Wecker</title>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="stage" id="stage"></div>
+<div class="sternstaub"></div>
+
+<div class="app" id="app">
+
+  <section class="view on" id="v-alarms">
+    <div class="head"><div class="title">Wecker</div><div class="subtitle" id="alarmCount"></div></div>
+    <div class="body">
+      <button class="warn" id="warnRow" hidden></button>
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="emptyState" hidden>Noch kein Wecker angelegt.</div>
+      <div class="addrow"><button class="add" id="addBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg>Neuer Wecker</button></div>
+    </div>
+  </section>
+
+  <section class="view" id="v-settings">
+    <div class="head"><div class="title">Einstellungen</div><div class="subtitle">Kategorien, Vorgaben und Klang</div></div>
+    <div class="body">
+      <p class="sectitle">Kategorien</p>
+      <div class="list">
+        <button class="item" id="p-cats"><span data-icon="raster"></span>Kategorien verwalten<span class="val" id="p-cats-v">›</span></button>
+      </div>
+      <p class="sectitle">Schnittstelle</p>
+      <div class="list">
+        <button class="item" id="p-api"><span data-icon="regler"></span>Home Assistant<span class="val" id="p-api-v">›</span></button>
+      </div>
+      <p class="sectitle">Vorgaben für neue Wecker</p>
+      <div class="list">
+        <button class="item" id="p-tone"><span data-icon="ton"></span>Standardton<span class="val" id="p-tone-v">›</span></button>
+        <button class="item" id="p-snooze"><span data-icon="schlummer"></span>Schlummerdauer<span class="val" id="p-snooze-v">›</span></button>
+      </div>
+      <p class="sectitle">Weckruf</p>
+      <div class="list">
+        <button class="item" id="p-prewarn"><span data-icon="wecker"></span>Vorwarnung<span class="val" id="p-prewarn-v">›</span></button>
+        <button class="item" id="p-sleep"><span data-icon="schlaf"></span>Schlafenszeit<span class="val" id="p-sleep-v">›</span></button>
+      </div>
+      <p class="sectitle">Klang</p>
+      <div class="list">
+        <div class="item"><span data-icon="laut"></span>Lautstärke<input type="range" id="p-vol" min="0" max="100" value="75"><span class="val" id="p-vol-v">75%</span></div>
+        <div class="item"><span data-icon="anstieg"></span>Langsam lauter werden<span class="val"><span class="sw" id="p-fade" role="switch" aria-checked="true" tabindex="0"></span></span></div>
+        <div class="item"><span data-icon="vibration"></span>Vibration erlauben<span class="val"><span class="sw" id="p-vib" role="switch" aria-checked="true" tabindex="0"></span></span></div>
+      </div>
+      <p class="sectitle">System</p>
+      <div class="list">
+        <button class="item" data-perm="notify"><span data-icon="schutz"></span>Benachrichtigungen<span class="val">›</span></button>
+        <button class="item" data-perm="fullscreen"><span data-icon="schutz"></span>Vollbild-Weckruf<span class="val">›</span></button>
+        <button class="item" data-perm="exact"><span data-icon="schutz"></span>Exakte Alarme<span class="val">›</span></button>
+        <button class="item" data-perm="battery"><span data-icon="schutz"></span>Akku-Optimierung<span class="val">›</span></button>
+        <button class="item" data-perm="promote"><span data-icon="schutz"></span>Live-Benachrichtigung<span class="val">›</span></button>
+        <button class="item" id="p-testring"><span data-icon="wecker"></span>Testweckruf in 15 Sekunden<span class="val">›</span></button>
+      </div>
+      <p class="hinweis">Für den Test den Bildschirm ausschalten: So zeigt sich, ob der Weckruf auch gesperrt durchkommt.</p>
+      <p class="fuss" id="version"></p>
+    </div>
+  </section>
+
+  <nav class="nav" id="nav">
+    <button data-v="alarms" aria-current="page"><span data-icon="wecker"></span>Wecker</button>
+    <button data-v="settings"><span data-icon="regler"></span>Einstellungen</button>
+  </nav>
+
+  <!-- Wecker bearbeiten -->
+  <section class="sheet" id="s-edit" aria-hidden="true">
+    <div class="sheethead"><button id="e-cancel">Abbrechen</button><h2 id="e-title">Wecker</h2><button id="e-save">Sichern</button></div>
+    <div class="sheetbody">
+      <div class="picker" id="picker">
+        <div class="rad" id="rad-h"></div><div class="colon">:</div><div class="rad" id="rad-m"></div>
+      </div>
+      <div class="field"><p class="flabel">Wiederholen</p><div class="days-pick" id="daysPick"></div></div>
+      <div class="field">
+        <p class="flabel">Einstellungen</p>
+        <div class="list">
+          <div class="item"><span data-icon="schild"></span>Bezeichnung<input type="text" id="e-label" placeholder="Wecker" maxlength="28"></div>
+          <button class="item" id="e-cat"><span data-icon="raster"></span>Kategorie<span class="val" id="e-cat-v">—</span></button>
+          <button class="item" id="e-tone"><span data-icon="ton"></span>Weckton<span class="val" id="e-tone-v">›</span></button>
+          <button class="item" id="e-vibe"><span data-icon="vibration"></span>Vibration<span class="val" id="e-vibe-v">›</span></button>
+          <button class="item" id="e-snooze"><span data-icon="schlummer"></span>Schlummern<span class="val" id="e-snooze-v">›</span></button>
+        </div>
+      </div>
+      <button class="preview" id="e-preview">Weckruf testen</button>
+      <button class="danger" id="e-delete" hidden>Wecker löschen</button>
+    </div>
+  </section>
+
+  <!-- Auswahl -->
+  <section class="sheet" id="s-pick" aria-hidden="true">
+    <div class="sheethead"><button id="k-back">‹ Zurück</button><h2 id="k-title">Auswahl</h2><span style="width:56px"></span></div>
+    <div class="sheetbody"><div class="list" id="k-list"></div></div>
+  </section>
+
+  <!-- Home Assistant -->
+  <section class="sheet" id="s-api" aria-hidden="true" style="z-index:9">
+    <div class="sheethead"><button id="api-back">‹ Zurück</button><h2>Home Assistant</h2><span style="width:56px"></span></div>
+    <div class="sheetbody">
+      <div class="field">
+        <p class="flabel">Verbindung</p>
+        <div class="list">
+          <div class="item"><span data-icon="regler"></span>Adresse<input type="text" id="api-url" placeholder="https://crespina.eurasburg.org" spellcheck="false" autocomplete="off" autocapitalize="off"></div>
+          <div class="item"><span data-icon="schild"></span>Webhook-ID<input type="text" id="api-id" placeholder="ID aus der Integration" spellcheck="false" autocomplete="off" autocapitalize="off"></div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="list">
+          <div class="item"><span data-icon="schutz"></span>Push aktiv<span class="val"><span class="sw" id="api-on" role="switch" aria-checked="true" tabindex="0"></span></span></div>
+        </div>
+      </div>
+      <button class="knopf" id="api-test" disabled>Testen</button>
+      <p class="apistatus" id="api-status"></p>
+      <p class="hinweis" id="api-last"></p>
+      <p class="hinweis">Die App meldet den Stand aller Wecker an Home Assistant, sobald sich etwas ändert – ohne Dienst im Hintergrund. Die Adresse ist vorausgefüllt, nur die Webhook-ID aus der Integration eintragen. Eine ganze Webhook-Adresse im ID-Feld wird automatisch aufgeteilt.</p>
+    </div>
+  </section>
+
+  <!-- Schlafenszeit -->
+  <section class="sheet" id="s-sleep" aria-hidden="true" style="z-index:9">
+    <div class="sheethead"><button id="sl-back">‹ Zurück</button><h2>Schlafenszeit</h2><span style="width:56px"></span></div>
+    <div class="sheetbody">
+      <div class="field">
+        <p class="flabel">Fenster</p>
+        <div class="list">
+          <div class="item"><span data-icon="schlaf"></span>Schlafenszeit<span class="val"><span class="sw" id="sl-on" role="switch" aria-checked="false" tabindex="0"></span></span></div>
+          <button class="item" id="sl-start"><span data-icon="schlummer"></span>Beginn<span class="val" id="sl-start-v">›</span></button>
+          <button class="item" id="sl-end"><span data-icon="wecker"></span>Ende<span class="val" id="sl-end-v">›</span></button>
+          <div class="item"><span data-icon="schild"></span>Stille Anzeige<span class="val"><span class="sw" id="sl-notify" role="switch" aria-checked="true" tabindex="0"></span></span></div>
+        </div>
+      </div>
+      <p class="hinweis">Während des Fensters zeigt das Handy oben eine stille Live-Benachrichtigung, und Home Assistant sieht „Schlafenszeit“ als Sensor. Liegt das Ende vor dem Beginn, läuft das Fenster über Mitternacht.</p>
+    </div>
+  </section>
+
+  <!-- Uhrzeit (Schlafenszeit) -->
+  <section class="sheet" id="s-time" aria-hidden="true" style="z-index:10">
+    <div class="sheethead"><button id="t-cancel">Abbrechen</button><h2 id="t-title">Uhrzeit</h2><button id="t-save">Sichern</button></div>
+    <div class="sheetbody">
+      <div class="picker">
+        <div class="rad" id="rad2-h"></div><div class="colon">:</div><div class="rad" id="rad2-m"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Kategorien -->
+  <section class="sheet" id="s-cats" aria-hidden="true" style="z-index:9">
+    <div class="sheethead"><button id="c-back">‹ Zurück</button><h2>Kategorien</h2><span style="width:56px"></span></div>
+    <div class="sheetbody">
+      <div class="list" id="catList"></div>
+      <div class="addrow"><button class="add" id="catAdd"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg>Neue Kategorie</button></div>
+    </div>
+  </section>
+
+  <!-- Kategorie bearbeiten -->
+  <section class="sheet" id="s-cat" aria-hidden="true" style="z-index:10">
+    <div class="sheethead"><button id="ce-cancel">Abbrechen</button><h2 id="ce-title">Kategorie</h2><button id="ce-save">Sichern</button></div>
+    <div class="sheetbody">
+      <div class="katvorschau" id="ce-preview"></div>
+      <div class="field">
+        <p class="flabel">Name</p>
+        <div class="list"><div class="item"><span data-icon="schild"></span>Bezeichnung<input type="text" id="ce-name" placeholder="Kategorie" maxlength="20"></div></div>
+      </div>
+      <div class="field"><p class="flabel">Bild</p><div class="bildgitter" id="ce-bilder"></div></div>
+      <button class="danger" id="ce-delete" hidden>Kategorie löschen</button>
+    </div>
+  </section>
+
+</div>
+
+<script src="bilder.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

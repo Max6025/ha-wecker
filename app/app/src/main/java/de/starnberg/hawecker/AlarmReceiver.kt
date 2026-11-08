@@ -29,7 +29,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 id = TEST_ID,
                 label = "Testweckruf",
                 enabled = true,
-                vibrate = true,
+                catId = CategoryStore.all(ctx).first().id,
+                tone = Prefs.defTone(ctx),
+                vibe = "Herzschlag",
                 snoozeMinutes = 1
             )
             id >= 0 -> AlarmStore.get(ctx, id)

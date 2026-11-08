@@ -2,12 +2,31 @@ package de.starnberg.hawecker
 
 import android.content.Context
 
-/** App-Einstellungen: Vorwarnung, Schlafenszeit und Push an Home Assistant. */
+/** App-Einstellungen: Klang, Vorgaben, Vorwarnung, Schlafenszeit und Push an Home Assistant. */
 object Prefs {
     private const val PREFS = "hawecker_prefs"
 
     private fun p(ctx: Context) =
         ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    // --- Klang und Vorgaben fuer neue Wecker ------------------------------
+    /** Lautstaerke 0-100, wirkt auf den Weckton. */
+    fun vol(ctx: Context): Int = p(ctx).getInt("vol", 75)
+    fun setVol(ctx: Context, v: Int) = p(ctx).edit().putInt("vol", v.coerceIn(0, 100)).apply()
+
+    /** Langsam lauter werden. */
+    fun fade(ctx: Context): Boolean = p(ctx).getBoolean("fade", true)
+    fun setFade(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("fade", v).apply()
+
+    /** Vibration grundsaetzlich erlauben (Weckruf, Haptik der Oberflaeche). */
+    fun vib(ctx: Context): Boolean = p(ctx).getBoolean("vib", true)
+    fun setVib(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("vib", v).apply()
+
+    fun defTone(ctx: Context): String = p(ctx).getString("def_tone", "Radar")?.ifEmpty { "Radar" } ?: "Radar"
+    fun setDefTone(ctx: Context, v: String) = p(ctx).edit().putString("def_tone", v).apply()
+
+    fun defSnooze(ctx: Context): Int = p(ctx).getInt("def_snooze", 9)
+    fun setDefSnooze(ctx: Context, v: Int) = p(ctx).edit().putInt("def_snooze", v.coerceIn(0, 60)).apply()
 
     /** Minuten vor dem Weckruf fuer die Vorwarnung (Live-Benachrichtigung). 0 = aus. */
     fun prewarnMinutes(ctx: Context): Int = p(ctx).getInt("prewarn_minutes", 5)

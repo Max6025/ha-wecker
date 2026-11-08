@@ -52,6 +52,21 @@ object AlarmStore {
         notifyChanged(ctx)
     }
 
+    /** Alle Wecker auf einmal ersetzen (Oberflaeche); entfernte werden abgemeldet. */
+    fun replaceAll(ctx: Context, alarms: List<Alarm>) {
+        val weg: List<Int>
+        synchronized(lock) {
+            val neu = alarms.map { it.id }.toSet()
+            weg = all(ctx).map { it.id }.filter { it !in neu }
+            persist(ctx, alarms.toMutableList())
+        }
+        weg.forEach {
+            AlarmScheduler.cancel(ctx, it)
+            Notifications.cancelPrewarn(ctx, it)
+        }
+        notifyChanged(ctx)
+    }
+
     fun nextId(ctx: Context): Int = synchronized(lock) {
         val p = prefs(ctx)
         val id = p.getInt(KEY_NEXT_ID, 1)

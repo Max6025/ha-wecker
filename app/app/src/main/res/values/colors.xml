@@ -1,15 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#FF0B0E13</color>
-    <color name="surface">#FF151A22</color>
-    <color name="surface_alt">#FF1D242E</color>
-    <color name="line">#FF222A35</color>
-    <color name="text">#FFE8EDF4</color>
-    <color name="text_dim">#FF8A96A6</color>
-    <color name="text_off">#FF5D6878</color>
-    <color name="accent">#FFFFB23F</color>
-    <color name="accent_dim">#FF5A4320</color>
-    <color name="danger">#FFFF5C5C</color>
-    <color name="ok">#FF3DD68C</color>
+    <!-- Farbtoken des Mockups; die Oberflaeche selbst liegt in assets/ui/style.css -->
+    <color name="bg">#FF061229</color>
+    <color name="ring_bg">#FF05070F</color>
+    <color name="text">#FFEEF4FF</color>
+    <color name="text_dim">#99DCE8FF</color>
+    <color name="accent">#FF74B4FF</color>
+    <color name="ok">#FF5FE0A8</color>
     <color name="transparent">#00000000</color>
 </resources>

@@ -1,66 +1,58 @@
 package de.starnberg.hawecker
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.AudioManager
-import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.net.Uri
-import android.os.Build
+import android.media.AudioTrack
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 
-/** Spielt den Weckton (Alarm-Stream, Loop) und vibriert. */
+/**
+ * Spielt den Weckton (ToneSynth, Alarm-Kanal, Schleife alle 1,6 s) und laesst
+ * das Vibrationsmuster des Weckers laufen. Lautstaerke und „langsam lauter
+ * werden" kommen aus den Einstellungen.
+ */
 object RingPlayer {
 
-    private var player: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
+    private var track: AudioTrack? = null
+    private var preview: AudioTrack? = null
     private val handler = Handler(Looper.getMainLooper())
-    private var fadeStep = 0
     private var fadeRunnable: Runnable? = null
+    private var previewEnde: Runnable? = null
 
-    fun isPlaying(): Boolean = runCatching { player?.isPlaying == true }.getOrDefault(false)
+    @Volatile
+    private var playing = false
+
+    fun isPlaying(): Boolean = playing
 
     fun start(ctx: Context, alarm: Alarm) {
         stop()
-        val uri: Uri = alarm.soundUri?.let { runCatching { Uri.parse(it) }.getOrNull() }
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ?: return
+        val vol = Prefs.vol(ctx) / 100f
+        val fade = Prefs.fade(ctx)
 
         runCatching {
-            val mp = MediaPlayer()
-            mp.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-            mp.setDataSource(ctx, uri)
-            mp.isLooping = true
-            mp.prepare()
-            mp.setVolume(0.15f, 0.15f)
-            mp.start()
-            player = mp
+            val t = ToneSynth.track(alarm.tone, fade, loop = true)
+            val startPegel = if (fade) 0.15f else 1f
+            t.setVolume(vol * startPegel)
+            t.play()
+            track = t
+            playing = true
 
-            // sanft lauter werden
-            fadeStep = 0
-            val r = object : Runnable {
-                override fun run() {
-                    fadeStep++
-                    val v = (0.15f + fadeStep * 0.085f).coerceAtMost(1.0f)
-                    runCatching { player?.setVolume(v, v) }
-                    if (v < 1.0f) handler.postDelayed(this, 2500)
+            if (fade) {
+                var schritt = 0
+                val r = object : Runnable {
+                    override fun run() {
+                        schritt++
+                        val p = (0.15f + schritt * 0.085f).coerceAtMost(1f)
+                        runCatching { track?.setVolume(vol * p) }
+                        if (p < 1f) handler.postDelayed(this, 2500)
+                    }
                 }
+                fadeRunnable = r
+                handler.postDelayed(r, 2500)
             }
-            fadeRunnable = r
-            handler.postDelayed(r, 2500)
         }
 
-        // Sicherstellen, dass der Alarm-Stream nicht auf 0 steht
+        // Sicherstellen, dass der Alarm-Kanal nicht auf 0 steht
         runCatching {
             val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             if (am.getStreamVolume(AudioManager.STREAM_ALARM) == 0) {
@@ -69,32 +61,46 @@ object RingPlayer {
             }
         }
 
-        if (alarm.vibrate) {
-            val vib = if (Build.VERSION.SDK_INT >= 31) {
-                (ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
-            vibrator = vib
-            val pattern = longArrayOf(0, 600, 700, 600, 1500)
-            runCatching {
-                vib.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            }
-        }
+        if (Prefs.vib(ctx) && alarm.vibrate) Haptik.musterEndlos(ctx, alarm.vibe)
     }
 
     fun stop() {
         fadeRunnable?.let { handler.removeCallbacks(it) }
         fadeRunnable = null
         runCatching {
-            player?.let {
-                if (it.isPlaying) it.stop()
+            track?.let {
+                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.stop()
                 it.release()
             }
         }
-        player = null
-        runCatching { vibrator?.cancel() }
-        vibrator = null
+        track = null
+        playing = false
+        Haptik.stopp()
+    }
+
+    /** Einmaliges Anspielen eines Tons in der Auswahlliste. */
+    fun preview(ctx: Context, tone: String) {
+        stopPreview()
+        runCatching {
+            val t = ToneSynth.track(tone, Prefs.fade(ctx), loop = false)
+            t.setVolume(Prefs.vol(ctx) / 100f)
+            t.play()
+            preview = t
+            val r = Runnable { stopPreview() }
+            previewEnde = r
+            handler.postDelayed(r, 1700)
+        }
+    }
+
+    fun stopPreview() {
+        previewEnde?.let { handler.removeCallbacks(it) }
+        previewEnde = null
+        runCatching {
+            preview?.let {
+                if (it.playState == AudioTrack.PLAYSTATE_PLAYING) it.stop()
+                it.release()
+            }
+        }
+        preview = null
     }
 }

@@ -1,5 +1,6 @@
 package de.starnberg.hawecker
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
@@ -7,6 +8,7 @@ import java.util.Locale
 /**
  * Ein einzelner Wecker.
  * days ist eine Bitmaske: Bit 0 = Montag ... Bit 6 = Sonntag. 0 = einmalig.
+ * Die Oberflaeche rechnet mit JS-Wochentagen (0 = Sonntag), siehe daysJs().
  */
 data class Alarm(
     var id: Int,
@@ -15,12 +17,18 @@ data class Alarm(
     var minute: Int = 0,
     var days: Int = 0,
     var enabled: Boolean = true,
-    var vibrate: Boolean = true,
+    /** Kategorie (CategoryStore), bestimmt Bild und Farbe. */
+    var catId: String = "k1",
+    /** Weckton-Name aus ToneSynth.TONES. */
+    var tone: String = "Radar",
+    /** Vibrationsmuster: Herzschlag, Kurz, Stakkato, Welle oder Aus. */
+    var vibe: String = "Herzschlag",
     var snoozeMinutes: Int = 9,
-    var soundUri: String? = null,
     var skipNext: Boolean = false,
     var snoozedUntil: Long = 0L
 ) {
+
+    val vibrate: Boolean get() = vibe != "Aus"
 
     fun timeString(): String = String.format(Locale.GERMANY, "%02d:%02d", hour, minute)
 
@@ -65,6 +73,13 @@ data class Alarm(
             .joinToString(" ") { DAY_SHORT[it] }
     }
 
+    /** Wochentage als JS-Liste (0 = Sonntag ... 6 = Samstag). */
+    fun daysJs(): JSONArray {
+        val a = JSONArray()
+        for (i in 0..6) if (((days shr i) and 1) == 1) a.put((i + 1) % 7)
+        return a
+    }
+
     fun toJson(): JSONObject {
         val o = JSONObject()
         o.put("id", id)
@@ -73,9 +88,10 @@ data class Alarm(
         o.put("minute", minute)
         o.put("days", days)
         o.put("enabled", enabled)
-        o.put("vibrate", vibrate)
+        o.put("cat", catId)
+        o.put("tone", tone)
+        o.put("vibe", vibe)
         o.put("snoozeMinutes", snoozeMinutes)
-        o.put("soundUri", soundUri ?: JSONObject.NULL)
         o.put("skipNext", skipNext)
         o.put("snoozedUntil", snoozedUntil)
         return o
@@ -90,6 +106,17 @@ data class Alarm(
         /** Calendar-Wochentag -> 0 = Montag ... 6 = Sonntag */
         fun isoIndex(cal: Calendar): Int = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
 
+        /** JS-Wochentagsliste (0 = Sonntag) -> Bitmaske (Bit 0 = Montag). */
+        fun daysFromJs(arr: JSONArray?): Int {
+            var mask = 0
+            if (arr == null) return 0
+            for (i in 0 until arr.length()) {
+                val js = arr.optInt(i, -1)
+                if (js in 0..6) mask = mask or (1 shl ((js + 6) % 7))
+            }
+            return mask
+        }
+
         fun fromJson(o: JSONObject): Alarm = Alarm(
             id = o.optInt("id"),
             label = o.optString("label", ""),
@@ -97,9 +124,14 @@ data class Alarm(
             minute = o.optInt("minute", 0),
             days = o.optInt("days", 0),
             enabled = o.optBoolean("enabled", true),
-            vibrate = o.optBoolean("vibrate", true),
+            catId = o.optString("cat", "k1").ifEmpty { "k1" },
+            tone = o.optString("tone", "Radar").ifEmpty { "Radar" },
+            // bis 1.7 gab es nur den Schalter "vibrate"
+            vibe = o.optString(
+                "vibe",
+                if (o.has("vibrate") && !o.optBoolean("vibrate", true)) "Aus" else "Herzschlag"
+            ).ifEmpty { "Herzschlag" },
             snoozeMinutes = o.optInt("snoozeMinutes", 9),
-            soundUri = if (o.isNull("soundUri")) null else o.optString("soundUri", "").ifEmpty { null },
             skipNext = o.optBoolean("skipNext", false),
             snoozedUntil = o.optLong("snoozedUntil", 0L)
         )

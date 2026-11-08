@@ -61,6 +61,30 @@ object HaPush {
         }.apply { isDaemon = true; name = "hawecker-push" }.start()
     }
 
+    /**
+     * Sofortiger Versand fuer den Knopf „Testen": Ergebnis als (ok, Text).
+     * Schickt auch bei ausgeschaltetem Push, damit man die Zugangsdaten pruefen kann.
+     */
+    fun testen(ctx: Context): Pair<Boolean, String> {
+        if (Prefs.webhookId(ctx).isEmpty()) return false to "Webhook-ID fehlt."
+        val ok = runCatching { send(ctx) }.getOrDefault(false)
+        val letzter = Prefs.lastPushResult(ctx)
+        return if (ok) {
+            true to "Verbindung steht. Home Assistant hat den Weckerstand angenommen."
+        } else {
+            val m = letzter.substringAfter(" ", letzter)
+            when {
+                m.contains("Fehler 404") || m.contains("Fehler 405") ->
+                    false to "Home Assistant kennt diese Webhook-ID nicht. ID prüfen (404)."
+                m.contains("Fehler 4") -> false to "Home Assistant hat abgelehnt: $m"
+                m.contains("Fehler 5") -> false to "Home Assistant meldet einen Fehler: $m"
+                m.contains("timed out") || m.contains("Timeout", true) ->
+                    false to "Zeitüberschreitung – keine Antwort von ${Prefs.haAdresse(ctx)}."
+                else -> false to "Keine Verbindung zu ${Prefs.haAdresse(ctx)}. Adresse, Netz und ID prüfen."
+            }
+        }
+    }
+
     private fun send(ctx: Context): Boolean {
         val target = Prefs.webhookUrl(ctx)
         val body = ApiPayload.build(ctx).toString()

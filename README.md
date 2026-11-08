@@ -46,23 +46,38 @@ ha-wecker/
 
 ## 1. Was die App kann
 
+**Oberflaeche (seit 2.0)**
+- Aussehen und Bedienung 1:1 nach dem Mockup „Hora Wecker" (08.11.2026): die
+  Seite liegt als HTML/CSS/JS in `app/app/src/main/assets/ui/` und laeuft in
+  einer WebView; Wecker, Planung, Klingeln und Push bleiben nativ (Kotlin).
+  Bruecke: `UiBridge.kt` (Seite -> App) und `window.aktualisieren()` (App -> Seite).
+- Hero-Box „Naechster Weckruf", Kachelraster mit Kategoriebild und Farbe,
+  kurz tippen = an/aus, lange druecken = bearbeiten, Zeitrad mit Uebertrag,
+  Kategorien mit 30 Bildern (Farbe gehoert zum Bild), Vollbild-Weckruf mit
+  Schieberegler. Schriften Archivo und Manrope liegen in den Assets.
+- Vorschau am Rechner ohne Handy: `cd app/app/src/main/assets/ui && python3 -m
+  http.server 8765`, dann `http://127.0.0.1:8765/app.html` (Beispieldaten,
+  nichts wird gespeichert).
+
 **Wecker**
 - Exakte Alarme ueber `AlarmManager.setAlarmClock()` – erscheint auch im
   Android-Statusbalken wie jeder andere Wecker
 - Vollbild-Weckruf ueber dem Sperrbildschirm, Bildschirm geht an
-- Alarm-Stream, Loop, sanft lauter werdend, Vibrationsmuster
-- Eigener Weckton pro Wecker (Systempicker)
-- Wiederholung pro Wochentag, Presets Mo-Fr / Taeglich / Einmalig
-- Schlummern (Minuten pro Wecker einstellbar), Lautstaerketaste = Schlummern
-- "Naechsten Termin ueberspringen" – Wecker bleibt an, faellt einmal aus
+- Acht erzeugte Wecktoene (ToneSynth, wie im Mockup), Alarm-Kanal, sanft
+  lauter werdend, Vibrationsmuster Herzschlag / Kurz / Stakkato / Welle
+- Wiederholung pro Wochentag, Kategorie, Schlummern pro Wecker,
+  Lautstaerketaste = Schlummern
+- Vorwarnung als Live-Benachrichtigung, Schlafenszeit, „heute ueberspringen"
 - Ueberlebt Neustart (BOOT_COMPLETED), Zeit- und Zeitzonenwechsel
 
 **Home Assistant**
 - Meldet **alle** Wecker per Webhook, mit `enabled: true/false` – also auch die
-  deaktivierten, getrennt nach `active_alarms` / `inactive_alarms`
+  deaktivierten, getrennt nach `active_alarms` / `inactive_alarms`; seit 2.0
+  je Wecker `kategorie`, `ton`, `vibration` und oben `kategorien` (api_version 3)
 - Rein ereignisgesteuert: kein Dienst, kein Intervall, kein Server in der App
 
-Keine externen Bibliotheken ausser `androidx.core`. Release-APK ca. 90 KB.
+Keine externen Bibliotheken ausser `androidx.core`. Release-APK ca. 470 KB
+(davon die zwei Schriften).
 
 ---
 
@@ -87,7 +102,7 @@ Die Release-APK wird mit dem Debug-Key signiert und ist direkt installierbar.
 2. Dem Warnbanner folgen: **Vollbild-Weckruf**, **exakte Alarme** und
    **Akku-Optimierung** freigeben (jeweils ein Tipp fuehrt in die richtige
    Systemeinstellung)
-3. Zahnrad -> **Webhook-ID** aus Home Assistant eintragen (zeigt die
+3. Einstellungen -> **Home Assistant** -> **Webhook-ID** aus Home Assistant eintragen (zeigt die
    Integration beim Hinzufuegen des Geraets „Wecker" an, spaeter im
    Diagnose-Sensor „Webhook" und unter „Konfigurieren"). Die
    Home-Assistant-Adresse ist vorausgefuellt (`Prefs.HA_ADRESSE_STANDARD`,
@@ -226,7 +241,7 @@ Wiederholungsversuch in fuenf Minuten und schlaeft weiter.
 1. Integration einrichten (Abschnitt 5) - oder ohne Integration
    `homeassistant/webhook-push.yaml` in die `configuration.yaml` uebernehmen,
    `webhook_id` durch eine eigene lange Zeichenfolge ersetzen, HA neu starten
-2. In der App unter dem Zahnrad die **Webhook-ID** eintragen; die
+2. In der App unter Einstellungen -> Home Assistant die **Webhook-ID** eintragen; die
    Home-Assistant-Adresse steht schon da. Eine ganze Adresse
    `https://DEINE-HA-ADRESSE/api/webhook/DEINE_WEBHOOK_ID` im ID-Feld wird
    automatisch aufgeteilt.

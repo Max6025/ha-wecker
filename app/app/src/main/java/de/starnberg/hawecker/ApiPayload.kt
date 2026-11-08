@@ -46,6 +46,11 @@ object ApiPayload {
         for (i in 0..6) if (((a.days shr i) and 1) == 1) dl.put(Alarm.DAY_SHORT[i])
         o.put("days", dl)
         o.put("vibrate", a.vibrate)
+        o.put("vibration", a.vibe)
+        o.put("ton", a.tone)
+        val k = CategoryStore.get(ctx, a.catId)
+        o.put("kategorie", JSONObject()
+            .put("id", k.id).put("name", k.name).put("bild", k.bild).put("farbe", k.farbe))
         o.put("snooze_minutes", a.snoozeMinutes)
         o.put("skip_next", a.skipNext)
         o.put("snoozed", a.snoozedUntil > now)
@@ -130,10 +135,17 @@ object ApiPayload {
         root.put("sleep", sleep)
         root.put("sleep_active", sleepActive)
 
+        val kats = JSONArray()
+        for (k in CategoryStore.all(ctx)) {
+            kats.put(JSONObject().put("id", k.id).put("name", k.name).put("bild", k.bild).put("farbe", k.farbe)
+                .put("wecker", all.count { it.catId == k.id }))
+        }
+        root.put("kategorien", kats)
+
         root.put("prewarn_minutes", Prefs.prewarnMinutes(ctx))
         root.put("device_time", iso(now))
         root.put("timezone", TimeZone.getDefault().id)
-        root.put("api_version", 2)
+        root.put("api_version", 3)
         return root
     }
 }

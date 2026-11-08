@@ -6,6 +6,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 
 ## Regeln
 
+- **Oberflaeche der App ist das Mockup.** `app/app/src/main/assets/ui/` (style.css,
+  bilder.js 1:1 aus dem Artefakt „Hora Wecker", app.js/app.html/ring.html mit
+  Bruecke `window.Android`). Keine XML-Layouts mehr anlegen; Aenderungen am
+  Aussehen passieren dort. Safe-Area kommt von Android als `--sat/--sab/...`.
+  Textauswahl ist absichtlich aus (sonst dreht ein langes Druecken das Zeitrad).
+  Vorschau am Rechner: `python3 -m http.server 8765` im ui-Ordner.
 - **Kein MQTT, kein Hintergrunddienst in der App.** Die App meldet sich per
   Webhook, wenn sich etwas aendert, sonst nichts. Einen lokalen Server gab es
   bis 1.4; er ist bewusst entfernt und kommt nicht zurueck.

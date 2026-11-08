@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Weckruf</title>
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="ringseite">
+<div class="app" id="app">
+  <div class="ring on" id="ring">
+    <div class="glow"></div><div class="wave"></div><div class="wave w2"></div><div class="wave w3"></div>
+    <div class="rkicker" id="ringKicker">Weckruf</div>
+    <div class="rtime" id="ringTime">--:--</div>
+    <div class="rchip" id="ringChip"></div>
+    <div class="rdate" id="ringDate"></div>
+    <div class="spacer"></div>
+    <button class="rsnooze" id="ringSnooze">Schlummern</button>
+    <div class="slider" id="slider">
+      <div class="fill" id="sliderFill"></div>
+      <div class="hint">Zum Stoppen schieben</div>
+      <div class="knob" id="knob"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></div>
+    </div>
+  </div>
+</div>
+<script src="bilder.js"></script>
+<script>
+(function(){
+"use strict";
+var A=window.Android||null;
+var $=function(s){return document.querySelector(s)};
+var pad=function(n){return ("0"+n).slice(-2)};
+var DLONG={0:"Sonntag",1:"Montag",2:"Dienstag",3:"Mittwoch",4:"Donnerstag",5:"Freitag",6:"Samstag"};
+var MON=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+var w={h:6,m:30,label:"Wecker",cat:{n:"",bild:"sonne",c:"#FF9A4D"},snooze:9,vorschau:false};
+try{ if(A) w=JSON.parse(A.weckruf()); }catch(e){}
+var k=w.cat||{bild:"sonne",c:"#FF9A4D",n:""};
+
+$("#ring").style.setProperty("--rc",k.c||"#FF9A4D");
+$("#ringKicker").textContent=w.vorschau?"Vorschau":"Weckruf";
+$("#ringTime").textContent=pad(w.h)+":"+pad(w.m);
+$("#ringChip").innerHTML=bild(k.bild,22)+esc(w.label||k.n||"Wecker");
+var n=new Date();
+$("#ringDate").textContent=DLONG[n.getDay()]+", "+n.getDate()+". "+MON[n.getMonth()];
+var sn=$("#ringSnooze");
+sn.textContent=w.snooze?("Schlummern · "+w.snooze+" Min"):"Schlummern aus";
+sn.disabled=!w.snooze; sn.style.opacity=w.snooze?1:.45;
+sn.addEventListener("click",function(){ if(A)A.schlummern(); });
+
+var knob=$("#knob"),slider=$("#slider"),fill=$("#sliderFill"),dragging=false,startX=0,maxX=0,fertig=false;
+function resetKnob(){knob.style.left="6px";fill.style.width="0px"}
+knob.addEventListener("pointerdown",function(e){
+ dragging=true; startX=e.clientX; maxX=slider.clientWidth-knob.offsetWidth-12;
+ knob.setPointerCapture(e.pointerId);
+});
+knob.addEventListener("pointermove",function(e){
+ if(!dragging)return;
+ var x=Math.max(0,Math.min(maxX,e.clientX-startX));
+ knob.style.left=(6+x)+"px"; fill.style.width=(x+60)+"px";
+ if(x>=maxX-2&&!fertig){dragging=false;fertig=true;if(A)A.stoppen();}
+});
+function endDrag(){if(!dragging)return;dragging=false;resetKnob()}
+knob.addEventListener("pointerup",endDrag);
+knob.addEventListener("pointercancel",endDrag);
+document.addEventListener("contextmenu",function(e){e.preventDefault()});
+
+window.setInsets=function(t,r,b,l){
+ var s=document.documentElement.style;
+ s.setProperty("--sat",t+"px"); s.setProperty("--sar",r+"px"); s.setProperty("--sab",b+"px"); s.setProperty("--sal",l+"px");
+};
+})();
+</script>
+</body>
+</html>

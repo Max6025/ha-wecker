@@ -1,31 +1,46 @@
 package de.starnberg.hawecker
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.KeyEvent
+import android.view.View
 import android.view.WindowManager
-import android.widget.TextView
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import org.json.JSONObject
 
+/**
+ * Vollbild-Weckruf (assets/ui/ring.html): atmender Lichtkegel in der
+ * Kategoriefarbe, Schieberegler zum Stoppen, Schlummern. Ton und Vibration
+ * macht RingPlayer. Mit EXTRA_VORSCHAU zeigt die Seite einen Entwurf aus der
+ * Bearbeiten-Seite („Weckruf testen") und beendet nur sich selbst.
+ */
 class RingActivity : Activity() {
 
     companion object {
         const val ACTION_CLOSE = "de.starnberg.hawecker.CLOSE_RING"
+        const val EXTRA_VORSCHAU = "vorschau"
     }
 
+    private lateinit var web: WebView
     private var alarmId = -1
-    private val handler = Handler(Looper.getMainLooper())
-    private var ticker: Runnable? = null
+    private var alarm: Alarm? = null
+    private var kategorie: Category? = null
+    private var vorschau = false
+    private var insetsJs = ""
 
     private val closeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -33,6 +48,7 @@ class RingActivity : Activity() {
         }
     }
 
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -49,27 +65,74 @@ class RingActivity : Activity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
 
-        setContentView(R.layout.activity_ring)
-
-        alarmId = intent.getIntExtra(AlarmReceiver.EXTRA_ID, RingState.ringingId)
-        val alarm = AlarmReceiver.resolveAlarm(this, alarmId)
-
-        val label = findViewById<TextView>(R.id.ringLabel)
-        val sub = findViewById<TextView>(R.id.ringSub)
-        label.text = if (alarm == null || alarm.label.isBlank()) "WECKER" else alarm.label.uppercase(Locale.GERMANY)
-        sub.text = if (alarm == null) "" else "Geplant fuer ${alarm.timeString()}"
-
-        startClock()
-
-        if (alarm != null) {
-            RingState.ringingId = alarm.id
-            if (!RingPlayer.isPlaying()) RingPlayer.start(this, alarm)
-            findViewById<TextView>(R.id.btnSnooze).text = "SCHLUMMERN  ${alarm.snoozeMinutes} MIN"
+        // Welcher Wecker? Entwurf aus der Bearbeiten-Seite oder echter Weckruf.
+        val entwurf = intent.getStringExtra(EXTRA_VORSCHAU)
+        if (entwurf != null) {
+            vorschau = true
+            runCatching { JSONObject(entwurf) }.getOrNull()?.let { j ->
+                val k = j.optJSONObject("kat")
+                kategorie = if (k != null) Category.fromJson(k) else CategoryStore.get(this, j.optString("cat"))
+                alarm = Alarm(
+                    id = AlarmReceiver.TEST_ID,
+                    label = j.optString("label", ""),
+                    hour = j.optInt("h", 6),
+                    minute = j.optInt("m", 30),
+                    catId = kategorie?.id ?: "k1",
+                    tone = j.optString("tone", Prefs.defTone(this)),
+                    vibe = j.optString("vibe", "Herzschlag"),
+                    snoozeMinutes = j.optInt("snooze", 9)
+                )
+            }
+            alarm?.let { RingPlayer.start(this, it) }
+        } else {
+            alarmId = intent.getIntExtra(AlarmReceiver.EXTRA_ID, RingState.ringingId)
+            alarm = AlarmReceiver.resolveAlarm(this, alarmId)
+            alarm?.let {
+                RingState.ringingId = it.id
+                kategorie = CategoryStore.get(this, it.catId)
+                if (!RingPlayer.isPlaying()) RingPlayer.start(this, it)
+            }
         }
 
-        findViewById<TextView>(R.id.btnSnooze).setOnClickListener { act(AlarmReceiver.ACTION_SNOOZE) }
-        findViewById<TextView>(R.id.btnStop).setOnClickListener { act(AlarmReceiver.ACTION_DISMISS) }
+        web = WebView(this)
+        web.setBackgroundColor(Color.parseColor("#05070F"))
+        web.overScrollMode = View.OVER_SCROLL_NEVER
+        web.isVerticalScrollBarEnabled = false
+        with(web.settings) {
+            javaScriptEnabled = true
+            allowFileAccess = true
+            textZoom = 100
+        }
+        web.isLongClickable = false
+        web.setOnLongClickListener { true }
+        web.addJavascriptInterface(RingBridge(), "Android")
+        web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                if (insetsJs.isNotEmpty()) js(insetsJs)
+            }
+        }
+        setContentView(web)
+
+        val ctrl = WindowInsetsControllerCompat(window, web)
+        ctrl.hide(WindowInsetsCompat.Type.systemBars())
+        ctrl.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        ViewCompat.setOnApplyWindowInsetsListener(web) { _, ins ->
+            val bars = ins.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val d = resources.displayMetrics.density
+            fun px(p: Int) = (p / d).toInt()
+            insetsJs = "window.setInsets&&window.setInsets(${px(bars.top)},${px(bars.right)},${px(bars.bottom)},${px(bars.left)})"
+            js(insetsJs)
+            WindowInsetsCompat.CONSUMED
+        }
+        web.loadUrl("file:///android_asset/ui/ring.html")
 
         val filter = IntentFilter(ACTION_CLOSE)
         if (Build.VERSION.SDK_INT >= 33) {
@@ -80,21 +143,44 @@ class RingActivity : Activity() {
         }
     }
 
-    private fun startClock() {
-        val clock = findViewById<TextView>(R.id.ringClock)
-        val date = findViewById<TextView>(R.id.ringDate)
-        val fmtT = SimpleDateFormat("HH:mm", Locale.GERMANY)
-        val fmtD = SimpleDateFormat("EEEE, d. MMMM", Locale.GERMANY)
-        val r = object : Runnable {
-            override fun run() {
-                val now = Date()
-                clock.text = fmtT.format(now)
-                date.text = fmtD.format(now)
-                handler.postDelayed(this, 1000)
-            }
+    private fun js(code: String) {
+        runOnUiThread { runCatching { web.evaluateJavascript(code, null) } }
+    }
+
+    /** Daten fuer die Seite: Uhrzeit, Bezeichnung, Kategorie, Schlummerdauer. */
+    private fun weckrufJson(): String {
+        val a = alarm
+        val k = kategorie
+        val o = JSONObject()
+        o.put("h", a?.hour ?: 0)
+        o.put("m", a?.minute ?: 0)
+        o.put("label", a?.label ?: "Wecker")
+        o.put("snooze", a?.snoozeMinutes ?: 0)
+        o.put("vorschau", vorschau)
+        val kat = JSONObject()
+        kat.put("n", k?.name ?: "")
+        kat.put("bild", k?.bild ?: "wecker")
+        kat.put("c", k?.farbe ?: "#FF9A4D")
+        o.put("cat", kat)
+        return o.toString()
+    }
+
+    private fun schlummern() {
+        if (vorschau) {
+            RingPlayer.stop()
+            finishAndRemoveTask()
+        } else {
+            act(AlarmReceiver.ACTION_SNOOZE)
         }
-        ticker = r
-        handler.post(r)
+    }
+
+    private fun stoppen() {
+        if (vorschau) {
+            RingPlayer.stop()
+            finishAndRemoveTask()
+        } else {
+            act(AlarmReceiver.ACTION_DISMISS)
+        }
     }
 
     private fun act(action: String) {
@@ -111,7 +197,7 @@ class RingActivity : Activity() {
         // Lautstaerketasten schlummern, Zurueck macht nichts
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                act(AlarmReceiver.ACTION_SNOOZE); true
+                if ((alarm?.snoozeMinutes ?: 0) > 0) schlummern() else stoppen(); true
             }
             KeyEvent.KEYCODE_BACK -> true
             else -> super.onKeyDown(keyCode, event)
@@ -120,12 +206,24 @@ class RingActivity : Activity() {
 
     @Deprecated("Zurueck-Taste bewusst blockiert")
     override fun onBackPressed() {
-        // nichts
+        if (vorschau) stoppen()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        ticker?.let { handler.removeCallbacks(it) }
+        if (vorschau) RingPlayer.stop()
         runCatching { unregisterReceiver(closeReceiver) }
+        runCatching { web.destroy() }
+    }
+
+    inner class RingBridge {
+        @JavascriptInterface
+        fun weckruf(): String = weckrufJson()
+
+        @JavascriptInterface
+        fun schlummern() = runOnUiThread { this@RingActivity.schlummern() }
+
+        @JavascriptInterface
+        fun stoppen() = runOnUiThread { this@RingActivity.stoppen() }
     }
 }
