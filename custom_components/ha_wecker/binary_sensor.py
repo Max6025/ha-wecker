@@ -272,7 +272,6 @@ class RelaisAlarmBinarySensor(RelaisEntity, BinarySensorEntity):
 
     _attr_name = "Alarm"
     _attr_icon = "mdi:alarm-light"
-    _attr_device_class = BinarySensorDeviceClass.RUNNING
 
     def __init__(self, coordinator: RelaisCoordinator) -> None:
         super().__init__(coordinator, "alarm")

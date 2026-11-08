@@ -196,4 +196,8 @@ class RelaisUptimeSensor(RelaisEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {"ip": self.daten.get("ip"), "version": self.daten.get("version")}
+        return {
+            "ip": self.daten.get("ip"),
+            "version": self.daten.get("version"),
+            "ereignisstrom": "verbunden" if self.coordinator.events_verbunden else "getrennt (Abfrage alle 10 s)",
+        }

@@ -9,7 +9,7 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Max6025/ha-wecker/issues",
   "requirements": [],
-  "version": "1.4.0",
+  "version": "1.5.0",
   "zeroconf": [
     {
       "type": "_ha-wecker._tcp.local.",

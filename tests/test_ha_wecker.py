@@ -61,6 +61,15 @@ PAYLOAD = {
 
 
 @pytest.fixture(autouse=True)
+def kein_ereignisstrom():
+    """Der Ereignisstrom haelt eine Verbindung offen - im Test abschalten."""
+    from unittest.mock import patch
+
+    with patch("custom_components.ha_wecker.relais.RelaisCoordinator.async_start_events"):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(hass, enable_custom_integrations):
     # HA haengt beim Start sein Test-config_dir ein und importiert dessen
     # custom_components; hier gegen den Projektordner austauschen.
@@ -250,7 +259,7 @@ async def test_relaisbox_entities_und_schalter(hass: HomeAssistant, aioclient_mo
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
     aioclient_mock.clear_requests()
     aioclient_mock.get(f"{RELAIS_URL}/api/state", json=relais_state(eingang=True))
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=4))
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=11))
     await hass.async_block_till_done()
     eingang = hass.states.get("binary_sensor.relaisbox_eingang")
     assert eingang.state == "on" and eingang.attributes["zaehler"] == 3
@@ -391,3 +400,30 @@ async def test_relaisbox_options(hass: HomeAssistant, aioclient_mock) -> None:
     assert entry.options["host"] == "192.168.1.61"
     await hass.async_block_till_done()
     assert hass.states.get("switch.relaisbox_relais_1").state == "off"
+
+
+async def test_relaisbox_ereignisstrom(hass: HomeAssistant, aioclient_mock) -> None:
+    """Zeilen des Ereignisstroms werden sofort uebernommen."""
+    entry = await _setup_relais(hass, aioclient_mock)
+    coord = hass.data[DOMAIN][entry.entry_id]
+    assert coord.events_url == "http://192.168.1.60:8081/api/events"
+
+    body = (
+        "retry: 3000\n\n"
+        ": ping\n\n"
+        "data: " + __import__("json").dumps(relais_state(eingang=True, an1=True, muster1="dauer")) + "\n\n"
+    ).encode()
+    aioclient_mock.get("http://192.168.1.60:8081/api/events", content=body)
+    import asyncio
+    task = hass.async_create_task(coord._events_loop())
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if hass.states.get("binary_sensor.relaisbox_eingang").state == "on":
+            break
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    assert hass.states.get("binary_sensor.relaisbox_eingang").state == "on"
+    assert hass.states.get("switch.relaisbox_relais_1").state == "on"

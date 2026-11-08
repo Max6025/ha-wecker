@@ -1,6 +1,8 @@
 """Verbindung zur Relaisbox (ESP32) ueber ihre HTTP-Schnittstelle."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import timedelta
 from typing import Any
@@ -17,6 +19,10 @@ from .const import CONF_HOST, DOMAIN, RELAIS_ABFRAGE_S
 _LOGGER = logging.getLogger(__name__)
 
 ZEIT = aiohttp.ClientTimeout(total=8)
+# Ereignisstrom: keine Gesamtdauer, aber die Box schickt alle 15 s ein
+# Lebenszeichen - bleibt das 60 s aus, gilt die Verbindung als tot.
+ZEIT_EVENTS = aiohttp.ClientTimeout(total=None, sock_connect=8, sock_read=60)
+EVENTS_PORT_STANDARD = 8081
 
 
 def host_zu_url(host: str) -> str:
@@ -50,6 +56,8 @@ class RelaisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=RELAIS_ABFRAGE_S),
         )
         self.entry = entry
+        self._events_task: asyncio.Task | None = None
+        self.events_verbunden = False
 
     @property
     def host(self) -> str:
@@ -80,6 +88,65 @@ class RelaisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return await relaisbox_abfragen(self.hass, self.host)
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise UpdateFailed(f"Relaisbox {self.host} nicht erreichbar: {err}") from err
+
+    # --- Ereignisstrom -----------------------------------------------
+    #
+    # Die Box haelt auf einem eigenen Port eine Verbindung offen und schickt
+    # bei jeder Aenderung sofort den kompletten Zustand (Server-Sent Events).
+    # Die Abfrage alle paar Sekunden bleibt als Rueckfallebene.
+
+    @property
+    def events_url(self) -> str:
+        port = (self.data or {}).get("events_port") or EVENTS_PORT_STANDARD
+        basis = self.url
+        # Port 80 der Basis durch den Ereignisport ersetzen
+        schema, _, rest = basis.partition("://")
+        hostteil = rest.split("/", 1)[0].rsplit(":", 1)[0] if ":" in rest.split("/", 1)[0] else rest.split("/", 1)[0]
+        return f"{schema}://{hostteil}:{port}/api/events"
+
+    def async_start_events(self) -> None:
+        if self._events_task is None or self._events_task.done():
+            self._events_task = self.entry.async_create_background_task(
+                self.hass, self._events_loop(), f"{DOMAIN}_events_{self.entry.entry_id}"
+            )
+
+    async def async_stop_events(self) -> None:
+        task, self._events_task = self._events_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+
+    async def _events_loop(self) -> None:
+        session = async_get_clientsession(self.hass)
+        pause = 3
+        while True:
+            try:
+                async with session.get(self.events_url, timeout=ZEIT_EVENTS) as resp:
+                    if resp.status != 200:
+                        raise UpdateFailed(f"Ereignisstrom antwortete {resp.status}")
+                    self.events_verbunden = True
+                    pause = 3
+                    _LOGGER.debug("Ereignisstrom %s verbunden", self.events_url)
+                    async for raw in resp.content:
+                        line = raw.decode("utf-8", "replace").strip()
+                        if not line.startswith("data:"):
+                            continue  # Lebenszeichen, retry:, Leerzeile
+                        try:
+                            data = json.loads(line[5:].strip())
+                        except ValueError:
+                            continue
+                        if isinstance(data, dict) and "relais" in data:
+                            self.async_set_updated_data(data)
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001 - immer wieder neu versuchen
+                _LOGGER.debug("Ereignisstrom %s: %s", self.events_url, err)
+            self.events_verbunden = False
+            await asyncio.sleep(pause)
+            pause = min(pause * 2, 60)
 
     # --- Befehle ------------------------------------------------------
 

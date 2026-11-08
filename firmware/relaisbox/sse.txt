@@ -1,0 +1,18 @@
+HTTP/1.1 200 OK
+Content-Type: text/event-stream
+Cache-Control: no-store
+Connection: keep-alive
+Access-Control-Allow-Origin: *
+
+retry: 3000
+
+data: {"name":"Relaisbox","version":"1.3.0","mac":"1C:DB:D4:5B:D2:D4","ip":"192.168.1.107","rssi":-55,"uptime_s":31,"events_port":8081,"alarm":false,"eingang":{"gpio":37,"aktiv":false,"seit_s":1,"zaehler":1},"muster":["aus","dauer","blinken","langsam","schnell","doppelblitz","sos"],"relais":[{"nr":1,"gpio":38,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":3,"gpio":36,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":4,"gpio":35,"defekt":false,"an":false,"muster":"aus","rest_s":-1}]}
+
+data: {"name":"Relaisbox","version":"1.3.0","mac":"1C:DB:D4:5B:D2:D4","ip":"192.168.1.107","rssi":-55,"uptime_s":33,"events_port":8081,"alarm":false,"eingang":{"gpio":37,"aktiv":false,"seit_s":3,"zaehler":1},"muster":["aus","dauer","blinken","langsam","schnell","doppelblitz","sos"],"relais":[{"nr":1,"gpio":38,"defekt":false,"an":true,"muster":"dauer","rest_s":-1},{"nr":3,"gpio":36,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":4,"gpio":35,"defekt":false,"an":false,"muster":"aus","rest_s":-1}]}
+
+data: {"name":"Relaisbox","version":"1.3.0","mac":"1C:DB:D4:5B:D2:D4","ip":"192.168.1.107","rssi":-55,"uptime_s":34,"events_port":8081,"alarm":false,"eingang":{"gpio":37,"aktiv":false,"seit_s":4,"zaehler":1},"muster":["aus","dauer","blinken","langsam","schnell","doppelblitz","sos"],"relais":[{"nr":1,"gpio":38,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":3,"gpio":36,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":4,"gpio":35,"defekt":false,"an":false,"muster":"aus","rest_s":-1}]}
+
+data: {"name":"Relaisbox","version":"1.3.0","mac":"1C:DB:D4:5B:D2:D4","ip":"192.168.1.107","rssi":-53,"uptime_s":36,"events_port":8081,"alarm":false,"eingang":{"gpio":37,"aktiv":true,"seit_s":0,"zaehler":2},"muster":["aus","dauer","blinken","langsam","schnell","doppelblitz","sos"],"relais":[{"nr":1,"gpio":38,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":3,"gpio":36,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":4,"gpio":35,"defekt":false,"an":false,"muster":"aus","rest_s":-1}]}
+
+data: {"name":"Relaisbox","version":"1.3.0","mac":"1C:DB:D4:5B:D2:D4","ip":"192.168.1.107","rssi":-52,"uptime_s":37,"events_port":8081,"alarm":false,"eingang":{"gpio":37,"aktiv":false,"seit_s":0,"zaehler":2},"muster":["aus","dauer","blinken","langsam","schnell","doppelblitz","sos"],"relais":[{"nr":1,"gpio":38,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":3,"gpio":36,"defekt":false,"an":false,"muster":"aus","rest_s":-1},{"nr":4,"gpio":35,"defekt":false,"an":false,"muster":"aus","rest_s":-1}]}
+

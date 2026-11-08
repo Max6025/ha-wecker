@@ -9,14 +9,17 @@
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
 //   GPIO 38, 36, 35: Relais 1, 3, 4 (IN der Relaisplatine, aktiv HIGH).
 //            Relais 2 der Platine ist defekt und nicht angeschlossen.
-//   GPIO 37: Eingang, HIGH = Signal liegt an (max. 3,3 V!), INPUT_PULLDOWN,
-//            offener Eingang zaehlt als "kein Signal"; 30 ms entprellt
+//   GPIO 37: Eingang fuer einen Taster/Kontakt nach GND (INPUT_PULLUP,
+//            LOW = gedrueckt). Fuer ein 3,3-V-Signal EINGANG_AKTIV_LOW auf
+//            false setzen. 30 ms entprellt.
 //   GPIO 48: RGB-LED (Status: blau = WLAN sucht, gruen = verbunden, amber = Alarm)
 //
 // HTTP (Port 80)
 //   GET  /                         Statusseite
 //   GET  /api/state                Zustand als JSON
 //   GET  /api/ping                 {"ok":true}
+//   GET  :8081/api/events          Ereignisstrom (Server-Sent Events): bei jeder
+//                                  Aenderung sofort der komplette Zustand als JSON
 //   POST /api/relais/<nr>?an=1|0   Relais schalten (beendet ein laufendes Muster)
 //   POST /api/alarm?relais=1,3&muster=doppelblitz&dauer=0
 //                                  Muster starten; dauer in Sekunden, 0 = bis Stopp
@@ -45,12 +48,14 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.2.0";
+static const char* VERSION   = "1.3.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
 static const int PIN_EINGANG    = 37;
+static const bool EINGANG_AKTIV_LOW = true;   // Taster nach GND: LOW = gedrueckt
 static const uint32_t ENTPRELL_MS = 30;
+static const uint16_t SSE_PORT = 8081;
 static const bool RELAIS_AKTIV_LOW = false;   // Platine zieht bei HIGH an
 
 struct Relais {
@@ -118,14 +123,18 @@ struct Lauf {
 };
 static Lauf lauf[RELAIS_ANZAHL];
 
+static bool zustandGeaendert = false;   // fuer den Ereignisstrom
+
 static void ausgang(size_t i, bool an) {
   if (RELAIS[i].defekt) an = false;
+  if (lauf[i].an != an) zustandGeaendert = true;
   lauf[i].an = an;
   digitalWrite(RELAIS[i].gpio, (an != RELAIS_AKTIV_LOW) ? HIGH : LOW);
 }
 
 static void musterStarten(size_t i, int m, uint32_t dauerS) {
   if (RELAIS[i].defekt) return;
+  if (lauf[i].muster != m) zustandGeaendert = true;
   lauf[i].muster = m;
   lauf[i].pos = 0;
   lauf[i].schrittSeit = millis();
@@ -136,6 +145,7 @@ static void musterStarten(size_t i, int m, uint32_t dauerS) {
 }
 
 static void musterStoppen(size_t i) {
+  if (lauf[i].muster != MUSTER_AUS) zustandGeaendert = true;
   lauf[i].muster = MUSTER_AUS;
   lauf[i].endeMs = 0;
   ausgang(i, false);
@@ -176,7 +186,7 @@ static uint32_t eingangZaehler = 0;      // wie oft "an" seit dem Start
 static void eingangTakt() {
   static bool rohAlt = false;
   static uint32_t rohSeit = 0;
-  bool roh = digitalRead(PIN_EINGANG) == HIGH;
+  bool roh = (digitalRead(PIN_EINGANG) == HIGH) != EINGANG_AKTIV_LOW;
   uint32_t jetzt = millis();
   if (roh != rohAlt) {
     rohAlt = roh;
@@ -184,6 +194,7 @@ static void eingangTakt() {
   } else if (roh != eingangAktiv && jetzt - rohSeit >= ENTPRELL_MS) {
     eingangAktiv = roh;
     eingangSeit = jetzt;
+    zustandGeaendert = true;
     if (eingangAktiv) eingangZaehler++;
     Serial.printf("Eingang GPIO %d: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
   }
@@ -210,6 +221,7 @@ static void ledTakt() {
 
 static Preferences prefs;
 static WebServer server(80);
+static WiFiServer sseServer(SSE_PORT);   // Ereignisstrom, siehe unten
 static String wifiSsid, wifiPass;
 static bool apModus = false;
 static uint32_t wifiVersuchSeit = 0;
@@ -289,6 +301,7 @@ static void wifiTakt() {
       MDNS.addService("ha-wecker", "tcp", 80);
       MDNS.addServiceTxt("ha-wecker", "tcp", "typ", "relaisbox");
       MDNS.addServiceTxt("ha-wecker", "tcp", "version", VERSION);
+      MDNS.addServiceTxt("ha-wecker", "tcp", "events", String(SSE_PORT).c_str());
     }
   }
   if (!verbunden && warVerbunden) {
@@ -327,6 +340,7 @@ static String stateJson() {
   s += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
   s += ",\"rssi\":" + String(WiFi.RSSI());
   s += ",\"uptime_s\":" + String(millis() / 1000);
+  s += ",\"events_port\":" + String(SSE_PORT);
   s += ",\"alarm\":" + String(alarmAktiv() ? "true" : "false");
   s += ",\"eingang\":{\"gpio\":" + String(PIN_EINGANG);
   s += ",\"aktiv\":" + String(eingangAktiv ? "true" : "false");
@@ -482,6 +496,73 @@ static void httpStarten() {
     sendeFehler(404, "nicht gefunden");
   });
   server.begin();
+  sseServer.begin();
+  sseServer.setNoDelay(true);
+}
+
+// --- Ereignisstrom (Server-Sent Events) auf eigenem Port ---------------------
+//
+// Der normale WebServer kann keine Verbindung offen halten. Deshalb nimmt ein
+// zweiter, einfacher Server Verbindungen an, antwortet mit einem SSE-Kopf und
+// schickt bei jeder Aenderung sofort den kompletten Zustand. Alle 15 s ein
+// Lebenszeichen, damit die Gegenseite einen Abbruch erkennt.
+
+static const size_t SSE_MAX = 4;
+static WiFiClient sseClients[SSE_MAX];
+static uint32_t sseZuletzt = 0;
+
+static void sseSenden(const String& daten) {
+  String frame = "data: " + daten + "\n\n";
+  for (size_t i = 0; i < SSE_MAX; i++) {
+    if (!sseClients[i]) continue;
+    if (!sseClients[i].connected()) { sseClients[i].stop(); continue; }
+    sseClients[i].print(frame);
+  }
+  sseZuletzt = millis();
+}
+
+static void sseTakt() {
+  // Neue Verbindungen annehmen
+  WiFiClient neu = sseServer.accept();
+  if (neu) {
+    // Anfragezeile lesen (und verwerfen), hoechstens kurz warten
+    uint32_t t0 = millis();
+    while (neu.connected() && millis() - t0 < 500) {
+      if (neu.available()) {
+        String zeile = neu.readStringUntil('\n');
+        if (zeile == "\r" || zeile.isEmpty()) break;
+      } else {
+        delay(1);
+      }
+    }
+    size_t platz = SSE_MAX;
+    for (size_t i = 0; i < SSE_MAX; i++)
+      if (!sseClients[i] || !sseClients[i].connected()) { platz = i; break; }
+    if (platz == SSE_MAX) {
+      neu.print("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n");
+      neu.stop();
+    } else {
+      neu.setNoDelay(true);
+      neu.print("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                "Cache-Control: no-store\r\nConnection: keep-alive\r\n"
+                "Access-Control-Allow-Origin: *\r\n\r\n");
+      neu.print("retry: 3000\n\n");
+      neu.print("data: " + stateJson() + "\n\n");
+      sseClients[platz] = neu;
+      Serial.printf("Ereignisstrom: Abnehmer %u verbunden (%s)\n",
+                    (unsigned)platz, neu.remoteIP().toString().c_str());
+    }
+  }
+
+  if (zustandGeaendert) {
+    zustandGeaendert = false;
+    sseSenden(stateJson());
+  } else if (millis() - sseZuletzt > 15000) {
+    // Lebenszeichen (Kommentarzeile), haelt NAT und Gegenseite wach
+    for (size_t i = 0; i < SSE_MAX; i++)
+      if (sseClients[i] && sseClients[i].connected()) sseClients[i].print(": ping\n\n");
+    sseZuletzt = millis();
+  }
 }
 
 // --- Seriell: "wifi <ssid> <kennwort>", "state", "alarm", "stop" -----------
@@ -525,7 +606,7 @@ void setup() {
     pinMode(RELAIS[i].gpio, OUTPUT);
     ausgang(i, false);
   }
-  pinMode(PIN_EINGANG, INPUT_PULLDOWN);
+  pinMode(PIN_EINGANG, EINGANG_AKTIV_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
   pinMode(PIN_VERSORGUNG, OUTPUT);
   gpio_set_drive_capability((gpio_num_t)PIN_VERSORGUNG, GPIO_DRIVE_CAP_3);
   digitalWrite(PIN_VERSORGUNG, HIGH);
@@ -538,7 +619,7 @@ void setup() {
   for (size_t i = 0; i < RELAIS_ANZAHL; i++)
     Serial.printf(" %d%s", RELAIS[i].gpio, RELAIS[i].defekt ? "(defekt)" : "");
   Serial.println();
-  eingangAktiv = digitalRead(PIN_EINGANG) == HIGH;
+  eingangAktiv = (digitalRead(PIN_EINGANG) == HIGH) != EINGANG_AKTIV_LOW;
   eingangSeit = millis();
   Serial.printf("Eingang GPIO %d beim Start: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
 
@@ -553,6 +634,7 @@ void loop() {
   server.handleClient();
   musterTakt();
   eingangTakt();
+  if (WiFi.status() == WL_CONNECTED) sseTakt();
   ledTakt();
   seriellTakt();
   delay(2);

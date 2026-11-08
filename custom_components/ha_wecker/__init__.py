@@ -146,6 +146,8 @@ async def _setup_relais(hass: HomeAssistant, entry: ConfigEntry) -> None:
         raise
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_RELAIS)
+    # Aenderungen kommen sofort ueber den Ereignisstrom, die Abfrage ist Rueckfall
+    coordinator.async_start_events()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -168,6 +170,8 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Eintrag wieder abbauen."""
     obj = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if isinstance(obj, RelaisCoordinator):
+        await obj.async_stop_events()
     if isinstance(obj, WeckerData):
         webhook.async_unregister(hass, obj.webhook_id)
         # Sonst geht ein Push verloren, der kurz vor einem Neuladen ankam

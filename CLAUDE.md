@@ -15,12 +15,15 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 - **Relaisbox-Pins:** Relaisplatine zieht bei **HIGH** an (`RELAIS_AKTIV_LOW =
   false`). Relais 1/3/4 an GPIO 38/36/35; Relais 2 der Platine ist defekt und
   nicht angeschlossen, die Nummern bleiben trotzdem 1, 3, 4 (`Relais.nr`).
-  GPIO 37 ist der Eingang, GPIO 42 geht beim Start dauerhaft HIGH.
+  GPIO 37 ist der Eingang (Taster nach GND, Pullup, `EINGANG_AKTIV_LOW`),
+  GPIO 42 geht beim Start dauerhaft HIGH.
 - **PSRAM nie einschalten** (`-DBOARD_HAS_PSRAM`): das N16R8-Modul legt sein
   Octal-PSRAM auf GPIO 33–37, dann sind die Relais-Pins blockiert.
 - Die HTTP-Schnittstelle der Box (`/api/state`, `/api/relais/<nr>`,
-  `/api/alarm`, `/api/alarm/stop`) ist der Vertrag zwischen Firmware und
-  `relais.py`. Aenderungen immer auf beiden Seiten und im README.
+  `/api/alarm`, `/api/alarm/stop`, Ereignisstrom `:8081/api/events`) ist der
+  Vertrag zwischen Firmware und `relais.py`. Aenderungen immer auf beiden
+  Seiten und im README. Der Ereignisstrom laeuft auf einem eigenen Port, weil
+  der Arduino-WebServer keine Verbindung offen halten kann.
 
 ## Pruefen
 

@@ -270,8 +270,9 @@ Im Normalbetrieb zeigt die App nichts an und hat keine Daueranzeige. Ausnahmen:
 Hardware: ESP32-S3-DevKitC-1 (zwei USB-C, RGB-LED, N16R8) mit einer
 4-fach-Relaisplatine am 3V3-Pin. Relais 1, 3, 4 an GPIO 38, 36, 35 (aktiv HIGH);
 Relais 2 der Platine ist defekt und nicht angeschlossen. GPIO 42 geht beim Start
-dauerhaft auf HIGH. GPIO 37 ist ein **Eingang** (HIGH = Signal, max. 3,3 V,
-intern auf LOW gezogen, 30 ms entprellt). Pins und Polaritaet stehen oben in
+dauerhaft auf HIGH. GPIO 37 ist ein **Eingang** fuer einen Taster oder Kontakt
+nach GND (interner Pullup, gedrueckt = an, 30 ms entprellt). Fuer ein
+3,3-V-Signal `EINGANG_AKTIV_LOW` in `main.cpp` auf false setzen. Pins und Polaritaet stehen oben in
 `firmware/relaisbox/src/main.cpp`.
 
 **Flashen**
@@ -295,6 +296,7 @@ pulsierend = Alarmmuster laeuft.
 |---|---|---|
 | GET | `/api/state` | Zustand aller Relais und des Eingangs als JSON |
 | GET | `/api/ping` | Erreichbarkeitstest |
+| GET | `:8081/api/events` | **Ereignisstrom** (Server-Sent Events): bei jeder Aenderung sofort der komplette Zustand, alle 15 s ein Lebenszeichen |
 | POST | `/api/relais/<nr>?an=1` | Relais schalten (beendet ein Muster) |
 | POST | `/api/alarm?relais=1,3&muster=doppelblitz&dauer=0` | Muster starten; `relais=alle`, `dauer` in s, 0 = bis Stopp |
 | POST | `/api/alarm/stop?relais=1` | Muster beenden, Relais aus (ohne `relais` = alle) |
@@ -303,6 +305,11 @@ pulsierend = Alarmmuster laeuft.
 Muster: `dauer`, `blinken` (1 s/1 s), `langsam` (2 s/2 s), `schnell` (¼ s),
 `doppelblitz` (100/120/100/680 ms wie eine Brandmeldezentrale), `sos`. Die
 Muster laufen auf dem ESP, HA sagt nur, welches wie lange.
+
+Die Integration haelt den Ereignisstrom dauerhaft offen, dadurch erscheinen
+Eingang und Relaiszustand in HA ohne Verzoegerung. Reisst die Verbindung ab,
+verbindet sie sich neu und fragt dazwischen alle 10 s ab. Ob der Strom steht,
+zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 
 **Entitaeten in HA**
 
