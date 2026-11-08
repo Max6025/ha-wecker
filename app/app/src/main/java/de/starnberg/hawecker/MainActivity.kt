@@ -192,6 +192,7 @@ class MainActivity : Activity() {
         val sleepEnd = view.findViewById<EditText>(R.id.cfgSleepEnd)
         val sleepNotify = view.findViewById<Switch>(R.id.cfgSleepNotify)
         val haUrl = view.findViewById<EditText>(R.id.cfgHaUrl)
+        val hookId = view.findViewById<EditText>(R.id.cfgWebhookId)
         val pushEnabled = view.findViewById<Switch>(R.id.cfgPushEnabled)
         val pushStatus = view.findViewById<TextView>(R.id.cfgPushStatus)
 
@@ -200,7 +201,8 @@ class MainActivity : Activity() {
         sleepStart.setText(SleepTime.timeString(Prefs.sleepStart(this)))
         sleepEnd.setText(SleepTime.timeString(Prefs.sleepEnd(this)))
         sleepNotify.isChecked = Prefs.sleepNotify(this)
-        haUrl.setText(Prefs.webhookUrl(this))
+        haUrl.setText(Prefs.haAdresse(this))
+        hookId.setText(Prefs.webhookId(this))
         pushEnabled.isChecked = Prefs.pushEnabled(this)
         pushStatus.text = "Letzter Push: ${Prefs.lastPushResult(this)}"
         info.text = "Vollbild: ${if (Notifications.canUseFullScreenIntent(this)) "erlaubt" else "GESPERRT"}\n" +
@@ -209,10 +211,11 @@ class MainActivity : Activity() {
 
         view.findViewById<View>(R.id.cfgPushNow).setOnClickListener {
             // Eingaben zuerst sichern, sonst testet man die alten Werte
-            Prefs.setWebhookUrl(this, haUrl.text.toString())
+            Prefs.setHaAdresse(this, haUrl.text.toString())
+            Prefs.setWebhookId(this, hookId.text.toString())
             Prefs.setPushEnabled(this, pushEnabled.isChecked)
             if (!HaPush.configured(this)) {
-                Toast.makeText(this, "Webhook-Adresse und Schalter pruefen", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Webhook-ID eintragen und Push einschalten", Toast.LENGTH_LONG).show()
             } else {
                 HaPush.pushAsync(this)
                 Toast.makeText(this, "Wird gesendet...", Toast.LENGTH_SHORT).show()
@@ -239,7 +242,8 @@ class MainActivity : Activity() {
                 Prefs.setSleepNotify(this, sleepNotify.isChecked)
                 SleepTime.parse(sleepStart.text.toString())?.let { Prefs.setSleepStart(this, it) }
                 SleepTime.parse(sleepEnd.text.toString())?.let { Prefs.setSleepEnd(this, it) }
-                Prefs.setWebhookUrl(this, haUrl.text.toString())
+                Prefs.setHaAdresse(this, haUrl.text.toString())
+                Prefs.setWebhookId(this, hookId.text.toString())
                 Prefs.setPushEnabled(this, pushEnabled.isChecked)
                 AlarmScheduler.scheduleAll(this)
                 HaPush.pushAsync(this)

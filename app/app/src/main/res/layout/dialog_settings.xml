@@ -213,7 +213,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Die App meldet den Stand selbst an HA - nur wenn sich etwas aendert, ohne Dienst und ohne Intervall. Funktioniert auch im Mobilfunk."
+            android:text="Die App meldet den Stand selbst an HA - nur wenn sich etwas aendert, ohne Dienst und ohne Intervall. Adresse ist vorausgefuellt; nur die Webhook-ID aus der Integration eintragen."
             android:textColor="@color/text_off"
             android:textSize="11sp" />
 
@@ -222,7 +222,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Webhook-Adresse" />
+            android:text="Home-Assistant-Adresse" />
 
         <EditText
             android:id="@+id/cfgHaUrl"
@@ -230,12 +230,34 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:background="@drawable/bg_strip"
-            android:hint="https://ha.beispiel.de/api/webhook/ha_wecker"
+            android:hint="https://crespina.eurasburg.org"
             android:inputType="textUri"
             android:padding="13dp"
             android:textColor="@color/text"
             android:textColorHint="@color/text_off"
             android:textSize="14sp"
+            tools:ignore="Autofill,LabelFor,TextFields" />
+
+        <TextView
+            style="@style/Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Webhook-ID" />
+
+        <EditText
+            android:id="@+id/cfgWebhookId"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_strip"
+            android:fontFamily="monospace"
+            android:hint="ID aus der Integration (Geraet Wecker hinzufuegen)"
+            android:inputType="textNoSuggestions|textVisiblePassword"
+            android:padding="13dp"
+            android:textColor="@color/text"
+            android:textColorHint="@color/text_off"
+            android:textSize="13sp"
             tools:ignore="Autofill,LabelFor,TextFields" />
 
         <LinearLayout

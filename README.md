@@ -32,8 +32,8 @@ ha-wecker/
    Repository eintragen), HA neu starten.
 2. **Wecker hinzufuegen:** Einstellungen -> Geraete & Dienste -> Integration
    hinzufuegen -> HA Wecker -> *Wecker (Android-App)*. Danach steht die
-   Webhook-Adresse im Diagnose-Sensor „Webhook" und in den Optionen; die kommt
-   in der App unter **API** in das Feld Webhook. App-APK aus `app/` bauen
+   Webhook-ID beim Anlegen, im Diagnose-Sensor „Webhook" und in den Optionen; die kommt
+   in der App unter dem Zahnrad in das Feld Webhook-ID. App-APK aus `app/` bauen
    (Abschnitt 2) und installieren.
 3. **Relaisbox hinzufuegen:** Firmware aus `firmware/relaisbox/` flashen
    (Abschnitt 6), WLAN-Zugang eintragen. Die Box meldet sich per mDNS, HA
@@ -87,8 +87,11 @@ Die Release-APK wird mit dem Debug-Key signiert und ist direkt installierbar.
 2. Dem Warnbanner folgen: **Vollbild-Weckruf**, **exakte Alarme** und
    **Akku-Optimierung** freigeben (jeweils ein Tipp fuehrt in die richtige
    Systemeinstellung)
-3. Zahnrad -> **Webhook-Adresse** aus Home Assistant eintragen (steht dort beim
-   Geraet „Wecker" im Diagnose-Sensor „Webhook" und unter „Konfigurieren"),
+3. Zahnrad -> **Webhook-ID** aus Home Assistant eintragen (zeigt die
+   Integration beim Hinzufuegen des Geraets „Wecker" an, spaeter im
+   Diagnose-Sensor „Webhook" und unter „Konfigurieren"). Die
+   Home-Assistant-Adresse ist vorausgefuellt (`Prefs.HA_ADRESSE_STANDARD`,
+   ohne Port, da HA hinter HTTPS haengt) und laesst sich aendern.
    **Push aktiv** einschalten, **JETZT SENDEN UND TESTEN**
 
 ---
@@ -223,8 +226,10 @@ Wiederholungsversuch in fuenf Minuten und schlaeft weiter.
 1. Integration einrichten (Abschnitt 5) - oder ohne Integration
    `homeassistant/webhook-push.yaml` in die `configuration.yaml` uebernehmen,
    `webhook_id` durch eine eigene lange Zeichenfolge ersetzen, HA neu starten
-2. In der App unter **API** die Webhook-Adresse eintragen:
-   `https://DEINE-HA-ADRESSE/api/webhook/DEINE_WEBHOOK_ID`
+2. In der App unter dem Zahnrad die **Webhook-ID** eintragen; die
+   Home-Assistant-Adresse steht schon da. Eine ganze Adresse
+   `https://DEINE-HA-ADRESSE/api/webhook/DEINE_WEBHOOK_ID` im ID-Feld wird
+   automatisch aufgeteilt.
 3. **Push aktiv** einschalten, **JETZT SENDEN UND TESTEN** druecken
 
 Kein Token noetig - die webhook_id ist das Geheimnis, also lang waehlen.

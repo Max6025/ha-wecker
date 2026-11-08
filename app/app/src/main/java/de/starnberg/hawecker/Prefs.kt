@@ -32,9 +32,53 @@ object Prefs {
     fun setSleepNotify(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("sleep_notify", v).apply()
 
     // --- Push an Home Assistant (Webhook, auch unterwegs) -----------------
-    /** Vollstaendige Webhook-Adresse, z. B. https://ha.x.de/api/webhook/abc */
-    fun webhookUrl(ctx: Context): String = (p(ctx).getString("webhook_url", "") ?: "").trim()
-    fun setWebhookUrl(ctx: Context, v: String) = p(ctx).edit().putString("webhook_url", v.trim()).apply()
+
+    /** Fest eingebaute HA-Adresse; die App benutzt nur einer. Ohne Port, HA haengt hinter HTTPS. */
+    const val HA_ADRESSE_STANDARD = "https://crespina.eurasburg.org"
+
+    /** HA-Adresse (Basis, ohne /api/webhook). Leer heisst: eingebaute Adresse. */
+    fun haAdresse(ctx: Context): String {
+        migrate(ctx)
+        val v = (p(ctx).getString("ha_adresse", "") ?: "").trim().trimEnd('/')
+        return if (v.isEmpty()) HA_ADRESSE_STANDARD else v
+    }
+    fun setHaAdresse(ctx: Context, v: String) =
+        p(ctx).edit().putString("ha_adresse", v.trim().trimEnd('/')).apply()
+
+    /** Webhook-ID, wie die Integration sie beim Anlegen des Weckers anzeigt. */
+    fun webhookId(ctx: Context): String {
+        migrate(ctx)
+        return (p(ctx).getString("webhook_id", "") ?: "").trim()
+    }
+    fun setWebhookId(ctx: Context, v: String) {
+        var id = v.trim()
+        // Ganze Adresse eingefuegt? Dann Basis und ID auseinandernehmen.
+        val i = id.indexOf("/api/webhook/")
+        if (i >= 0) {
+            setHaAdresse(ctx, id.substring(0, i))
+            id = id.substring(i + "/api/webhook/".length)
+        }
+        p(ctx).edit().putString("webhook_id", id.trim('/')).apply()
+    }
+
+    /** Vollstaendige Webhook-Adresse aus Basis und ID; leer ohne ID. */
+    fun webhookUrl(ctx: Context): String {
+        val id = webhookId(ctx)
+        if (id.isEmpty()) return ""
+        return "${haAdresse(ctx)}/api/webhook/$id"
+    }
+
+    /** Bis 1.6 stand die ganze Adresse in einem Feld. Einmal aufteilen. */
+    private fun migrate(ctx: Context) {
+        val alt = p(ctx).getString("webhook_url", null) ?: return
+        val i = alt.indexOf("/api/webhook/")
+        val e = p(ctx).edit().remove("webhook_url")
+        if (i >= 0) {
+            e.putString("ha_adresse", alt.substring(0, i).trim().trimEnd('/'))
+            e.putString("webhook_id", alt.substring(i + "/api/webhook/".length).trim().trim('/'))
+        }
+        e.apply()
+    }
 
     fun pushEnabled(ctx: Context): Boolean = p(ctx).getBoolean("push_enabled", true)
     fun setPushEnabled(ctx: Context, v: Boolean) = p(ctx).edit().putBoolean("push_enabled", v).apply()
