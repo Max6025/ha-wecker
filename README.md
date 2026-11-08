@@ -267,38 +267,27 @@ Im Normalbetrieb zeigt die App nichts an und hat keine Daueranzeige. Ausnahmen:
 
 ## 6. Relaisbox (ESP32-S3)
 
-Hardware: ESP32-S3-DevKitC-1 (zwei USB-C, RGB-LED, N16R8) mit einer
-4-fach-Relaisplatine am 3V3-Pin. Relais 1-4 an GPIO 38, 39, 40, 41 (aktiv HIGH,
-nebeneinander am rechten Stecker). GPIO 42 geht beim Start dauerhaft auf HIGH.
-GPIO 2 ist ein **Eingang** fuer einen Taster oder Kontakt nach GND (interner
-Pullup, gedrueckt = an, 30 ms entprellt). Fuer ein 3,3-V-Signal
-`EINGANG_AKTIV_LOW` in `main.cpp` auf false setzen.
+Hardware: ESP32-S3-DevKitC-1 (zwei USB-C, RGB-LED, N16R8) mit drei einzelnen
+Relaismodulen an 3V3/GND. Relais 1-3 an **GPIO 4, 5, 6** (aktiv HIGH), Taster
+an **GPIO 7** nach GND (interner Pullup, gedrueckt = an, 30 ms entprellt). Die
+vier Pins liegen am linken Stecker direkt hinter den beiden 3V3-Pins
+nebeneinander und sind reine GPIOs: keine Strapping-, PSRAM-, JTAG- oder
+USB-Funktion, beim Start still. GPIO 42 geht beim Start dauerhaft auf HIGH.
+Fuer ein 3,3-V-Signal am Eingang `EINGANG_AKTIV_LOW` in `main.cpp` auf false
+setzen. Pins und Polaritaet stehen oben in `firmware/relaisbox/src/main.cpp`.
+
+**Pinwahl auf diesem Board.** Frei und unkritisch: 4, 5, 6, 7, 15, 16, 17, 18,
+1, 2, 21, 47. Meiden: 0, 3, 45, 46 (Strapping), 19, 20 (USB), 33-37 (PSRAM),
+39-42 (JTAG), 43, 44 (UART0), 48 (RGB-LED).
 
 **Nie GPIO 33-37 benutzen.** Beim N16R8-Modul haengen diese Pins intern am
 PSRAM-Chip. Relais daran klicken nur leise statt zu schalten, ein Eingang liest
 ohne Taster HIGH - das sah aus wie ein defektes Relais, war aber der Pin.
 
-**5-V-Relaismodule am 3,3-V-ESP.** Die ueblichen Module (SRD-05VDC mit
-Optokoppler) sind fuer 5 V gebaut. An 3,3 V ziehen die Spulen nur knapp an,
-mal ja, mal nein; an 5 V reicht ihnen das 3,3-V-Signal vom ESP nicht mehr. Zwei
-saubere Wege, beide ohne Zusatzbauteile:
-
-1. Modul mit **JD-VCC-Jumper** (dreipoliger Stift VCC/JD-VCC): Jumper ab,
-   `VCC` an 3V3, `JD-VCC` an 5V des ESP. Logik 3,3 V, Spule 5 V. Firmware
-   `esp32s3` (HIGH-Trigger) bleibt.
-2. Modul mit **H/L-Jumper** (High/Low-Trigger): Jumper auf **L**, `VCC` an 5V.
-   Firmware `esp32s3-lowtrigger` flashen: die Ausgaenge sind dann Open-Drain,
-   „an" zieht nach GND, „aus" laesst den Pin los und das Modul zieht ihn selbst
-   auf 5 V. So bekommt das Modul echten 5-V-Pegel.
-
-   ```bash
-   pio run -e esp32s3-lowtrigger -t upload
-   ```
-
-Hat das Modul keinen Jumper und ist fest HIGH-Trigger, braucht es einen
-Pegelwandler (74HCT125) oder je Kanal einen NPN-Transistor - oder gleich
-3,3-V-Module. Pins und Polaritaet stehen oben in
-`firmware/relaisbox/src/main.cpp`.
+**Variante fuer LOW-Trigger-Module an 5 V:** `pio run -e esp32s3-lowtrigger
+-t upload` baut Open-Drain-Ausgaenge, „an" zieht nach GND, „aus" laesst den Pin
+los und das Modul liefert den Pegel selbst. Fuer die hier verwendeten
+3,3-V-Module nicht noetig.
 
 **Flashen**
 
@@ -340,9 +329,9 @@ zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 
 | Entity | Inhalt |
 |---|---|
-| `switch.relaisbox_relais_1` ... `_4` | je Relais ein Schalter; Attribute `muster`, `rest_s` |
+| `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s` |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
-| `binary_sensor.relaisbox_eingang` | Taster an GPIO 2; Attribute `seit_s`, `zaehler` |
+| `binary_sensor.relaisbox_eingang` | Taster an GPIO 7; Attribute `seit_s`, `zaehler` |
 | `button.relaisbox_alarm_stoppen` | alles aus |
 | `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
 
