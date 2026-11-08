@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
+import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -79,6 +80,7 @@ object UiState {
         perms.put("exact", AlarmScheduler.canScheduleExact(ctx))
         perms.put("battery", pm.isIgnoringBatteryOptimizations(ctx.packageName))
         perms.put("promote", Notifications.canPromote(ctx))
+        perms.put("overlay", Settings.canDrawOverlays(ctx))
         root.put("perms", perms)
 
         root.put("ringing", RingState.ringingId)

@@ -193,6 +193,16 @@ class RingActivity : Activity() {
         finishAndRemoveTask()
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!vorschau) RingState.seiteOffen = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!vorschau) RingState.seiteOffen = false
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // Lautstaerketasten schlummern, Zurueck macht nichts
         return when (keyCode) {

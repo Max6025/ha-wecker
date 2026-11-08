@@ -34,7 +34,11 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 
 - **Weckruf:** Im Empfaenger nur PARTIAL_WAKE_LOCK. Schaltet man den Bildschirm
   vorher selbst ein, zeigt Android (ohne Sperre) statt der Weckruf-Seite nur den
-  Hinweis oben. Vorwarnung: Kanal `hawecker_prewarn_v2` mit IMPORTANCE_DEFAULT
+  Hinweis oben. Bei eingeschaltetem, entsperrtem Handy kommt die Seite nur ueber
+  den direkten startActivity aus `RingService`, und den laesst Android nur mit
+  SYSTEM_ALERT_WINDOW („Ueber anderen Apps anzeigen", Zeile `overlay`) durch;
+  ohne diese Freigabe bleibt es beim Hinweis oben (`RingState.seiteOffen`
+  stoppt die Wiederholungen). Vorwarnung: Kanal `hawecker_prewarn_v2` mit IMPORTANCE_DEFAULT
   (Live-Benachrichtigungen brauchen das), wird sofort gezeigt, wenn der Weckruf
   naeher ist als die Vorwarnzeit. Den Live-Balken oben macht `VorwarnService`
   (Vordergrunddienst specialUse, nur in den Minuten vor dem Weckruf, Takt 20 s)

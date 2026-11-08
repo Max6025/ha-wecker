@@ -8,5 +8,9 @@ object RingState {
     @Volatile
     var ringingSince: Long = 0L
 
+    /** Die Weckruf-Seite (RingActivity) ist gerade zu sehen. */
+    @Volatile
+    var seiteOffen: Boolean = false
+
     fun isRinging() = ringingId >= 0
 }

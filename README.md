@@ -102,9 +102,12 @@ Die Release-APK wird mit dem Debug-Key signiert und ist direkt installierbar.
 ## 3. Einrichten auf dem Handy
 
 1. APK installieren, App oeffnen, Benachrichtigungen erlauben
-2. Dem Warnbanner folgen: **Vollbild-Weckruf**, **exakte Alarme** und
-   **Akku-Optimierung** freigeben (jeweils ein Tipp fuehrt in die richtige
-   Systemeinstellung)
+2. Dem Warnbanner folgen: **Vollbild-Weckruf**, **Ueber anderen Apps
+   anzeigen**, **exakte Alarme** und **Akku-Optimierung** freigeben (jeweils
+   ein Tipp fuehrt in die richtige Systemeinstellung). Vollbild-Weckruf gilt
+   fuer den ausgeschalteten Bildschirm, „Ueber anderen Apps anzeigen" fuer
+   das eingeschaltete, entsperrte Handy - erst mit beidem oeffnet sich die
+   Weckruf-Seite immer.
 3. Einstellungen -> **Home Assistant** -> **Webhook-ID** aus Home Assistant eintragen (zeigt die
    Integration beim Hinzufuegen des Geraets „Wecker" an, spaeter im
    Diagnose-Sensor „Webhook" und unter „Konfigurieren"). Die

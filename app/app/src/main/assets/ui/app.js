@@ -85,7 +85,7 @@ function tonName(v){ for(var i=0;i<TONES.length;i++) if(TONES[i].v===(v||"")) re
 var VIBES=["Herzschlag","Kurz","Stakkato","Welle","Aus"];
 var SNOOZE=[5,7,9];
 var VORWARN=[2,5,10,15,30];
-var PERMS={notify:"Benachrichtigungen",fullscreen:"Vollbild-Weckruf",exact:"Exakte Alarme",battery:"Akku-Optimierung",promote:"Live-Benachrichtigung"};
+var PERMS={notify:"Benachrichtigungen",fullscreen:"Vollbild-Weckruf",exact:"Exakte Alarme",battery:"Akku-Optimierung",promote:"Live-Benachrichtigung",overlay:"Über anderen Apps anzeigen"};
 
 var S=null;
 function leer(){
@@ -109,7 +109,7 @@ function demo(){
   {id:5,h:9,m:30,label:"Brotzeit",cat:"k6",days:[1,2,3,4,5],on:false,tone:"",vibe:"Aus",snooze:5,next:null},
   {id:6,h:12,m:0,label:"Material bestellen",cat:"k7",days:[3],on:true,tone:"",vibe:"Kurz",snooze:10,next:t+60*3600e3},
   {id:7,h:13,m:30,label:"Messgerät kalibrieren",cat:"k3",days:[],on:false,tone:"",vibe:"Stakkato",snooze:10,next:null}];
- s.perms={notify:true,fullscreen:true,exact:true,battery:true,promote:true};
+ s.perms={notify:true,fullscreen:true,exact:true,battery:true,promote:true,overlay:true};
  return s;
 }
 /* Zustand aus dem Backend holen */
@@ -184,6 +184,7 @@ function huerde(){
  var p=S.perms||{};
  if(p.notify===false) return {t:"Benachrichtigungen sind gesperrt. Ohne sie gibt es weder Weckruf noch Vorwarnung. Hier tippen und erlauben.",k:"notify"};
  if(p.fullscreen===false) return {t:"Vollbild-Weckruf ist gesperrt. Bei ausgeschaltetem Bildschirm kommt sonst nur eine Benachrichtigung. Hier tippen und erlauben.",k:"fullscreen"};
+ if(p.overlay===false) return {t:"„Über anderen Apps anzeigen“ ist gesperrt. Bei eingeschaltetem Handy kommt sonst nur eine Benachrichtigung statt der Weckruf-Seite. Hier tippen und erlauben.",k:"overlay"};
  if(p.exact===false) return {t:"Exakte Alarme sind nicht erlaubt, der Wecker klingelt sonst ungenau. Hier tippen und erlauben.",k:"exact"};
  if(p.battery===false) return {t:"Akku-Optimierung ist aktiv. Android kann den Weckruf verzögern. Hier tippen und ausnehmen.",k:"battery"};
  return null;

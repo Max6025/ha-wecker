@@ -34,6 +34,25 @@ class RingService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var timeout: Runnable? = null
+    private var vollbildVersuche = 0
+
+    private fun vollbildOeffnen(id: Int) {
+        if (RingState.ringingId != id || RingState.seiteOffen || vollbildVersuche >= 4) return
+        vollbildVersuche++
+        runCatching {
+            startActivity(
+                Intent(this, RingActivity::class.java)
+                    .putExtra(AlarmReceiver.EXTRA_ID, id)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_NO_USER_ACTION or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                    )
+            )
+        }
+        handler.postDelayed({ vollbildOeffnen(id) }, 1500)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -67,20 +86,13 @@ class RingService : Service() {
 
         RingPlayer.start(this, alarm)
 
-        // Zusaetzlich direkt versuchen, das Vollbild zu oeffnen. Gelingt das
-        // nicht, uebernimmt der FullScreenIntent der Benachrichtigung.
-        runCatching {
-            startActivity(
-                Intent(this, RingActivity::class.java)
-                    .putExtra(AlarmReceiver.EXTRA_ID, alarm.id)
-                    .addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                            Intent.FLAG_ACTIVITY_NO_USER_ACTION or
-                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-                    )
-            )
-        }
+        // Vollbild direkt oeffnen. Bei ausgeschaltetem Bildschirm macht das der
+        // FullScreenIntent der Benachrichtigung; bei eingeschaltetem, entsperrtem
+        // Handy zeigt Android davon nur einen Hinweis oben - dann hilft nur der
+        // direkte Start, den Android mit der Freigabe "Ueber anderen Apps
+        // anzeigen" durchlaesst. Ein paar Anlaeufe, falls der erste verschluckt wird.
+        vollbildVersuche = 0
+        vollbildOeffnen(alarm.id)
 
         timeout?.let { handler.removeCallbacks(it) }
         val t = Runnable {

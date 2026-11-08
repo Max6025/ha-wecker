@@ -170,6 +170,7 @@ class MainActivity : Activity() {
             "exact" -> requestExactAlarm()
             "battery" -> requestBattery()
             "promote" -> openAppNotificationSettings()
+            "overlay" -> requestOverlay()
         }
     }
 
@@ -185,6 +186,21 @@ class MainActivity : Activity() {
         } else {
             openAppNotificationSettings()
         }
+    }
+
+    /** „Ueber anderen Apps anzeigen": Weckruf-Seite auch bei entsperrtem Handy. */
+    private fun requestOverlay() {
+        if (Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Bereits erlaubt", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ok = runCatching {
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                    .setData(Uri.parse("package:$packageName"))
+            )
+        }.isSuccess
+        if (!ok) runCatching { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) }
     }
 
     private fun openAppNotificationSettings() {
