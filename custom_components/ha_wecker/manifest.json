@@ -1,19 +1,26 @@
 {
   "domain": "ha_wecker",
   "name": "HA Wecker",
-  "codeowners": ["@Max6025"],
+  "codeowners": [
+    "@Max6025"
+  ],
   "config_flow": true,
-  "dependencies": ["webhook", "http"],
+  "dependencies": [
+    "webhook",
+    "http"
+  ],
   "documentation": "https://github.com/Max6025/ha-wecker",
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/Max6025/ha-wecker/issues",
   "requirements": [],
-  "version": "1.5.0",
+  "version": "1.6.0",
   "zeroconf": [
     {
       "type": "_ha-wecker._tcp.local.",
-      "properties": { "typ": "relaisbox" }
+      "properties": {
+        "typ": "relaisbox"
+      }
     }
   ]
 }

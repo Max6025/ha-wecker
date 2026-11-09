@@ -51,9 +51,12 @@
       },
       "relais": {
         "title": "Relaisbox",
-        "description": "Derzeit: {url}",
+        "description": "Derzeit: {url}\n\nWeckerlampe: ein Relais folgt dem Wecker der App. Eine Minute vor dem Weckruf geht das erste Muster los und läuft beim Klingeln weiter; beim Schlummern ist die Lampe aus; nach dem Beenden läuft das zweite Muster fünf Minuten. Der Schalter „Weckerlampe“ schaltet das Ganze ein und aus.",
         "data": {
-          "host": "Adresse der Relaisbox"
+          "host": "Adresse der Relaisbox",
+          "lampe_relais": "Weckerlampe: Relais-Nummer",
+          "lampe_muster_vorlauf": "Weckerlampe: Muster vor dem Weckruf und beim Klingeln",
+          "lampe_muster_nachlauf": "Weckerlampe: Muster nach dem Beenden (5 Minuten)"
         }
       }
     },

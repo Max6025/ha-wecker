@@ -26,10 +26,12 @@ from .const import (
     CONF_TYP,
     DOMAIN,
     SIGNAL_UPDATE,
+    SIGNAL_WECKER_ALLE,
     STORAGE_VERSION,
     TYP_RELAIS,
     TYP_WECKER,
 )
+from .lampe import WeckerLampe
 from .relais import RelaisCoordinator
 from .services import async_setup_services, async_unload_services
 
@@ -93,6 +95,7 @@ class WeckerData:
         self.last_seen = dt_util.utcnow()
         self._store.async_delay_save(self._data_to_save, 5)
         async_dispatcher_send(self.hass, SIGNAL_UPDATE.format(self.entry.entry_id))
+        async_dispatcher_send(self.hass, SIGNAL_WECKER_ALLE)
 
     async def async_flush(self) -> None:
         """Ausstehende Speicherung sofort schreiben (vor Unload/Reload)."""
@@ -145,7 +148,11 @@ async def _setup_relais(hass: HomeAssistant, entry: ConfigEntry) -> None:
     except ConfigEntryNotReady:
         raise
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    # Weckerlampe: der Schalter stellt beim Anlegen seinen letzten Stand wieder her
+    coordinator.lampe = WeckerLampe(hass, entry, coordinator)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_RELAIS)
+    coordinator.lampe.async_start()
+    entry.async_on_unload(coordinator.lampe.async_stop)
     # Aenderungen kommen sofort ueber den Ereignisstrom, die Abfrage ist Rueckfall
     coordinator.async_start_events()
 

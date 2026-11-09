@@ -428,3 +428,108 @@ async def test_relaisbox_ereignisstrom(hass: HomeAssistant, aioclient_mock) -> N
         pass
     assert hass.states.get("binary_sensor.relaisbox_eingang").state == "on"
     assert hass.states.get("switch.relaisbox_relais_1").state == "on"
+
+
+# ---------------------------------------------------------------------------
+# Weckerlampe: ein Relais folgt dem Wecker der App
+# ---------------------------------------------------------------------------
+
+
+def _posts(aioclient_mock):
+    return [c for c in aioclient_mock.mock_calls if c[0].lower() == "post"]
+
+
+async def test_weckerlampe(
+    hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
+) -> None:
+    from datetime import timedelta
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    await _setup(hass)
+    await _setup_relais(hass, aioclient_mock)
+    aioclient_mock.post(f"{RELAIS_URL}/api/alarm", json=relais_state(an1=True, muster1="blinken"))
+    aioclient_mock.post(f"{RELAIS_URL}/api/alarm/stop", json=relais_state())
+
+    # Schalter ist da und neu angelegt an, noch nichts geschaltet
+    lampe = hass.states.get("switch.relaisbox_weckerlampe")
+    assert lampe is not None and lampe.state == "on"
+    assert lampe.attributes["phase"] == "aus" and lampe.attributes["relais"] == 1
+    assert not _posts(aioclient_mock)
+
+    client = await hass_client_no_auth()
+
+    async def melden(**aenderung):
+        p = copy.deepcopy(PAYLOAD)
+        p.update(aenderung.pop("root", {}))
+        p["alarms"][0].update(aenderung)
+        p["state"] = p["alarms"][0]["next_trigger"] or ""
+        resp = await client.post("/api/webhook/hawecker_test123", json=p)
+        assert resp.status == 200
+        await hass.async_block_till_done()
+
+    # Weckruf in 150 s -> Timer auf eine Minute vorher, noch kein Befehl
+    start = dt_util.utcnow()
+    weckzeit = start + timedelta(seconds=150)
+    await melden(next_trigger=weckzeit.isoformat())
+    lampe = hass.states.get("switch.relaisbox_weckerlampe")
+    assert lampe.attributes["naechster_wecker"] == weckzeit.isoformat()
+    assert not _posts(aioclient_mock)
+
+    # 95 s spaeter: Vorlauf laeuft (blinken, Relais 1)
+    async_fire_time_changed(hass, start + timedelta(seconds=95))
+    await hass.async_block_till_done()
+    url = _letzter_aufruf(aioclient_mock)
+    assert url.path == "/api/alarm"
+    assert url.query["relais"] == "1" and url.query["muster"] == "blinken"
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "vorlauf"
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["icon"] == "mdi:lightbulb-on"
+
+    # Klingelt -> Muster laeuft einfach weiter, kein neuer Befehl
+    n = len(_posts(aioclient_mock))
+    await melden(ringing=True, root={"ringing": True, "ringing_id": 1})
+    assert len(_posts(aioclient_mock)) == n
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "klingeln"
+
+    # Schlummern -> Lampe aus
+    bis = (dt_util.utcnow() + timedelta(minutes=10)).isoformat()
+    await melden(ringing=False, snoozed=True, snoozed_until=bis, root={"ringing": False, "ringing_id": None, "snoozed": True})
+    url = _letzter_aufruf(aioclient_mock)
+    assert url.path == "/api/alarm/stop" and url.query["relais"] == "1"
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "schlummer"
+
+    # Klingelt wieder -> wie beim Klingeln, Muster neu (Hoechstdauer 600 s)
+    await melden(ringing=True, root={"ringing": True, "ringing_id": 1})
+    url = _letzter_aufruf(aioclient_mock)
+    assert url.path == "/api/alarm" and url.query["muster"] == "blinken" and url.query["dauer"] == "600"
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "klingeln"
+
+    # Beendet -> Nachlauf doppelblitz fuer 300 s, danach Phase aus
+    morgen = (weckzeit + timedelta(days=1)).isoformat()
+    await melden(ringing=False, next_trigger=morgen, root={"ringing": False, "ringing_id": None, "snoozed": False})
+    url = _letzter_aufruf(aioclient_mock)
+    assert url.path == "/api/alarm" and url.query["muster"] == "doppelblitz" and url.query["dauer"] == "300"
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "nachlauf"
+    n = len(_posts(aioclient_mock))
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=301))
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "aus"
+    assert len(_posts(aioclient_mock)) == n   # die Box beendet das Muster selbst
+
+    # Schalter aus waehrend eines Vorlaufs -> Stopp, kein Vorlauf mehr
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{RELAIS_URL}/api/state", json=relais_state())
+    aioclient_mock.post(f"{RELAIS_URL}/api/alarm", json=relais_state(an1=True, muster1="blinken"))
+    aioclient_mock.post(f"{RELAIS_URL}/api/alarm/stop", json=relais_state())
+    jetzt = dt_util.utcnow()
+    await melden(next_trigger=(jetzt + timedelta(seconds=30)).isoformat())
+    assert _letzter_aufruf(aioclient_mock).path == "/api/alarm"   # schon im Fenster
+    await hass.services.async_call(
+        "switch", "turn_off", {"entity_id": "switch.relaisbox_weckerlampe"}, blocking=True
+    )
+    assert _letzter_aufruf(aioclient_mock).path == "/api/alarm/stop"
+    lampe = hass.states.get("switch.relaisbox_weckerlampe")
+    assert lampe.state == "off" and lampe.attributes["phase"] == "aus"
+    n = len(_posts(aioclient_mock))
+    await melden(ringing=True, root={"ringing": True, "ringing_id": 1})
+    assert len(_posts(aioclient_mock)) == n   # aus heisst aus

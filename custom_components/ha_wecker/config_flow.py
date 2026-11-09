@@ -21,8 +21,15 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     CONF_HOST,
+    CONF_LAMPE_MUSTER_NACHLAUF,
+    CONF_LAMPE_MUSTER_VORLAUF,
+    CONF_LAMPE_RELAIS,
     CONF_TYP,
     DOMAIN,
+    LAMPE_MUSTER_NACHLAUF_STANDARD,
+    LAMPE_MUSTER_VORLAUF_STANDARD,
+    LAMPE_RELAIS_STANDARD,
+    MUSTER_LISTE,
     TYP_RELAIS,
     TYP_WECKER,
 )
@@ -180,7 +187,7 @@ class WeckerOptionsFlow(OptionsFlow):
 
 
 class RelaisOptionsFlow(OptionsFlow):
-    """Adresse der Relaisbox nachtraeglich aendern."""
+    """Adresse der Relaisbox und die Weckerlampe (Relais, Muster) einstellen."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._entry = config_entry
@@ -194,7 +201,8 @@ class RelaisOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
-        current = self._entry.options.get(CONF_HOST, self._entry.data.get(CONF_HOST, ""))
+        opt = self._entry.options
+        current = opt.get(CONF_HOST, self._entry.data.get(CONF_HOST, ""))
 
         if user_input is not None:
             host = (user_input.get(CONF_HOST) or "").strip()
@@ -206,9 +214,36 @@ class RelaisOptionsFlow(OptionsFlow):
                 except Exception:  # noqa: BLE001
                     errors[CONF_HOST] = "nicht_erreichbar"
                 else:
-                    return self.async_create_entry(title="", data={CONF_HOST: host})
+                    return self.async_create_entry(
+                        title="",
+                        data={
+                            CONF_HOST: host,
+                            CONF_LAMPE_RELAIS: int(user_input.get(CONF_LAMPE_RELAIS, LAMPE_RELAIS_STANDARD)),
+                            CONF_LAMPE_MUSTER_VORLAUF: user_input.get(
+                                CONF_LAMPE_MUSTER_VORLAUF, LAMPE_MUSTER_VORLAUF_STANDARD
+                            ),
+                            CONF_LAMPE_MUSTER_NACHLAUF: user_input.get(
+                                CONF_LAMPE_MUSTER_NACHLAUF, LAMPE_MUSTER_NACHLAUF_STANDARD
+                            ),
+                        },
+                    )
 
-        schema = vol.Schema({vol.Required(CONF_HOST, default=current): str})
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_HOST, default=current): str,
+                vol.Required(
+                    CONF_LAMPE_RELAIS, default=opt.get(CONF_LAMPE_RELAIS, LAMPE_RELAIS_STANDARD)
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
+                vol.Required(
+                    CONF_LAMPE_MUSTER_VORLAUF,
+                    default=opt.get(CONF_LAMPE_MUSTER_VORLAUF, LAMPE_MUSTER_VORLAUF_STANDARD),
+                ): vol.In(MUSTER_LISTE),
+                vol.Required(
+                    CONF_LAMPE_MUSTER_NACHLAUF,
+                    default=opt.get(CONF_LAMPE_MUSTER_NACHLAUF, LAMPE_MUSTER_NACHLAUF_STANDARD),
+                ): vol.In(MUSTER_LISTE),
+            }
+        )
         return self.async_show_form(
             step_id="relais",
             data_schema=schema,

@@ -356,10 +356,34 @@ zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 | Entity | Inhalt |
 |---|---|
 | `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s` |
+| `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `naechster_wecker`, `vorlauf_ab` |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
-| `binary_sensor.relaisbox_eingang` | Taster an GPIO 7; Attribute `seit_s`, `zaehler` |
+| `binary_sensor.relaisbox_eingang` | Taster an GPIO 7 (fehlt bei der Bauweise „nur Lampe"); Attribute `seit_s`, `zaehler` |
 | `button.relaisbox_alarm_stoppen` | alles aus |
 | `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
+
+**Weckerlampe.** Ein Relais der Box folgt von selbst dem Wecker der App,
+ohne Automation:
+
+1. Eine Minute vor dem Weckruf geht das erste Muster los (Vorgabe `blinken`).
+2. Klingelt der Wecker, laeuft es weiter.
+3. Schlummern: Lampe aus. Klingelt es danach wieder, geht es wie beim
+   Klingeln weiter.
+4. Beenden: das zweite Muster laeuft fuenf Minuten nach (Vorgabe
+   `doppelblitz`), dann ist Ruhe.
+
+Der Schalter `switch.relaisbox_weckerlampe` schaltet das ein und aus (bleibt
+ueber Neustarts erhalten, neu angelegt ist er an). Relais-Nummer und die beiden
+Muster stehen unter „Konfigurieren" der Relaisbox. Jeder Start bekommt eine
+Hoechstdauer (Vorlauf 11 min, Klingeln 10 min, Nachlauf 5 min): meldet sich
+das Handy nicht mehr, geht die Lampe trotzdem aus. Gezaehlt werden alle
+Wecker-Eintraege der Integration.
+
+**Bauweise „nur Lampe".** `pio run -e esp32s3-lampe -t upload` baut die
+Firmware mit einem einzigen Ausgang an **GPIO 1** (etwa fuer ein F5305S-
+MOSFET-Modul, das die Plusleitung einer 12/24-V-Lampe lautlos schaltet), ohne
+Taster und ohne GPIO 42. Die Box meldet dann keinen Eingang, die Integration
+legt den Sensor nicht an; Relais-Nummer 1 bleibt.
 
 **Aktionen**
 

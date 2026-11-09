@@ -58,6 +58,7 @@ class RelaisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.entry = entry
         self._events_task: asyncio.Task | None = None
         self.events_verbunden = False
+        self.lampe: Any = None   # WeckerLampe, wird in __init__ gesetzt
 
     @property
     def host(self) -> str:

@@ -51,9 +51,12 @@
       },
       "relais": {
         "title": "Relay box",
-        "description": "Currently: {url}",
+        "description": "Currently: {url} The alarm lamp lets one relay follow the phone's alarm: it starts one minute before the alarm, keeps going while ringing, goes dark while snoozing and runs a second pattern for five minutes after dismissing. Switch „Alarm lamp“ turns this on and off.",
         "data": {
-          "host": "Address of the relay box"
+          "host": "Relay box address",
+          "lampe_relais": "Alarm lamp: relay number",
+          "lampe_muster_vorlauf": "Alarm lamp: pattern before and while ringing",
+          "lampe_muster_nachlauf": "Alarm lamp: pattern after dismissing (5 minutes)"
         }
       }
     },
