@@ -38,8 +38,9 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   den direkten startActivity aus `RingService`, und den laesst Android nur mit
   SYSTEM_ALERT_WINDOW („Ueber anderen Apps anzeigen", Zeile `overlay`) durch;
   ohne diese Freigabe bleibt es beim Hinweis oben (`RingState.seiteOffen`
-  stoppt die Wiederholungen). Vorwarnung: Kanal `hawecker_prewarn_v2` mit IMPORTANCE_DEFAULT
-  (Live-Benachrichtigungen brauchen das), wird sofort gezeigt, wenn der Weckruf
+  stoppt die Wiederholungen). Vorwarnung: Kanal `hawecker_prewarn_v3` mit IMPORTANCE_LOW (nie Ton;
+  Live-Benachrichtigungen verlangen laut Google-Doku nur "nicht IMPORTANCE_MIN";
+  mit DEFAULT klingelte Samsung trotz setSound(null)), wird sofort gezeigt, wenn der Weckruf
   naeher ist als die Vorwarnzeit. Den Live-Balken oben macht `VorwarnService`
   (Vordergrunddienst specialUse, nur in den Minuten vor dem Weckruf, Takt 20 s)
   mit `NotificationCompat.ProgressStyle` wie in der Kalender-App - braucht

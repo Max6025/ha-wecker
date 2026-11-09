@@ -14,11 +14,17 @@ object Notifications {
 
     const val CH_RING = "hawecker_ring"
 
-    /** v2, weil eine bereits angelegte Kanal-Wichtigkeit nicht mehr aenderbar ist. */
-    const val CH_PREWARN = "hawecker_prewarn_v2"
+    /**
+     * v3: IMPORTANCE_LOW, weil Android (und erst recht Samsung) bei einem
+     * Kanal mit IMPORTANCE_DEFAULT trotz setSound(null) einen Ton spielen
+     * kann; bei LOW gibt es nie Ton oder Vibration. Live-Benachrichtigungen
+     * verlangen nur "nicht IMPORTANCE_MIN", LOW reicht also. Ein neuer Name,
+     * weil ein angelegter Kanal nicht mehr umgestellt werden kann.
+     */
+    const val CH_PREWARN = "hawecker_prewarn_v3"
 
     /** Schlafenszeit: stille Dauer-Anzeige, solange das Fenster laeuft. */
-    const val CH_SLEEP = "hawecker_sleep_v2"
+    const val CH_SLEEP = "hawecker_sleep_v3"
 
     /** Benachrichtigungs-IDs der Vorwarnungen: Basis plus Wecker-ID. */
     const val PRE_NOTIF_BASE = 5000
@@ -41,22 +47,26 @@ object Notifications {
         )
 
         manager.createNotificationChannel(
-            // IMPORTANCE_DEFAULT, aber ohne Ton: Live-Benachrichtigungen (Android 16)
-            // werden bei niedriger Wichtigkeit nicht oben eingeblendet.
-            NotificationChannel(CH_PREWARN, "Vorwarnung", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            // IMPORTANCE_LOW: nie Ton, nie Vibration. Fuer Live-Benachrichtigungen
+            // (Android 16) darf der Kanal nur nicht IMPORTANCE_MIN sein.
+            NotificationChannel(CH_PREWARN, "Vorwarnung", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Stiller Hinweis kurz vor dem Weckruf, als Live-Benachrichtigung"
                 setSound(null, null)
                 enableVibration(false)
+                vibrationPattern = null
+                enableLights(false)
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
 
         manager.createNotificationChannel(
-            NotificationChannel(CH_SLEEP, "Schlafenszeit", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            NotificationChannel(CH_SLEEP, "Schlafenszeit", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Stille Anzeige waehrend der Schlafenszeit"
                 setSound(null, null)
                 enableVibration(false)
+                vibrationPattern = null
+                enableLights(false)
                 setShowBadge(false)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
@@ -67,6 +77,8 @@ object Notifications {
         runCatching { manager.deleteNotificationChannel("hawecker_service_v2") }
         runCatching { manager.deleteNotificationChannel("hawecker_prewarn") }
         runCatching { manager.deleteNotificationChannel("hawecker_sleep") }
+        runCatching { manager.deleteNotificationChannel("hawecker_prewarn_v2") }
+        runCatching { manager.deleteNotificationChannel("hawecker_sleep_v2") }
     }
 
     // ------------------------------------------------------------------
