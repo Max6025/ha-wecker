@@ -5,6 +5,10 @@
 // Alarmmuster (Blinken, Doppelblitz ...) startet. Die Muster laufen auf dem
 // ESP selbst, Home Assistant sagt nur "Muster X auf Relais Y, so lange".
 //
+// Bauweise "nur Lampe" (env esp32s3-lampe, -DNUR_LAMPE): ein einziger Ausgang
+// an LAMPE_GPIO (Vorgabe GPIO 1, etwa ein F5305S-MOSFET-Modul), kein Taster,
+// kein GPIO 42. Die HTTP-Schnittstelle bleibt dieselbe, Relais-Nummer 1.
+//
 // Pins
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
 //   GPIO 4, 5, 6: Relais 1-3 (IN der Module, aktiv HIGH, VCC 3,3 V).
@@ -56,7 +60,7 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.5.1";
+static const char* VERSION   = "1.6.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
@@ -85,11 +89,20 @@ struct Relais {
   int gpio;
   bool defekt;
 };
+#ifdef NUR_LAMPE
+#ifndef LAMPE_GPIO
+#define LAMPE_GPIO 1
+#endif
+static Relais RELAIS[] = {
+  {1, LAMPE_GPIO, false},
+};
+#else
 static Relais RELAIS[] = {
   {1, 4, false},
   {2, 5, false},
   {3, 6, false},
 };
+#endif
 
 // Index zu einer Platinennummer, -1 wenn es die nicht gibt
 static int relaisIndex(int nr) {
@@ -228,6 +241,7 @@ static uint32_t eingangSeit = 0;         // millis() der letzten Aenderung
 static uint32_t eingangZaehler = 0;      // wie oft "an" seit dem Start
 
 static void eingangTakt() {
+#ifndef NUR_LAMPE
   static bool rohAlt = false;
   static uint32_t rohSeit = 0;
   bool roh = (digitalRead(PIN_EINGANG) == HIGH) != EINGANG_AKTIV_LOW;
@@ -242,6 +256,7 @@ static void eingangTakt() {
     if (eingangAktiv) eingangZaehler++;
     Serial.printf("Eingang GPIO %d: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
   }
+#endif
 }
 
 // --- LED --------------------------------------------------------------------
@@ -390,10 +405,12 @@ static String stateJson() {
   s += ",\"starts\":" + String(startZaehler);
   s += ",\"brownouts\":" + String(brownoutZaehler) + "}";
   s += ",\"alarm\":" + String(alarmAktiv() ? "true" : "false");
+#ifndef NUR_LAMPE
   s += ",\"eingang\":{\"gpio\":" + String(PIN_EINGANG);
   s += ",\"aktiv\":" + String(eingangAktiv ? "true" : "false");
   s += ",\"seit_s\":" + String((millis() - eingangSeit) / 1000);
   s += ",\"zaehler\":" + String(eingangZaehler) + "}";
+#endif
   s += ",\"muster\":[";
   for (size_t i = 0; i < MUSTER_ANZAHL; i++) {
     if (i) s += ",";
@@ -528,7 +545,11 @@ static void handleStatusseite() {
     h += "<button onclick=\"f('/api/relais/" + String(RELAIS[i].nr) + "?an=0')\">aus</button>";
     h += "<button onclick=\"f('/api/alarm?relais=" + String(RELAIS[i].nr) + "&muster=doppelblitz')\">Doppelblitz</button></td></tr>";
   }
+#ifndef NUR_LAMPE
   h += "</table><p>Eingang GPIO " + String(PIN_EINGANG) + ": <b>" + String(eingangAktiv ? "AN" : "aus") + "</b></p>";
+#else
+  h += "</table>";
+#endif
   h += "<p>Start " + String(startZaehler) + " (" + String(startGrund) + "), Brownouts: <b>" + String(brownoutZaehler) + "</b></p>";
   h += "<p><button onclick=\"f('/api/alarm?relais=alle&muster=blinken')\">alle blinken</button>"
        "<button onclick=\"f('/api/alarm/stop')\">alles stopp</button></p>";
@@ -662,10 +683,12 @@ void setup() {
     pinMode(RELAIS[i].gpio, RELAIS_OPEN_DRAIN ? OUTPUT_OPEN_DRAIN : OUTPUT);
     ausgang(i, false);
   }
+#ifndef NUR_LAMPE
   pinMode(PIN_EINGANG, EINGANG_AKTIV_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
   pinMode(PIN_VERSORGUNG, OUTPUT);
   gpio_set_drive_capability((gpio_num_t)PIN_VERSORGUNG, GPIO_DRIVE_CAP_3);
   digitalWrite(PIN_VERSORGUNG, HIGH);
+#endif
 
   Serial.begin(115200);
   delay(300);
@@ -673,13 +696,19 @@ void setup() {
   Serial.printf("Relaisbox %s bereit\n", VERSION);
   Serial.printf("Relais: %s-Trigger, %s\n", RELAIS_AKTIV_LOW ? "LOW" : "HIGH",
                 RELAIS_OPEN_DRAIN ? "Open-Drain (5-V-Module)" : "Gegentakt 3,3 V");
+#ifdef NUR_LAMPE
+  Serial.print("Nur Lampe, kein Taster; Ausgang an GPIO");
+#else
   Serial.printf("GPIO %d dauerhaft AN; Relais an GPIO", PIN_VERSORGUNG);
+#endif
   for (size_t i = 0; i < RELAIS_ANZAHL; i++)
     Serial.printf(" %d%s", RELAIS[i].gpio, RELAIS[i].defekt ? "(defekt)" : "");
   Serial.println();
+#ifndef NUR_LAMPE
   eingangAktiv = (digitalRead(PIN_EINGANG) == HIGH) != EINGANG_AKTIV_LOW;
   eingangSeit = millis();
   Serial.printf("Eingang GPIO %d beim Start: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
+#endif
 
   led(0, 0, 30);
   wifiLaden();   // oeffnet auch die Preferences
