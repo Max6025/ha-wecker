@@ -51,12 +51,17 @@
       },
       "relais": {
         "title": "Relay box",
-        "description": "Currently: {url} The alarm lamp lets one relay follow the phone's alarm: it starts one minute before the alarm, keeps going while ringing, goes dark while snoozing and runs a second pattern for five minutes after dismissing. Switch „Alarm lamp“ turns this on and off.",
+        "description": "Currently: {url}\n\nAlarm lamp: the relays follow the app's alarm. One minute before the alarm each relay starts its \"while ringing\" pattern and keeps it while ringing; snoozing turns everything off; after dismissing the \"after dismissing\" pattern runs for five minutes. \"aus\" means: this relay does nothing in that phase. The \"Alarm lamp\" switch turns all of this on and off.\n\nRelays of the box: {lampen}",
         "data": {
           "host": "Relay box address",
-          "lampe_relais": "Alarm lamp: relay number",
-          "lampe_muster_vorlauf": "Alarm lamp: pattern before and while ringing",
-          "lampe_muster_nachlauf": "Alarm lamp: pattern after dismissing (5 minutes)"
+          "lampe_1_aktiv": "Relay 1: while ringing (from 1 minute before)",
+          "lampe_1_nachlauf": "Relay 1: after dismissing (5 minutes)",
+          "lampe_2_aktiv": "Relay 2: while ringing (from 1 minute before)",
+          "lampe_2_nachlauf": "Relay 2: after dismissing (5 minutes)",
+          "lampe_3_aktiv": "Relay 3: while ringing (from 1 minute before)",
+          "lampe_3_nachlauf": "Relay 3: after dismissing (5 minutes)",
+          "lampe_4_aktiv": "Relay 4: while ringing (from 1 minute before)",
+          "lampe_4_nachlauf": "Relay 4: after dismissing (5 minutes)"
         }
       }
     },

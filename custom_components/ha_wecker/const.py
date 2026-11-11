@@ -24,15 +24,23 @@ ATTR_MUSTER = "muster"
 ATTR_DAUER = "dauer"
 
 MUSTER_STANDARD = "doppelblitz"
-MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "sos"]
+MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "dreifachblitz", "sos"]
 
-# Weckerlampe: ein Relais der Box folgt dem Wecker der App (siehe lampe.py)
-CONF_LAMPE_RELAIS = "lampe_relais"
-CONF_LAMPE_MUSTER_VORLAUF = "lampe_muster_vorlauf"
-CONF_LAMPE_MUSTER_NACHLAUF = "lampe_muster_nachlauf"
-LAMPE_RELAIS_STANDARD = 1
-LAMPE_MUSTER_VORLAUF_STANDARD = "blinken"
-LAMPE_MUSTER_NACHLAUF_STANDARD = "doppelblitz"
+# Weckerlampe: die Relais der Box folgen dem Wecker der App (siehe lampe.py).
+# Je Relais ein Muster fuer "aktiv" (Vorlauf und Klingeln) und "nachlauf"
+# (nach dem Beenden); "aus" heisst: dieses Relais macht in der Phase nichts.
+CONF_LAMPE_PLAN = "lampe_plan"       # {"1": {"aktiv": "dreifachblitz", "nachlauf": "doppelblitz"}, ...}
+LAMPE_AKTIV = "aktiv"
+LAMPE_NACHLAUF = "nachlauf"
+LAMPE_MUSTER_LISTE = ["aus", *MUSTER_LISTE]
+LAMPE_PLAN_STANDARD: dict[int, dict[str, str]] = {
+    1: {LAMPE_AKTIV: "dreifachblitz", LAMPE_NACHLAUF: "doppelblitz"},   # Lampe
+    2: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # Gruen
+    3: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # Rot
+    4: {LAMPE_AKTIV: "dauer", LAMPE_NACHLAUF: "aus"},                   # Warnleuchte (blinkt selbst)
+}
+LAMPE_PLAN_SONST = {LAMPE_AKTIV: "aus", LAMPE_NACHLAUF: "aus"}           # weitere Relais
+LAMPE_PLAN_FELDER = 4                # so viele Relais zeigt der Optionsdialog hoechstens
 LAMPE_VORLAUF_S = 60          # so lange vor dem Weckruf geht es los
 LAMPE_NACHLAUF_S = 300        # so lange nach dem Beenden laeuft der Nachlauf
 LAMPE_KLINGELN_MAX_S = 600    # Hoechstdauer, falls die App nichts mehr meldet

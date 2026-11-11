@@ -21,18 +21,17 @@ from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .const import (
     CONF_HOST,
-    CONF_LAMPE_MUSTER_NACHLAUF,
-    CONF_LAMPE_MUSTER_VORLAUF,
-    CONF_LAMPE_RELAIS,
+    CONF_LAMPE_PLAN,
     CONF_TYP,
     DOMAIN,
-    LAMPE_MUSTER_NACHLAUF_STANDARD,
-    LAMPE_MUSTER_VORLAUF_STANDARD,
-    LAMPE_RELAIS_STANDARD,
-    MUSTER_LISTE,
+    LAMPE_AKTIV,
+    LAMPE_MUSTER_LISTE,
+    LAMPE_NACHLAUF,
+    LAMPE_PLAN_FELDER,
     TYP_RELAIS,
     TYP_WECKER,
 )
+from .lampe import plan_fuer
 from .relais import host_zu_url, relaisbox_abfragen
 
 DEFAULT_NAME_WECKER = "HA Wecker"
@@ -187,10 +186,17 @@ class WeckerOptionsFlow(OptionsFlow):
 
 
 class RelaisOptionsFlow(OptionsFlow):
-    """Adresse der Relaisbox und die Weckerlampe (Relais, Muster) einstellen."""
+    """Adresse der Relaisbox und die Weckerlampe (Muster je Relais und Phase) einstellen."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._entry = config_entry
+
+    def _relais_der_box(self) -> list[dict[str, Any]]:
+        """Relais, die die Box zuletzt gemeldet hat (ohne defekte), hoechstens LAMPE_PLAN_FELDER."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id)
+        relais = coordinator.brauchbare_relais() if coordinator is not None and hasattr(coordinator, "brauchbare_relais") else []
+        relais = [r for r in relais if 1 <= int(r.get("nr", 0)) <= LAMPE_PLAN_FELDER]
+        return relais or [{"nr": n} for n in range(1, LAMPE_PLAN_FELDER + 1)]
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -204,6 +210,10 @@ class RelaisOptionsFlow(OptionsFlow):
         opt = self._entry.options
         current = opt.get(CONF_HOST, self._entry.data.get(CONF_HOST, ""))
 
+        relais = self._relais_der_box()
+        nummern = [int(r["nr"]) for r in relais]
+        plan = plan_fuer(opt.get(CONF_LAMPE_PLAN), nummern)
+
         if user_input is not None:
             host = (user_input.get(CONF_HOST) or "").strip()
             if not host:
@@ -214,39 +224,24 @@ class RelaisOptionsFlow(OptionsFlow):
                 except Exception:  # noqa: BLE001
                     errors[CONF_HOST] = "nicht_erreichbar"
                 else:
-                    return self.async_create_entry(
-                        title="",
-                        data={
-                            CONF_HOST: host,
-                            CONF_LAMPE_RELAIS: int(user_input.get(CONF_LAMPE_RELAIS, LAMPE_RELAIS_STANDARD)),
-                            CONF_LAMPE_MUSTER_VORLAUF: user_input.get(
-                                CONF_LAMPE_MUSTER_VORLAUF, LAMPE_MUSTER_VORLAUF_STANDARD
-                            ),
-                            CONF_LAMPE_MUSTER_NACHLAUF: user_input.get(
-                                CONF_LAMPE_MUSTER_NACHLAUF, LAMPE_MUSTER_NACHLAUF_STANDARD
-                            ),
-                        },
-                    )
+                    neu: dict[str, dict[str, str]] = {}
+                    alt = opt.get(CONF_LAMPE_PLAN) if isinstance(opt.get(CONF_LAMPE_PLAN), dict) else {}
+                    neu.update({str(k): dict(v) for k, v in alt.items() if isinstance(v, dict)})
+                    for nr in nummern:
+                        neu[str(nr)] = {
+                            LAMPE_AKTIV: str(user_input.get(f"lampe_{nr}_aktiv", plan[nr][LAMPE_AKTIV])),
+                            LAMPE_NACHLAUF: str(user_input.get(f"lampe_{nr}_nachlauf", plan[nr][LAMPE_NACHLAUF])),
+                        }
+                    return self.async_create_entry(title="", data={CONF_HOST: host, CONF_LAMPE_PLAN: neu})
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_HOST, default=current): str,
-                vol.Required(
-                    CONF_LAMPE_RELAIS, default=opt.get(CONF_LAMPE_RELAIS, LAMPE_RELAIS_STANDARD)
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=16)),
-                vol.Required(
-                    CONF_LAMPE_MUSTER_VORLAUF,
-                    default=opt.get(CONF_LAMPE_MUSTER_VORLAUF, LAMPE_MUSTER_VORLAUF_STANDARD),
-                ): vol.In(MUSTER_LISTE),
-                vol.Required(
-                    CONF_LAMPE_MUSTER_NACHLAUF,
-                    default=opt.get(CONF_LAMPE_MUSTER_NACHLAUF, LAMPE_MUSTER_NACHLAUF_STANDARD),
-                ): vol.In(MUSTER_LISTE),
-            }
-        )
+        felder: dict[Any, Any] = {vol.Required(CONF_HOST, default=current): str}
+        for nr in nummern:
+            felder[vol.Required(f"lampe_{nr}_aktiv", default=plan[nr][LAMPE_AKTIV])] = vol.In(LAMPE_MUSTER_LISTE)
+            felder[vol.Required(f"lampe_{nr}_nachlauf", default=plan[nr][LAMPE_NACHLAUF])] = vol.In(LAMPE_MUSTER_LISTE)
+        namen = ", ".join(f"{r['nr']} = {r.get('name') or 'Relais ' + str(r['nr'])}" for r in relais)
         return self.async_show_form(
             step_id="relais",
-            data_schema=schema,
+            data_schema=vol.Schema(felder),
             errors=errors,
-            description_placeholders={"url": host_zu_url(current)},
+            description_placeholders={"url": host_zu_url(current), "lampen": namen},
         )

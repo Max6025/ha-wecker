@@ -5,9 +5,13 @@
 // Alarmmuster (Blinken, Doppelblitz ...) startet. Die Muster laufen auf dem
 // ESP selbst, Home Assistant sagt nur "Muster X auf Relais Y, so lange".
 //
-// Bauweise "nur Lampe" (env esp32s3-lampe, -DNUR_LAMPE): ein einziger Ausgang
-// an LAMPE_GPIO (Vorgabe GPIO 1, etwa ein F5305S-MOSFET-Modul), kein Taster,
-// kein GPIO 42. Die HTTP-Schnittstelle bleibt dieselbe, Relais-Nummer 1.
+// Bauweise "Lampen" (env esp32s3-lampe, -DNUR_LAMPE): vier Ausgaenge fuer
+// MOSFET-Module (F5305S, Plusleitung einer 12/24-V-Lampe), kein Taster, GPIO 42
+// ist hier ein Ausgang statt dauerhaft HIGH. Die HTTP-Schnittstelle bleibt
+// dieselbe; die Relais heissen 1 Lampe (GPIO 1), 2 Gruen (GPIO 2),
+// 3 Rot (GPIO 42), 4 Warnleuchte (GPIO 41, blinkt von selbst, braucht Dauer).
+// Die Namen stehen in /api/state als "name", Home Assistant benennt die
+// Schalter danach.
 //
 // Pins
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
@@ -60,7 +64,7 @@
 #define RGB_BUILTIN 48
 #endif
 
-static const char* VERSION   = "1.6.0";
+static const char* VERSION   = "1.7.0";
 static const char* HOSTNAME  = "relaisbox";
 
 static const int PIN_VERSORGUNG = 42;
@@ -88,19 +92,22 @@ struct Relais {
   int nr;      // Nummer wie auf der Platine (bleibt stabil, auch wenn eins fehlt)
   int gpio;
   bool defekt;
+  const char* name;   // nullptr = "Relais <nr>"
 };
 #ifdef NUR_LAMPE
-#ifndef LAMPE_GPIO
-#define LAMPE_GPIO 1
-#endif
+// GPIO 41/42 sind JTAG-Pins (MTDI/MTMS); frei, weil die Box ueber USB-JTAG
+// laeuft. Keine PSRAM-Pins (33-37).
 static Relais RELAIS[] = {
-  {1, LAMPE_GPIO, false},
+  {1, 1,  false, "Lampe"},
+  {2, 2,  false, "Grün"},
+  {3, 42, false, "Rot"},
+  {4, 41, false, "Warnleuchte"},
 };
 #else
 static Relais RELAIS[] = {
-  {1, 4, false},
-  {2, 5, false},
-  {3, 6, false},
+  {1, 4, false, nullptr},
+  {2, 5, false, nullptr},
+  {3, 6, false, nullptr},
 };
 #endif
 
@@ -124,6 +131,7 @@ static const uint32_t M_BLINKEN[]     = {1000, 1000};
 static const uint32_t M_LANGSAM[]     = {2000, 2000};
 static const uint32_t M_SCHNELL[]     = {250, 250};
 static const uint32_t M_DOPPELBLITZ[] = {100, 120, 100, 680};
+static const uint32_t M_DREIFACHBLITZ[] = {50, 60, 50, 60, 50, 330};   // drei enge Stroboskop-Blitze, 0,6 s Takt
 static const uint32_t M_SOS[] = {200, 200, 200, 200, 200, 600,
                                  600, 200, 600, 200, 600, 600,
                                  200, 200, 200, 200, 200, 1400};
@@ -135,6 +143,7 @@ static const Muster MUSTER[] = {
   {"langsam",     M_LANGSAM,     2},
   {"schnell",     M_SCHNELL,     2},
   {"doppelblitz", M_DOPPELBLITZ, 4},
+  {"dreifachblitz", M_DREIFACHBLITZ, 6},
   {"sos",         M_SOS,         18},
 };
 static const size_t MUSTER_ANZAHL = sizeof(MUSTER) / sizeof(MUSTER[0]);
@@ -422,8 +431,10 @@ static String stateJson() {
     if (i) s += ",";
     s += "{\"nr\":" + String(RELAIS[i].nr);
     s += ",\"gpio\":" + String(RELAIS[i].gpio);
+    if (RELAIS[i].name) s += ",\"name\":\"" + String(RELAIS[i].name) + "\"";
     s += ",\"defekt\":" + String(RELAIS[i].defekt ? "true" : "false");
     s += ",\"an\":" + String(lauf[i].an ? "true" : "false");
+    s += ",\"pegel\":" + String(digitalRead(RELAIS[i].gpio));   // tatsaechlicher Pin, zur Fehlersuche
     s += ",\"muster\":\"" + String(MUSTER[lauf[i].muster].name) + "\"";
     long rest = lauf[i].endeMs ? (long)((int32_t)(lauf[i].endeMs - jetzt)) / 1000 : -1;
     if (rest < -1) rest = 0;
@@ -538,7 +549,9 @@ static void handleStatusseite() {
   h += "<p>Version " + String(VERSION) + " &middot; " + WiFi.localIP().toString() + " &middot; RSSI " + String(WiFi.RSSI()) + " dBm</p>";
   h += "<table><tr><th>Relais</th><th>GPIO</th><th>Zustand</th><th>Muster</th><th></th></tr>";
   for (size_t i = 0; i < RELAIS_ANZAHL; i++) {
-    h += "<tr><td>" + String(RELAIS[i].nr) + "</td><td>" + String(RELAIS[i].gpio) + "</td>";
+    h += "<tr><td>" + String(RELAIS[i].nr);
+    if (RELAIS[i].name) h += " " + String(RELAIS[i].name);
+    h += "</td><td>" + String(RELAIS[i].gpio) + "</td>";
     if (RELAIS[i].defekt) { h += "<td class=aus colspan=3>defekt, nicht benutzt</td></tr>"; continue; }
     h += "<td>" + String(lauf[i].an ? "AN" : "aus") + "</td><td>" + String(MUSTER[lauf[i].muster].name) + "</td><td>";
     h += "<button onclick=\"f('/api/relais/" + String(RELAIS[i].nr) + "?an=1')\">an</button>";
@@ -697,7 +710,7 @@ void setup() {
   Serial.printf("Relais: %s-Trigger, %s\n", RELAIS_AKTIV_LOW ? "LOW" : "HIGH",
                 RELAIS_OPEN_DRAIN ? "Open-Drain (5-V-Module)" : "Gegentakt 3,3 V");
 #ifdef NUR_LAMPE
-  Serial.print("Nur Lampe, kein Taster; Ausgang an GPIO");
+  Serial.print("Bauweise Lampen, kein Taster; Ausgaenge an GPIO");
 #else
   Serial.printf("GPIO %d dauerhaft AN; Relais an GPIO", PIN_VERSORGUNG);
 #endif
@@ -708,6 +721,17 @@ void setup() {
   eingangAktiv = (digitalRead(PIN_EINGANG) == HIGH) != EINGANG_AKTIV_LOW;
   eingangSeit = millis();
   Serial.printf("Eingang GPIO %d beim Start: %s\n", PIN_EINGANG, eingangAktiv ? "AN" : "aus");
+#endif
+
+#ifdef LAMPEN_TEST
+  // Test-Bauweise: das Weckruf-Lichtbild laeuft ab dem Einschalten dauernd,
+  // auch ohne WLAN. Lampe Dreifachblitz, Gruen und Rot langsam (2 s),
+  // Warnleuchte Dauer.
+  musterStarten(0, musterIndex("dreifachblitz"), 0);
+  musterStarten(1, musterIndex("langsam"), 0);
+  musterStarten(2, musterIndex("langsam"), 0);
+  musterStarten(3, MUSTER_DAUER, 0);
+  Serial.println("LAMPEN_TEST: Lichtbild laeuft dauernd");
 #endif
 
   led(0, 0, 30);

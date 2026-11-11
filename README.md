@@ -343,8 +343,11 @@ pulsierend = Alarmmuster laeuft.
 | POST | `/api/wifi?ssid=&pass=` | WLAN speichern, Neustart |
 
 Muster: `dauer`, `blinken` (1 s/1 s), `langsam` (2 s/2 s), `schnell` (¼ s),
-`doppelblitz` (100/120/100/680 ms wie eine Brandmeldezentrale), `sos`. Die
-Muster laufen auf dem ESP, HA sagt nur, welches wie lange.
+`doppelblitz` (100/120/100/680 ms wie eine Brandmeldezentrale),
+`dreifachblitz` (drei 50-ms-Blitze im 0,6-s-Takt, wie ein Stroboskop), `sos`.
+Die Muster laufen auf dem ESP, HA sagt nur, welches wie lange. Jedes Relais
+in `/api/state` traegt `pegel` (den tatsaechlich gemessenen Pin, zur
+Fehlersuche) und bei der Bauweise „Lampen" einen `name`.
 
 Die Integration haelt den Ereignisstrom dauerhaft offen, dadurch erscheinen
 Eingang und Relaiszustand in HA ohne Verzoegerung. Reisst die Verbindung ab,
@@ -355,35 +358,49 @@ zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 
 | Entity | Inhalt |
 |---|---|
-| `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s` |
-| `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `naechster_wecker`, `vorlauf_ab` |
+| `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s`. Meldet die Box Namen (Bauweise „Lampen"), heissen sie danach: `switch.relaisbox_lampe`, `_grun`, `_rot`, `_warnleuchte` |
+| `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `plan`, `relais`, `naechster_wecker`, `vorlauf_ab` |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
-| `binary_sensor.relaisbox_eingang` | Taster an GPIO 7 (fehlt bei der Bauweise „nur Lampe"); Attribute `seit_s`, `zaehler` |
+| `binary_sensor.relaisbox_eingang` | Taster an GPIO 7 (fehlt bei der Bauweise „Lampen"); Attribute `seit_s`, `zaehler` |
 | `button.relaisbox_alarm_stoppen` | alles aus |
 | `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
 
-**Weckerlampe.** Ein Relais der Box folgt von selbst dem Wecker der App,
-ohne Automation:
+**Weckerlampe.** Die Relais der Box folgen von selbst dem Wecker der App,
+ohne Automation. Jedes Relais hat ein Muster „beim Weckruf" und eins „nach
+dem Beenden" (`aus` = dieses Relais macht in der Phase nichts). Vorgabe,
+passend zur Bauweise „Lampen":
 
-1. Eine Minute vor dem Weckruf geht das erste Muster los (Vorgabe `blinken`).
-2. Klingelt der Wecker, laeuft es weiter.
-3. Schlummern: Lampe aus. Klingelt es danach wieder, geht es wie beim
+| Relais | beim Weckruf | nach dem Beenden |
+|---|---|---|
+| 1 Lampe | `dreifachblitz` | `doppelblitz` |
+| 2 Gruen | `langsam` | `aus` |
+| 3 Rot | `langsam` | `aus` |
+| 4 Warnleuchte (blitzt selbst, braucht nur Dauerplus) | `dauer` | `aus` |
+
+1. Eine Minute vor dem Weckruf starten die Muster „beim Weckruf".
+2. Klingelt der Wecker, laufen sie weiter.
+3. Schlummern: alles aus. Klingelt es danach wieder, geht es wie beim
    Klingeln weiter.
-4. Beenden: das zweite Muster laeuft fuenf Minuten nach (Vorgabe
-   `doppelblitz`), dann ist Ruhe.
+4. Beenden: fuenf Minuten lang die Muster „nach dem Beenden", der Rest aus,
+   dann ist Ruhe.
 
 Der Schalter `switch.relaisbox_weckerlampe` schaltet das ein und aus (bleibt
-ueber Neustarts erhalten, neu angelegt ist er an). Relais-Nummer und die beiden
-Muster stehen unter „Konfigurieren" der Relaisbox. Jeder Start bekommt eine
-Hoechstdauer (Vorlauf 11 min, Klingeln 10 min, Nachlauf 5 min): meldet sich
-das Handy nicht mehr, geht die Lampe trotzdem aus. Gezaehlt werden alle
+ueber Neustarts erhalten, neu angelegt ist er an). Die Muster je Relais
+stehen unter „Konfigurieren" der Relaisbox; der Dialog zeigt die Relais, die
+die Box meldet (hoechstens 1-4). Jeder Start bekommt eine Hoechstdauer
+(Vorlauf 11 min, Klingeln 10 min, Nachlauf 5 min): meldet sich das Handy
+nicht mehr, gehen die Lampen trotzdem aus. Gezaehlt werden alle
 Wecker-Eintraege der Integration.
 
-**Bauweise „nur Lampe".** `pio run -e esp32s3-lampe -t upload` baut die
-Firmware mit einem einzigen Ausgang an **GPIO 1** (etwa fuer ein F5305S-
-MOSFET-Modul, das die Plusleitung einer 12/24-V-Lampe lautlos schaltet), ohne
-Taster und ohne GPIO 42. Die Box meldet dann keinen Eingang, die Integration
-legt den Sensor nicht an; Relais-Nummer 1 bleibt.
+**Bauweise „Lampen".** `pio run -e esp32s3-lampe -t upload` baut die
+Firmware fuer vier F5305S-MOSFET-Module (schalten die Plusleitung einer
+12/24-V-Lampe lautlos, Trigger 3,3 V vom GPIO): 1 Lampe an **GPIO 1**,
+2 Gruen an **GPIO 2**, 3 Rot an **GPIO 42**, 4 Warnleuchte an **GPIO 41**
+(etwa eine WERMA 205 Blitzleuchte, die bei Dauerplus von selbst blitzt).
+Kein Taster, GPIO 42 ist hier ein Ausgang. Die Box meldet keinen Eingang,
+die Integration legt den Sensor nicht an. `pio run -e esp32s3-lampe-test
+-t upload` baut dieselbe Firmware so, dass das Weckruf-Lichtbild ab dem
+Einschalten dauernd laeuft (zum Aufbauen und Vorfuehren, auch ohne WLAN).
 
 **Aktionen**
 

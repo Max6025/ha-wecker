@@ -51,12 +51,17 @@
       },
       "relais": {
         "title": "Relaisbox",
-        "description": "Derzeit: {url}\n\nWeckerlampe: ein Relais folgt dem Wecker der App. Eine Minute vor dem Weckruf geht das erste Muster los und läuft beim Klingeln weiter; beim Schlummern ist die Lampe aus; nach dem Beenden läuft das zweite Muster fünf Minuten. Der Schalter „Weckerlampe“ schaltet das Ganze ein und aus.",
+        "description": "Derzeit: {url}\n\nWeckerlampe: die Relais folgen dem Wecker der App. Eine Minute vor dem Weckruf startet je Relais das Muster „beim Weckruf“ und läuft beim Klingeln weiter; beim Schlummern ist alles aus; nach dem Beenden läuft fünf Minuten das Muster „nach dem Beenden“. „aus“ heißt: dieses Relais macht in der Phase nichts. Der Schalter „Weckerlampe“ schaltet das Ganze ein und aus.\n\nRelais der Box: {lampen}",
         "data": {
           "host": "Adresse der Relaisbox",
-          "lampe_relais": "Weckerlampe: Relais-Nummer",
-          "lampe_muster_vorlauf": "Weckerlampe: Muster vor dem Weckruf und beim Klingeln",
-          "lampe_muster_nachlauf": "Weckerlampe: Muster nach dem Beenden (5 Minuten)"
+          "lampe_1_aktiv": "Relais 1: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
+          "lampe_1_nachlauf": "Relais 1: nach dem Beenden (5 Minuten)",
+          "lampe_2_aktiv": "Relais 2: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
+          "lampe_2_nachlauf": "Relais 2: nach dem Beenden (5 Minuten)",
+          "lampe_3_aktiv": "Relais 3: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
+          "lampe_3_nachlauf": "Relais 3: nach dem Beenden (5 Minuten)",
+          "lampe_4_aktiv": "Relais 4: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
+          "lampe_4_nachlauf": "Relais 4: nach dem Beenden (5 Minuten)"
         }
       }
     },

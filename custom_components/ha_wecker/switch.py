@@ -36,7 +36,8 @@ class RelaisSwitch(RelaisEntity, SwitchEntity):
     def __init__(self, coordinator: RelaisCoordinator, nr: int) -> None:
         super().__init__(coordinator, f"relais_{nr}")
         self.nr = nr
-        self._attr_name = f"Relais {nr}"
+        r = coordinator.relais(nr) or {}
+        self._attr_name = str(r.get("name") or f"Relais {nr}")   # Name aus der Box, wenn sie einen meldet
 
     @property
     def _relais(self) -> dict[str, Any] | None:

@@ -22,6 +22,11 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   false`; die Module laufen bei Max an 3,3 V, das nicht anzweifeln). Relais 1-3
   an GPIO 4/5/6, Eingang GPIO 7 (Taster nach GND, Pullup, `EINGANG_AKTIV_LOW`),
   GPIO 42 geht beim Start dauerhaft HIGH. Freie Reserve: 15, 16, 17, 18, 1, 2.
+  Bauweise „Lampen" (`-e esp32s3-lampe`, `-DNUR_LAMPE`): vier MOSFET-Module an
+  GPIO 1/2/42/41 (Lampe, Gruen, Rot, Warnleuchte), kein Taster; `-e
+  esp32s3-lampe-test` laesst das Lichtbild ab dem Einschalten dauernd laufen.
+  `pegel` in `/api/state` ist der zurueckgelesene Pin: zeigt er den Wechsel
+  und die Lampe bleibt an, liegt es am Modul oder der Verdrahtung.
 - **GPIO 33–37 nie benutzen und PSRAM nie einschalten.** Das N16R8-Modul legt
   sein Octal-PSRAM auf diese Pins; auch ohne PSRAM-Init sind sie belastet:
   Relais klicken nur leise, Eingaenge lesen HIGH. Hat am 7./8.11. ein „defektes
