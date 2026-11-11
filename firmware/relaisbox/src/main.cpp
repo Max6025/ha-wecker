@@ -5,13 +5,14 @@
 // Alarmmuster (Blinken, Doppelblitz ...) startet. Die Muster laufen auf dem
 // ESP selbst, Home Assistant sagt nur "Muster X auf Relais Y, so lange".
 //
-// Bauweise "Lampen" (env esp32s3-lampe, -DNUR_LAMPE): vier Ausgaenge fuer
-// MOSFET-Module (F5305S, Plusleitung einer 12/24-V-Lampe), kein Taster, GPIO 42
-// ist hier ein Ausgang statt dauerhaft HIGH. Die HTTP-Schnittstelle bleibt
-// dieselbe; die Relais heissen 1 Lampe (GPIO 1), 2 Gruen (GPIO 2),
-// 3 Rot (GPIO 42), 4 Warnleuchte (GPIO 41, blinkt von selbst, braucht Dauer).
-// Die Namen stehen in /api/state als "name", Home Assistant benennt die
-// Schalter danach.
+// Bauweise "Lampen" (env esp32s3-lampe, -DNUR_LAMPE): drei Ausgaenge fuer
+// MOSFET-Module (F5305S, Plusleitung einer 12/24-V-Lampe), kein Taster, kein
+// GPIO 42. Die HTTP-Schnittstelle bleibt dieselbe; die Relais heissen
+// 1 Lampe (GPIO 1, die gruene LED haengt mit daran), 3 Rot (GPIO 40),
+// 4 Warnleuchte (GPIO 41, blitzt von selbst, braucht Dauer). Nummer 2 ist
+// seit 11.11. frei (Gruen war kurz an GPIO 2); die Nummern bleiben stabil,
+// weil der Lampenplan in Home Assistant daran haengt. Die Namen stehen in
+// /api/state als "name", Home Assistant benennt die Schalter danach.
 //
 // Pins
 //   GPIO 42: dauerhaft HIGH, geht vor den Relais an
@@ -95,12 +96,11 @@ struct Relais {
   const char* name;   // nullptr = "Relais <nr>"
 };
 #ifdef NUR_LAMPE
-// GPIO 41/42 sind JTAG-Pins (MTDI/MTMS); frei, weil die Box ueber USB-JTAG
+// GPIO 40/41 sind JTAG-Pins (MTDO/MTDI); frei, weil die Box ueber USB-JTAG
 // laeuft. Keine PSRAM-Pins (33-37).
 static Relais RELAIS[] = {
-  {1, 1,  false, "Lampe"},
-  {2, 2,  false, "Grün"},
-  {3, 42, false, "Rot"},
+  {1, 1,  false, "Lampe"},        // plus gruene LED am selben Ausgang
+  {3, 40, false, "Rot"},
   {4, 41, false, "Warnleuchte"},
 };
 #else
@@ -727,13 +727,12 @@ void setup() {
 
 #ifdef LAMPEN_TEST
   // Test-Bauweise: das Weckruf-Lichtbild laeuft ab dem Einschalten dauernd,
-  // auch ohne WLAN. Lampe Dreifachblitz, Gruen und Rot langsam (2 s),
+  // auch ohne WLAN. Lampe (mit Gruen) Dreifachblitz, Rot langsam (2 s),
   // Warnleuchte im Intervall (10 s an, 2 s aus), damit die Blitze im Test
   // nicht dauernd blenden; im Weckruf bekommt sie Dauer.
-  musterStarten(0, musterIndex("dreifachblitz"), 0);
-  musterStarten(1, musterIndex("langsam"), 0);
-  musterStarten(2, musterIndex("langsam"), 0);
-  musterStarten(3, musterIndex("intervall"), 0);
+  if (relaisIndex(1) >= 0) musterStarten(relaisIndex(1), musterIndex("dreifachblitz"), 0);
+  if (relaisIndex(3) >= 0) musterStarten(relaisIndex(3), musterIndex("langsam"), 0);
+  if (relaisIndex(4) >= 0) musterStarten(relaisIndex(4), musterIndex("intervall"), 0);
   Serial.println("LAMPEN_TEST: Lichtbild laeuft dauernd");
 #endif
 

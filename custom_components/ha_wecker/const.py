@@ -34,8 +34,8 @@ LAMPE_AKTIV = "aktiv"
 LAMPE_NACHLAUF = "nachlauf"
 LAMPE_MUSTER_LISTE = ["aus", *MUSTER_LISTE]
 LAMPE_PLAN_STANDARD: dict[int, dict[str, str]] = {
-    1: {LAMPE_AKTIV: "dreifachblitz", LAMPE_NACHLAUF: "doppelblitz"},   # Lampe
-    2: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # Gruen
+    1: {LAMPE_AKTIV: "dreifachblitz", LAMPE_NACHLAUF: "doppelblitz"},   # Lampe (mit gruener LED)
+    2: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # frei (Standardbox: Relais 2)
     3: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # Rot
     4: {LAMPE_AKTIV: "dauer", LAMPE_NACHLAUF: "aus"},                   # Warnleuchte (blinkt selbst)
 }

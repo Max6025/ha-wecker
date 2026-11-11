@@ -359,7 +359,7 @@ zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 
 | Entity | Inhalt |
 |---|---|
-| `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s`. Meldet die Box Namen (Bauweise „Lampen"), heissen sie danach: `switch.relaisbox_lampe`, `_grun`, `_rot`, `_warnleuchte` |
+| `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s`. Meldet die Box Namen (Bauweise „Lampen"), heissen sie danach: `switch.relaisbox_lampe`, `_rot`, `_warnleuchte` |
 | `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `plan`, `relais`, `naechster_wecker`, `vorlauf_ab` |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
 | `binary_sensor.relaisbox_eingang` | Taster an GPIO 7 (fehlt bei der Bauweise „Lampen"); Attribute `seit_s`, `zaehler` |
@@ -373,8 +373,8 @@ passend zur Bauweise „Lampen":
 
 | Relais | beim Weckruf | nach dem Beenden |
 |---|---|---|
-| 1 Lampe | `dreifachblitz` | `doppelblitz` |
-| 2 Gruen | `langsam` | `aus` |
+| 1 Lampe (die gruene LED haengt mit daran) | `dreifachblitz` | `doppelblitz` |
+| 2 (frei; bei der Standardbox Relais 2) | `langsam` | `aus` |
 | 3 Rot | `langsam` | `aus` |
 | 4 Warnleuchte (blitzt selbst, braucht nur Dauerplus) | `dauer` | `aus` |
 
@@ -394,11 +394,12 @@ nicht mehr, gehen die Lampen trotzdem aus. Gezaehlt werden alle
 Wecker-Eintraege der Integration.
 
 **Bauweise „Lampen".** `pio run -e esp32s3-lampe -t upload` baut die
-Firmware fuer vier F5305S-MOSFET-Module (schalten die Plusleitung einer
-12/24-V-Lampe lautlos, Trigger 3,3 V vom GPIO): 1 Lampe an **GPIO 1**,
-2 Gruen an **GPIO 2**, 3 Rot an **GPIO 42**, 4 Warnleuchte an **GPIO 41**
-(etwa eine WERMA 205 Blitzleuchte, die bei Dauerplus von selbst blitzt).
-Kein Taster, GPIO 42 ist hier ein Ausgang. Die Box meldet keinen Eingang,
+Firmware fuer drei F5305S-MOSFET-Module (schalten die Plusleitung einer
+12/24-V-Lampe lautlos, Trigger 3,3 V vom GPIO): 1 Lampe an **GPIO 1** (die
+gruene LED haengt am selben Ausgang), 3 Rot an **GPIO 40**, 4 Warnleuchte an
+**GPIO 41** (eine WERMA 205 Blitzleuchte, die bei Dauerplus von selbst
+blitzt). Nummer 2 ist frei, die Nummern bleiben stabil, weil der Lampenplan
+daran haengt. Kein Taster, kein GPIO 42. Die Box meldet keinen Eingang,
 die Integration legt den Sensor nicht an. `pio run -e esp32s3-lampe-test
 -t upload` baut dieselbe Firmware so, dass das Weckruf-Lichtbild ab dem
 Einschalten dauernd laeuft (zum Aufbauen und Vorfuehren, auch ohne WLAN).
