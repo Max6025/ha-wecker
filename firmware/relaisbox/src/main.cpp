@@ -131,7 +131,7 @@ static const uint32_t M_BLINKEN[]     = {1000, 1000};
 static const uint32_t M_LANGSAM[]     = {2000, 2000};
 static const uint32_t M_SCHNELL[]     = {250, 250};
 static const uint32_t M_DOPPELBLITZ[] = {100, 120, 100, 680};
-static const uint32_t M_DREIFACHBLITZ[] = {50, 60, 50, 60, 50, 330};   // drei enge Stroboskop-Blitze, 0,6 s Takt
+static const uint32_t M_DREIFACHBLITZ[] = {60, 70, 60, 70, 60, 480};   // drei kurze Blitze wie ein Stroboskop, 0,8 s Takt
 static const uint32_t M_SOS[] = {200, 200, 200, 200, 200, 600,
                                  600, 200, 600, 200, 600, 600,
                                  200, 200, 200, 200, 200, 1400};
@@ -725,12 +725,11 @@ void setup() {
 
 #ifdef LAMPEN_TEST
   // Test-Bauweise: das Weckruf-Lichtbild laeuft ab dem Einschalten dauernd,
-  // auch ohne WLAN. Lampe Dreifachblitz, Gruen und Rot langsam (2 s),
-  // Warnleuchte Dauer.
+  // auch ohne WLAN. Lampe Dreifachblitz, Gruen und Rot langsam (2 s).
+  // Die Warnleuchte (Relais 4) bleibt im Test vorerst aus (Wunsch 11.11.).
   musterStarten(0, musterIndex("dreifachblitz"), 0);
   musterStarten(1, musterIndex("langsam"), 0);
   musterStarten(2, musterIndex("langsam"), 0);
-  musterStarten(3, MUSTER_DAUER, 0);
   Serial.println("LAMPEN_TEST: Lichtbild laeuft dauernd");
 #endif
 
