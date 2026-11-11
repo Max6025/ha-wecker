@@ -544,14 +544,14 @@ async def test_weckerlampe(
     assert [b[2] for b in _befehle(aioclient_mock, n)] == ["blinken", "doppelblitz", "dauer"]
     assert _licht(licht, nl) == [("turn_on", 100, 20)]
 
-    # Beendet -> Nachlauf: Warnleuchte 5 s, Rot schnell 300 s, Lampe blinken 600 s, Hauptlicht 50 %
+    # Beendet -> Nachlauf: Warnleuchte 5 s, Rot schnell 300 s, Lampe blinken 300 s, Hauptlicht 50 %
     n, nl = len(_posts(aioclient_mock)), len(licht)
     morgen = (weckzeit + timedelta(days=1)).isoformat()
     await melden(ringing=False, next_trigger=morgen, root={"ringing": False, "ringing_id": None, "snoozed": False})
     assert _befehle(aioclient_mock, n) == [
         ("/api/alarm", "4", "dauer", "5"),
         ("/api/alarm", "3", "schnell", "300"),
-        ("/api/alarm", "1", "blinken", "600"),
+        ("/api/alarm", "1", "blinken", "300"),
     ]
     assert _licht(licht, nl) == [("turn_on", 50, None)]
     assert hass.states.get("switch.relaisbox_weckerlampe").attributes["phase"] == "nachlauf"

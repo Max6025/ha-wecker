@@ -51,7 +51,7 @@
       },
       "relais": {
         "title": "Relay box",
-        "description": "Currently: {url}\n\nAlarm lamp (switch \"Weckerlampe\"): one minute before the alarm the red lamp is on and the main light goes to 3 % rising to 10 %. While ringing red blinks, the lamp double-flashes, the beacon is on, main light 100 %. Snooze: all off, main light 10 %. After dismissing: beacon 5 s, red fast 5 min, lamp blinks 10 min, main light 50 % for 10 min, then off within 30 s, then the beacon for 10 s more.\n\nThe main light must be dimmable and only joins within the time window; empty = no main light.",
+        "description": "Currently: {url}\n\nAlarm lamp (switch \"Weckerlampe\"): one minute before the alarm the red lamp is on and the main light goes to 3 % rising to 10 %. While ringing red blinks, the lamp double-flashes, the beacon is on, main light 100 %. Snooze: all off, main light 10 %. After dismissing: beacon 5 s, red fast 5 min, lamp blinks 5 min, main light 50 % for 10 min, then off within 30 s, then the beacon for 10 s more.\n\nThe main light must be dimmable and only joins within the time window; empty = no main light.",
         "data": {
           "host": "Relay box address",
           "hauptlicht": "Main light (dimmable)",

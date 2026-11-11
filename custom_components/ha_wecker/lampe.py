@@ -12,7 +12,7 @@ Klingeln
 Schlummern
   Alle Leuchten aus, Hauptlicht zurueck auf 10 %; klingelt es wieder, wie Klingeln.
 Nachlauf (Wecker beendet)
-  Warnleuchte noch 5 s; Rot blinkt schnell 5 min; Lampe blinkt 10 min (1 s);
+  Warnleuchte noch 5 s; Rot blinkt schnell 5 min; Lampe blinkt 5 min (1 s);
   Hauptlicht 50 % fuer 10 min, dann in 30 s auf 0; ist es aus, blitzt die
   Warnleuchte noch 10 s. Danach ist Ruhe (nach 640 s).
 
@@ -42,6 +42,7 @@ from .const import (
     LAMPE_KLINGELN_MAX_S,
     LAMPE_NACHLAUF_LAMPE_S,
     LAMPE_NACHLAUF_LICHT_AUS_S,
+    LAMPE_NACHLAUF_LICHT_S,
     LAMPE_NACHLAUF_ROT_S,
     LAMPE_NACHLAUF_S,
     LAMPE_NACHLAUF_WARN_NOCHMAL_S,
@@ -79,7 +80,7 @@ RELAIS_ABLAUF: dict[str, list[tuple[int, int, str, int]]] = {
         (0, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_S),
         (0, LAMPE_RELAIS_ROT, "schnell", LAMPE_NACHLAUF_ROT_S),
         (0, LAMPE_RELAIS_LAMPE, "blinken", LAMPE_NACHLAUF_LAMPE_S),
-        (LAMPE_NACHLAUF_LAMPE_S + LAMPE_NACHLAUF_LICHT_AUS_S, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_NOCHMAL_S),
+        (LAMPE_NACHLAUF_LICHT_S + LAMPE_NACHLAUF_LICHT_AUS_S, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_NOCHMAL_S),
     ],
 }
 
@@ -97,7 +98,7 @@ LICHT_ABLAUF: dict[str, list[tuple[int, str, dict[str, Any]]]] = {
     ],
     PHASE_NACHLAUF: [
         (0, "turn_on", {"brightness_pct": 50}),
-        (LAMPE_NACHLAUF_LAMPE_S, "turn_off", {"transition": LAMPE_NACHLAUF_LICHT_AUS_S}),
+        (LAMPE_NACHLAUF_LICHT_S, "turn_off", {"transition": LAMPE_NACHLAUF_LICHT_AUS_S}),
     ],
 }
 ALLE_RELAIS = sorted({LAMPE_RELAIS_LAMPE, LAMPE_RELAIS_ROT, LAMPE_RELAIS_WARN})

@@ -51,7 +51,7 @@
       },
       "relais": {
         "title": "Relaisbox",
-        "description": "Derzeit: {url}\n\nWeckerlampe (Schalter „Weckerlampe“): eine Minute vor dem Weckruf leuchtet Rot, das Hauptlicht geht auf 3 % und steigt auf 10 %. Beim Klingeln blinkt Rot, die Lampe macht Doppelblitz, die Warnleuchte geht an, das Hauptlicht auf 100 %. Schlummern: alles aus, Hauptlicht 10 %. Nach dem Beenden: Warnleuchte 5 s, Rot schnell 5 min, Lampe blinkt 10 min, Hauptlicht 50 % für 10 min, dann in 30 s aus, danach die Warnleuchte noch 10 s.\n\nDas Hauptlicht muss dimmbar sein (etwa ein Shelly Dimmer) und macht nur im Zeitfenster mit; leer = kein Hauptlicht.",
+        "description": "Derzeit: {url}\n\nWeckerlampe (Schalter „Weckerlampe“): eine Minute vor dem Weckruf leuchtet Rot, das Hauptlicht geht auf 3 % und steigt auf 10 %. Beim Klingeln blinkt Rot, die Lampe macht Doppelblitz, die Warnleuchte geht an, das Hauptlicht auf 100 %. Schlummern: alles aus, Hauptlicht 10 %. Nach dem Beenden: Warnleuchte 5 s, Rot schnell 5 min, Lampe blinkt 5 min, Hauptlicht 50 % für 10 min, dann in 30 s aus, danach die Warnleuchte noch 10 s.\n\nDas Hauptlicht muss dimmbar sein (etwa ein Shelly Dimmer) und macht nur im Zeitfenster mit; leer = kein Hauptlicht.",
         "data": {
           "host": "Adresse der Relaisbox",
           "hauptlicht": "Hauptlicht (dimmbar)",
