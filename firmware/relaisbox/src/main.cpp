@@ -132,6 +132,7 @@ static const uint32_t M_LANGSAM[]     = {2000, 2000};
 static const uint32_t M_SCHNELL[]     = {250, 250};
 static const uint32_t M_DOPPELBLITZ[] = {100, 120, 100, 680};
 static const uint32_t M_DREIFACHBLITZ[] = {60, 70, 60, 70, 60, 480};   // drei kurze Blitze wie ein Stroboskop, 0,8 s Takt
+static const uint32_t M_INTERVALL[]     = {10000, 2000};   // 10 s an, 2 s wirklich aus (Blitzleuchte im Test schonen)
 static const uint32_t M_SOS[] = {200, 200, 200, 200, 200, 600,
                                  600, 200, 600, 200, 600, 600,
                                  200, 200, 200, 200, 200, 1400};
@@ -144,6 +145,7 @@ static const Muster MUSTER[] = {
   {"schnell",     M_SCHNELL,     2},
   {"doppelblitz", M_DOPPELBLITZ, 4},
   {"dreifachblitz", M_DREIFACHBLITZ, 6},
+  {"intervall",   M_INTERVALL,   2},
   {"sos",         M_SOS,         18},
 };
 static const size_t MUSTER_ANZAHL = sizeof(MUSTER) / sizeof(MUSTER[0]);
@@ -725,11 +727,13 @@ void setup() {
 
 #ifdef LAMPEN_TEST
   // Test-Bauweise: das Weckruf-Lichtbild laeuft ab dem Einschalten dauernd,
-  // auch ohne WLAN. Lampe Dreifachblitz, Gruen und Rot langsam (2 s).
-  // Die Warnleuchte (Relais 4) bleibt im Test vorerst aus (Wunsch 11.11.).
+  // auch ohne WLAN. Lampe Dreifachblitz, Gruen und Rot langsam (2 s),
+  // Warnleuchte im Intervall (10 s an, 2 s aus), damit die Blitze im Test
+  // nicht dauernd blenden; im Weckruf bekommt sie Dauer.
   musterStarten(0, musterIndex("dreifachblitz"), 0);
   musterStarten(1, musterIndex("langsam"), 0);
   musterStarten(2, musterIndex("langsam"), 0);
+  musterStarten(3, musterIndex("intervall"), 0);
   Serial.println("LAMPEN_TEST: Lichtbild laeuft dauernd");
 #endif
 

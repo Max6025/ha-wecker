@@ -344,7 +344,8 @@ pulsierend = Alarmmuster laeuft.
 
 Muster: `dauer`, `blinken` (1 s/1 s), `langsam` (2 s/2 s), `schnell` (¼ s),
 `doppelblitz` (100/120/100/680 ms wie eine Brandmeldezentrale),
-`dreifachblitz` (drei 60-ms-Blitze im 0,8-s-Takt, wie ein Stroboskop), `sos`.
+`dreifachblitz` (drei 60-ms-Blitze im 0,8-s-Takt, wie ein Stroboskop),
+`intervall` (10 s an, 2 s aus, etwa fuer eine Blitzleuchte im Dauertest), `sos`.
 Die Muster laufen auf dem ESP, HA sagt nur, welches wie lange. Jedes Relais
 in `/api/state` traegt `pegel` (den tatsaechlich gemessenen Pin, zur
 Fehlersuche) und bei der Bauweise „Lampen" einen `name`.

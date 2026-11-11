@@ -24,7 +24,7 @@ ATTR_MUSTER = "muster"
 ATTR_DAUER = "dauer"
 
 MUSTER_STANDARD = "doppelblitz"
-MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "dreifachblitz", "sos"]
+MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "dreifachblitz", "intervall", "sos"]
 
 # Weckerlampe: die Relais der Box folgen dem Wecker der App (siehe lampe.py).
 # Je Relais ein Muster fuer "aktiv" (Vorlauf und Klingeln) und "nachlauf"
