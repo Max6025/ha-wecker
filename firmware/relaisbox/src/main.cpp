@@ -751,12 +751,11 @@ void setup() {
 
 #ifdef LAMPEN_TEST
   // Test-Bauweise: das Weckruf-Lichtbild laeuft ab dem Einschalten dauernd,
-  // auch ohne WLAN. Lampe (mit Gruen) Dreifachblitz, Rot langsam (2 s),
-  // Warnleuchte im Intervall (10 s an, 2 s aus), damit die Blitze im Test
-  // nicht dauernd blenden; im Weckruf bekommt sie Dauer.
+  // auch ohne WLAN. Lampe (mit Gruen) Dreifachblitz, Rot langsam (2 s).
+  // Die Warnleuchte bleibt hier aus (blendet beim Aufbauen); der Schalter
+  // "Testmodus" in HA nimmt sie im Intervall mit.
   if (relaisIndex(1) >= 0) musterStarten(relaisIndex(1), musterIndex("dreifachblitz"), 0);
   if (relaisIndex(3) >= 0) musterStarten(relaisIndex(3), musterIndex("langsam"), 0);
-  if (relaisIndex(4) >= 0) musterStarten(relaisIndex(4), musterIndex("intervall"), 0);
   Serial.println("LAMPEN_TEST: Lichtbild laeuft dauernd");
 #endif
 
