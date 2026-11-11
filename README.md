@@ -380,7 +380,7 @@ bei Dauerplus von selbst). Das Hauptlicht ist eine `light`-Entitaet aus
 | Vorlauf, 1 min vor dem Weckruf | an | - | - | 3 %, in der Minute auf 10 % |
 | Klingeln | blinkt | Doppelblitz | an | 100 % |
 | Schlummern | aus | aus | aus | 10 % |
-| Nach dem Beenden | schnell, 5 min | 5er-Takt, 10 min | noch 30 s | 50 % fuer 10 min, dann in 30 s aus; danach Warnleuchte noch 10 s |
+| Nach dem Beenden | schnell, 5 min | blinkt (1 s), 10 min | noch 5 s | 50 % fuer 10 min, dann in 30 s aus; danach Warnleuchte noch 10 s |
 
 Klingelt es nach dem Schlummern wieder, geht es wie beim Klingeln weiter;
 fehlte der Vorlauf (HA gerade gestartet), startet das Klingeln direkt. Nach

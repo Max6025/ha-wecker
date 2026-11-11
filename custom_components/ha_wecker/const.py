@@ -44,9 +44,9 @@ TEST_LICHTBILD = {               # Schalter "Testmodus": Relais -> Muster, bis S
     4: "intervall",
 }
 LAMPE_VORLAUF_S = 60          # so lange vor dem Weckruf geht es los
-LAMPE_NACHLAUF_WARN_S = 30        # Warnleuchte nach dem Beenden
+LAMPE_NACHLAUF_WARN_S = 5         # Warnleuchte nach dem Beenden
 LAMPE_NACHLAUF_ROT_S = 300        # Rot schnell nach dem Beenden
-LAMPE_NACHLAUF_LAMPE_S = 600      # Lampe im 5er-Takt nach dem Beenden; so lange auch Hauptlicht 50 %
+LAMPE_NACHLAUF_LAMPE_S = 600      # Lampe blinkt nach dem Beenden; so lange auch Hauptlicht 50 %
 LAMPE_NACHLAUF_LICHT_AUS_S = 30   # danach dimmt das Hauptlicht in dieser Zeit auf 0
 LAMPE_NACHLAUF_WARN_NOCHMAL_S = 10  # ist das Hauptlicht aus, blitzt die Warnleuchte noch so lange
 LAMPE_NACHLAUF_S = LAMPE_NACHLAUF_LAMPE_S + LAMPE_NACHLAUF_LICHT_AUS_S + LAMPE_NACHLAUF_WARN_NOCHMAL_S   # 640 s

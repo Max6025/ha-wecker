@@ -12,7 +12,7 @@ Klingeln
 Schlummern
   Alle Leuchten aus, Hauptlicht zurueck auf 10 %; klingelt es wieder, wie Klingeln.
 Nachlauf (Wecker beendet)
-  Warnleuchte noch 30 s; Rot blinkt schnell 5 min; Lampe 10 min im 5er-Takt;
+  Warnleuchte noch 5 s; Rot blinkt schnell 5 min; Lampe blinkt 10 min (1 s);
   Hauptlicht 50 % fuer 10 min, dann in 30 s auf 0; ist es aus, blitzt die
   Warnleuchte noch 10 s. Danach ist Ruhe (nach 640 s).
 
@@ -78,7 +78,7 @@ RELAIS_ABLAUF: dict[str, list[tuple[int, int, str, int]]] = {
     PHASE_NACHLAUF: [
         (0, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_S),
         (0, LAMPE_RELAIS_ROT, "schnell", LAMPE_NACHLAUF_ROT_S),
-        (0, LAMPE_RELAIS_LAMPE, "takt5", LAMPE_NACHLAUF_LAMPE_S),
+        (0, LAMPE_RELAIS_LAMPE, "blinken", LAMPE_NACHLAUF_LAMPE_S),
         (LAMPE_NACHLAUF_LAMPE_S + LAMPE_NACHLAUF_LICHT_AUS_S, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_NOCHMAL_S),
     ],
 }
