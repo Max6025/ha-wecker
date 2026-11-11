@@ -133,6 +133,7 @@ static const uint32_t M_SCHNELL[]     = {250, 250};
 static const uint32_t M_DOPPELBLITZ[] = {100, 120, 100, 680};
 static const uint32_t M_DREIFACHBLITZ[] = {60, 70, 60, 70, 60, 480};   // drei kurze Blitze wie ein Stroboskop, 0,8 s Takt
 static const uint32_t M_INTERVALL[]     = {10000, 2000};   // 10 s an, 2 s wirklich aus (Blitzleuchte im Test schonen)
+static const uint32_t M_TAKT5[]         = {100, 120, 100, 4680};   // Doppelblitz alle 5 s (Nachlauf der Weckerlampe)
 static const uint32_t M_SOS[] = {200, 200, 200, 200, 200, 600,
                                  600, 200, 600, 200, 600, 600,
                                  200, 200, 200, 200, 200, 1400};
@@ -146,6 +147,7 @@ static const Muster MUSTER[] = {
   {"doppelblitz", M_DOPPELBLITZ, 4},
   {"dreifachblitz", M_DREIFACHBLITZ, 6},
   {"intervall",   M_INTERVALL,   2},
+  {"takt5",       M_TAKT5,       4},
   {"sos",         M_SOS,         18},
 };
 static const size_t MUSTER_ANZAHL = sizeof(MUSTER) / sizeof(MUSTER[0]);
@@ -274,6 +276,11 @@ static void eingangTakt() {
 
 static void led(uint8_t r, uint8_t g, uint8_t b) { neopixelWrite(RGB_BUILTIN, r, g, b); }
 
+// Nachtruhe: Home Assistant setzt /api/led?dunkel=1 (etwa 20-8 Uhr), dann
+// bleibt die RGB-LED aus, solange kein Muster laeuft. Die rote Betriebs-LED
+// des DevKits haengt fest an 3,3 V, die kann keine Software ausschalten.
+static bool ledDunkel = false;
+
 static void ledTakt() {
   static uint32_t zuletzt = 0;
   static bool phase = false;
@@ -281,7 +288,8 @@ static void ledTakt() {
   if (jetzt - zuletzt < 500) return;
   zuletzt = jetzt;
   phase = !phase;
-  if (alarmAktiv())                      led(phase ? 60 : 10, phase ? 30 : 5, 0);   // amber pulsierend
+  if (ledDunkel && !alarmAktiv())        led(0, 0, 0);                                // Nachtruhe
+  else if (alarmAktiv())                 led(phase ? 60 : 10, phase ? 30 : 5, 0);   // amber pulsierend
   else if (WiFi.status() == WL_CONNECTED) led(0, 8, 0);                              // gruen leise
   else if (WiFi.getMode() & WIFI_AP)      led(phase ? 0 : 20, 0, phase ? 30 : 0);    // lila/blau: Einrichtung
   else                                    led(0, 0, phase ? 30 : 0);                  // blau blinkend: sucht
@@ -300,6 +308,7 @@ static void wifiLaden() {
   prefs.begin("relaisbox", false);
   wifiSsid = prefs.getString("ssid", "");
   wifiPass = prefs.getString("pass", "");
+  ledDunkel = prefs.getBool("leddunkel", false);
   if (wifiSsid.isEmpty() && strlen(WIFI_SSID) > 0) {
     wifiSsid = WIFI_SSID;
     wifiPass = WIFI_PASS;
@@ -416,6 +425,7 @@ static String stateJson() {
   s += ",\"starts\":" + String(startZaehler);
   s += ",\"brownouts\":" + String(brownoutZaehler) + "}";
   s += ",\"alarm\":" + String(alarmAktiv() ? "true" : "false");
+  s += ",\"led_dunkel\":" + String(ledDunkel ? "true" : "false");
 #ifndef NUR_LAMPE
   s += ",\"eingang\":{\"gpio\":" + String(PIN_EINGANG);
   s += ",\"aktiv\":" + String(eingangAktiv ? "true" : "false");
@@ -502,6 +512,19 @@ static void handleRelais() {
   sendeJson(200, stateJson());
 }
 
+// POST /api/led?dunkel=1|0 - RGB-LED in Ruhe aus (Nachtruhe), bleibt gespeichert
+static void handleLed() {
+  if (!server.hasArg("dunkel")) return sendeFehler(400, "dunkel fehlt");
+  bool neu = server.arg("dunkel") == "1" || server.arg("dunkel") == "true";
+  if (neu != ledDunkel) {
+    ledDunkel = neu;
+    prefs.putBool("leddunkel", ledDunkel);
+    zustandGeaendert = true;
+    if (ledDunkel && !alarmAktiv()) led(0, 0, 0);
+  }
+  sendeJson(200, stateJson());
+}
+
 static void handleAlarm() {
   std::vector<size_t> liste;
   if (!relaisListe(server.arg("relais"), true, liste)) return sendeFehler(400, "relais ungueltig");
@@ -582,6 +605,7 @@ static void httpStarten() {
   server.on("/api/ping", HTTP_GET, []() { sendeJson(200, "{\"ok\":true,\"name\":\"Relaisbox\"}"); });
   server.on("/api/alarm", HTTP_POST, handleAlarm);
   server.on("/api/alarm/stop", HTTP_POST, handleAlarmStop);
+  server.on("/api/led", HTTP_POST, handleLed);
   server.on("/api/wifi", HTTP_POST, handleWifi);
   server.onNotFound([]() {
     if (server.uri().startsWith("/api/relais/")) return handleRelais();

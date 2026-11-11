@@ -14,7 +14,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import CONF_HOST, DOMAIN, RELAIS_ABFRAGE_S
+from homeassistant.util import dt as dt_util
+
+from .const import (
+    CONF_HOST,
+    DOMAIN,
+    LED_NACHT_BIS,
+    LED_NACHT_VON,
+    RELAIS_ABFRAGE_S,
+    TEST_LICHTBILD,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +68,7 @@ class RelaisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._events_task: asyncio.Task | None = None
         self.events_verbunden = False
         self.lampe: Any = None   # WeckerLampe, wird in __init__ gesetzt
+        self.test_aktiv = False  # Schalter "Testmodus" (Lichtbild bis Stopp)
 
     @property
     def host(self) -> str:
@@ -86,9 +96,45 @@ class RelaisCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            return await relaisbox_abfragen(self.hass, self.host)
+            data = await relaisbox_abfragen(self.hass, self.host)
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise UpdateFailed(f"Relaisbox {self.host} nicht erreichbar: {err}") from err
+        return await self._led_abgleichen(data)
+
+    async def _led_abgleichen(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Nachtruhe der RGB-LED: zwischen LED_NACHT_VON und LED_NACHT_BIS dunkel.
+
+        Wird bei jeder Abfrage verglichen; so stimmt es auch nach einem
+        Neustart der Box oder von HA ohne eigene Zeitgeber.
+        """
+        if "led_dunkel" not in data:          # aeltere Firmware
+            return data
+        from .lampe import im_fenster, zeit_lesen  # Kreisimport vermeiden
+
+        soll = im_fenster(
+            dt_util.now().time().replace(tzinfo=None),
+            zeit_lesen(LED_NACHT_VON, LED_NACHT_VON),
+            zeit_lesen(LED_NACHT_BIS, LED_NACHT_BIS),
+        )
+        if bool(data.get("led_dunkel")) == soll:
+            return data
+        try:
+            await self._post("/api/led", {"dunkel": 1 if soll else 0})
+        except (UpdateFailed, aiohttp.ClientError, TimeoutError, ValueError) as err:
+            _LOGGER.debug("LED-Nachtruhe nicht gesetzt: %s", err)
+            return data
+        return self.data or data
+
+    async def async_test(self, an: bool) -> None:
+        """Testmodus: das Lichtbild aus TEST_LICHTBILD bis Stopp, oder alles aus."""
+        vorhanden = {int(r["nr"]) for r in self.brauchbare_relais() if "nr" in r}
+        relais = [nr for nr in TEST_LICHTBILD if nr in vorhanden]
+        self.test_aktiv = an
+        if an:
+            for nr in relais:
+                await self.async_alarm_starten([nr], TEST_LICHTBILD[nr], 0)
+        elif relais:
+            await self.async_alarm_stoppen(relais)
 
     # --- Ereignisstrom -----------------------------------------------
     #

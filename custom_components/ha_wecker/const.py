@@ -24,23 +24,30 @@ ATTR_MUSTER = "muster"
 ATTR_DAUER = "dauer"
 
 MUSTER_STANDARD = "doppelblitz"
-MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "dreifachblitz", "intervall", "sos"]
+MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "dreifachblitz", "intervall", "takt5", "sos"]
 
-# Weckerlampe: die Relais der Box folgen dem Wecker der App (siehe lampe.py).
-# Je Relais ein Muster fuer "aktiv" (Vorlauf und Klingeln) und "nachlauf"
-# (nach dem Beenden); "aus" heisst: dieses Relais macht in der Phase nichts.
-CONF_LAMPE_PLAN = "lampe_plan"       # {"1": {"aktiv": "dreifachblitz", "nachlauf": "doppelblitz"}, ...}
-LAMPE_AKTIV = "aktiv"
-LAMPE_NACHLAUF = "nachlauf"
-LAMPE_MUSTER_LISTE = ["aus", *MUSTER_LISTE]
-LAMPE_PLAN_STANDARD: dict[int, dict[str, str]] = {
-    1: {LAMPE_AKTIV: "dreifachblitz", LAMPE_NACHLAUF: "doppelblitz"},   # Lampe (mit gruener LED)
-    2: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # frei (Standardbox: Relais 2)
-    3: {LAMPE_AKTIV: "langsam", LAMPE_NACHLAUF: "aus"},                 # Rot
-    4: {LAMPE_AKTIV: "dauer", LAMPE_NACHLAUF: "aus"},                   # Warnleuchte (blinkt selbst)
+# Weckerlampe: fester Ablauf ueber die Relais der Box und ein dimmbares
+# Hauptlicht (siehe lampe.py). Relais-Nummern wie in der Bauweise "Lampen".
+LAMPE_RELAIS_LAMPE = 1          # Lampe an GPIO 1 (mit gruener LED)
+LAMPE_RELAIS_ROT = 3            # rote Leuchte
+LAMPE_RELAIS_WARN = 4           # Blitz-Warnleuchte, braucht nur Dauer
+CONF_HAUPTLICHT = "hauptlicht"              # light.<...>, dimmbar; leer = kein Hauptlicht
+CONF_HAUPTLICHT_VON = "hauptlicht_von"      # Zeitfenster, in dem das Hauptlicht mitmacht
+CONF_HAUPTLICHT_BIS = "hauptlicht_bis"
+HAUPTLICHT_VON_STANDARD = "03:00:00"
+HAUPTLICHT_BIS_STANDARD = "10:00:00"
+LED_NACHT_VON = "20:00:00"       # RGB-LED der Box in Ruhe aus (Nachtruhe) ...
+LED_NACHT_BIS = "08:00:00"       # ... bis dahin; die Integration setzt /api/led
+TEST_LICHTBILD = {               # Schalter "Testmodus": Relais -> Muster, bis Stopp
+    1: "dreifachblitz",
+    3: "langsam",
+    4: "intervall",
 }
-LAMPE_PLAN_SONST = {LAMPE_AKTIV: "aus", LAMPE_NACHLAUF: "aus"}           # weitere Relais
-LAMPE_PLAN_FELDER = 4                # so viele Relais zeigt der Optionsdialog hoechstens
 LAMPE_VORLAUF_S = 60          # so lange vor dem Weckruf geht es los
-LAMPE_NACHLAUF_S = 300        # so lange nach dem Beenden laeuft der Nachlauf
+LAMPE_NACHLAUF_WARN_S = 30        # Warnleuchte nach dem Beenden
+LAMPE_NACHLAUF_ROT_S = 300        # Rot schnell nach dem Beenden
+LAMPE_NACHLAUF_LAMPE_S = 600      # Lampe im 5er-Takt nach dem Beenden; so lange auch Hauptlicht 50 %
+LAMPE_NACHLAUF_LICHT_AUS_S = 30   # danach dimmt das Hauptlicht in dieser Zeit auf 0
+LAMPE_NACHLAUF_WARN_NOCHMAL_S = 10  # ist das Hauptlicht aus, blitzt die Warnleuchte noch so lange
+LAMPE_NACHLAUF_S = LAMPE_NACHLAUF_LAMPE_S + LAMPE_NACHLAUF_LICHT_AUS_S + LAMPE_NACHLAUF_WARN_NOCHMAL_S   # 640 s
 LAMPE_KLINGELN_MAX_S = 600    # Hoechstdauer, falls die App nichts mehr meldet

@@ -11,7 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, SIGNAL_LAMPE
+from .const import DOMAIN, SIGNAL_LAMPE, TEST_LICHTBILD
 from .entity import RelaisEntity
 from .relais import RelaisCoordinator
 
@@ -25,6 +25,7 @@ async def async_setup_entry(
     entities: list[SwitchEntity] = [RelaisSwitch(obj, r["nr"]) for r in obj.brauchbare_relais()]
     if obj.lampe is not None:
         entities.append(WeckerLampeSwitch(obj))
+    entities.append(TestSwitch(obj))
     async_add_entities(entities)
 
 
@@ -128,6 +129,49 @@ class WeckerLampeSwitch(RelaisEntity, SwitchEntity, RestoreEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         try:
             await self._lampe.async_setzen(False)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+        self.async_write_ha_state()
+
+
+class TestSwitch(RelaisEntity, SwitchEntity):
+    """Testmodus: Lampe Dreifachblitz, Rot langsam, Warnleuchte im Intervall, bis Stopp.
+
+    Startet die Weckerlampe einen Ablauf, nimmt sie den Testmodus zurueck.
+    """
+
+    _attr_name = "Testmodus"
+    _attr_icon = "mdi:test-tube"
+
+    def __init__(self, coordinator: RelaisCoordinator) -> None:
+        super().__init__(coordinator, "testmodus")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_LAMPE.format(self.coordinator.entry.entry_id), self.async_write_ha_state
+            )
+        )
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.coordinator.test_aktiv)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"lichtbild": {str(k): v for k, v in TEST_LICHTBILD.items()}}
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        try:
+            await self.coordinator.async_test(True)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        try:
+            await self.coordinator.async_test(False)
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(str(err)) from err
         self.async_write_ha_state()

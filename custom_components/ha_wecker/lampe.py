@@ -1,25 +1,30 @@
-"""Weckerlampe: die Leuchten an der Relaisbox folgen dem Wecker der App.
+"""Weckerlampe: Leuchten an der Relaisbox und ein Hauptlicht folgen dem Wecker.
 
-Jedes Relais hat im Plan (Optionen) ein Muster fuer "aktiv" und eins fuer
-"nachlauf"; Vorgabe: 1 Lampe dreifachblitz/doppelblitz, 2 Gruen und 3 Rot
-langsam/aus, 4 Warnleuchte dauer/aus (die blinkt von selbst).
+Fester Ablauf (Relais-Nummern wie in der Bauweise "Lampen": 1 Lampe mit
+gruener LED, 3 Rot, 4 Warnleuchte; das Hauptlicht ist eine dimmbare
+light-Entitaet aus den Optionen), solange der Schalter "Weckerlampe" an ist:
 
-Ablauf, solange der Schalter "Weckerlampe" an ist:
-- eine Minute vor dem naechsten Weckruf: die "aktiv"-Muster starten
-- der Wecker klingelt: sie laufen weiter; fehlte der Vorlauf (etwa nach
-  dem Schlummern oder weil HA gerade erst gestartet ist), starten sie jetzt
-- Schlummern: alles aus; klingelt es wieder, geht es wie beim Klingeln weiter
-- Wecker beendet: die "nachlauf"-Muster fuer fuenf Minuten, der Rest aus
+Vorlauf (eine Minute vor dem Weckruf)
+  Rot dauerhaft an; Hauptlicht auf 3 % und innerhalb der Minute auf 10 %.
+Klingeln
+  Rot blinkt, Lampe Doppelblitz, Warnleuchte an; Hauptlicht auf 100 %.
+  Fehlte der Vorlauf (Schlummern, HA gerade gestartet), geht es direkt los.
+Schlummern
+  Alle Leuchten aus, Hauptlicht zurueck auf 10 %; klingelt es wieder, wie Klingeln.
+Nachlauf (Wecker beendet)
+  Warnleuchte noch 30 s; Rot blinkt schnell 5 min; Lampe 10 min im 5er-Takt;
+  Hauptlicht 50 % fuer 10 min, dann in 30 s auf 0; ist es aus, blitzt die
+  Warnleuchte noch 10 s. Danach ist Ruhe (nach 640 s).
 
-Die Muster laufen auf der Relaisbox selbst, jeder Start bekommt eine
-Hoechstdauer. Bleibt die App stumm (Handy aus, kein Netz), geht die Lampe
-spaetestens nach dieser Dauer von allein aus.
+Das Hauptlicht macht nur im Zeitfenster der Optionen mit (Vorgabe 3 bis 10
+Uhr), entschieden beim Start eines Ablaufs. Alle Muster auf der Box bekommen
+eine Hoechstdauer: bleibt die App stumm, gehen die Leuchten trotzdem aus.
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from datetime import datetime, time, timedelta
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -28,16 +33,22 @@ from homeassistant.helpers.event import async_call_later, async_track_point_in_u
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_LAMPE_PLAN,
+    CONF_HAUPTLICHT,
+    CONF_HAUPTLICHT_BIS,
+    CONF_HAUPTLICHT_VON,
     DOMAIN,
-    LAMPE_AKTIV,
+    HAUPTLICHT_BIS_STANDARD,
+    HAUPTLICHT_VON_STANDARD,
     LAMPE_KLINGELN_MAX_S,
-    LAMPE_MUSTER_LISTE,
-    LAMPE_NACHLAUF,
+    LAMPE_NACHLAUF_LAMPE_S,
+    LAMPE_NACHLAUF_LICHT_AUS_S,
+    LAMPE_NACHLAUF_ROT_S,
     LAMPE_NACHLAUF_S,
-    LAMPE_PLAN_FELDER,
-    LAMPE_PLAN_SONST,
-    LAMPE_PLAN_STANDARD,
+    LAMPE_NACHLAUF_WARN_NOCHMAL_S,
+    LAMPE_NACHLAUF_WARN_S,
+    LAMPE_RELAIS_LAMPE,
+    LAMPE_RELAIS_ROT,
+    LAMPE_RELAIS_WARN,
     LAMPE_VORLAUF_S,
     SIGNAL_LAMPE,
     SIGNAL_WECKER_ALLE,
@@ -53,6 +64,43 @@ PHASE_VORLAUF = "vorlauf"
 PHASE_KLINGELN = "klingeln"
 PHASE_SCHLUMMER = "schlummer"
 PHASE_NACHLAUF = "nachlauf"
+
+# Relais-Schritte je Phase: (Verzoegerung s, Relais, Muster, Hoechstdauer s)
+RELAIS_ABLAUF: dict[str, list[tuple[int, int, str, int]]] = {
+    PHASE_VORLAUF: [
+        (0, LAMPE_RELAIS_ROT, "dauer", LAMPE_VORLAUF_S + LAMPE_KLINGELN_MAX_S),
+    ],
+    PHASE_KLINGELN: [
+        (0, LAMPE_RELAIS_ROT, "blinken", LAMPE_KLINGELN_MAX_S),
+        (0, LAMPE_RELAIS_LAMPE, "doppelblitz", LAMPE_KLINGELN_MAX_S),
+        (0, LAMPE_RELAIS_WARN, "dauer", LAMPE_KLINGELN_MAX_S),
+    ],
+    PHASE_NACHLAUF: [
+        (0, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_S),
+        (0, LAMPE_RELAIS_ROT, "schnell", LAMPE_NACHLAUF_ROT_S),
+        (0, LAMPE_RELAIS_LAMPE, "takt5", LAMPE_NACHLAUF_LAMPE_S),
+        (LAMPE_NACHLAUF_LAMPE_S + LAMPE_NACHLAUF_LICHT_AUS_S, LAMPE_RELAIS_WARN, "dauer", LAMPE_NACHLAUF_WARN_NOCHMAL_S),
+    ],
+}
+
+# Hauptlicht-Schritte je Phase: (Verzoegerung s, Dienst, Daten)
+LICHT_ABLAUF: dict[str, list[tuple[int, str, dict[str, Any]]]] = {
+    PHASE_VORLAUF: [
+        (0, "turn_on", {"brightness_pct": 3}),
+        (2, "turn_on", {"brightness_pct": 10, "transition": LAMPE_VORLAUF_S - 2}),
+    ],
+    PHASE_KLINGELN: [
+        (0, "turn_on", {"brightness_pct": 100, "transition": 20}),
+    ],
+    PHASE_SCHLUMMER: [
+        (0, "turn_on", {"brightness_pct": 10}),
+    ],
+    PHASE_NACHLAUF: [
+        (0, "turn_on", {"brightness_pct": 50}),
+        (LAMPE_NACHLAUF_LAMPE_S, "turn_off", {"transition": LAMPE_NACHLAUF_LICHT_AUS_S}),
+    ],
+}
+ALLE_RELAIS = sorted({LAMPE_RELAIS_LAMPE, LAMPE_RELAIS_ROT, LAMPE_RELAIS_WARN})
 
 
 def _wecker_stand(hass: HomeAssistant) -> tuple[bool, bool, datetime | None]:
@@ -92,27 +140,28 @@ def _wecker_stand(hass: HomeAssistant) -> tuple[bool, bool, datetime | None]:
     return klingelt, schlummert, naechster
 
 
-def plan_fuer(optionen: Any, relais: list[int]) -> dict[int, dict[str, str]]:
-    """Plan fuer die genannten Relais: gespeicherte Optionen ueber den Vorgaben.
+def zeit_lesen(wert: Any, vorgabe: str) -> time:
+    """'HH:MM' oder 'HH:MM:SS' aus den Optionen; Unsinn faellt auf die Vorgabe zurueck."""
+    for kandidat in (wert, vorgabe):
+        if isinstance(kandidat, time):
+            return kandidat
+        t = dt_util.parse_time(str(kandidat)) if kandidat else None
+        if t is not None:
+            return t
+    return time(0, 0)
 
-    Unbekannte Muster fallen auf die Vorgabe zurueck, damit ein Tippfehler in
-    den Optionen nie einen Befehl mit unbekanntem Muster an die Box schickt.
-    """
-    gespeichert = optionen if isinstance(optionen, dict) else {}
-    plan: dict[int, dict[str, str]] = {}
-    for nr in relais:
-        vorgabe = LAMPE_PLAN_STANDARD.get(nr, LAMPE_PLAN_SONST)
-        eigen = gespeichert.get(str(nr)) or gespeichert.get(nr) or {}
-        eintrag: dict[str, str] = {}
-        for phase in (LAMPE_AKTIV, LAMPE_NACHLAUF):
-            wert = str(eigen.get(phase) or vorgabe[phase]) if isinstance(eigen, dict) else vorgabe[phase]
-            eintrag[phase] = wert if wert in LAMPE_MUSTER_LISTE else vorgabe[phase]
-        plan[nr] = eintrag
-    return plan
+
+def im_fenster(jetzt: time, von: time, bis: time) -> bool:
+    """Liegt `jetzt` im Fenster von..bis? von == bis heisst: immer; ueber Mitternacht geht."""
+    if von == bis:
+        return True
+    if von < bis:
+        return von <= jetzt < bis
+    return jetzt >= von or jetzt < bis
 
 
 class WeckerLampe:
-    """Steuert die Relais der Box nach dem Stand der Wecker-App."""
+    """Faehrt den Ablauf auf der Box und am Hauptlicht nach dem Stand der Wecker-App."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, coordinator: RelaisCoordinator) -> None:
         self.hass = hass
@@ -122,25 +171,30 @@ class WeckerLampe:
         self.phase = PHASE_AUS
         self.naechster_wecker: datetime | None = None
         self.fehler: str | None = None
+        self.hauptlicht_dabei = False     # Entscheidung fuer den laufenden Ablauf
         self._klingelt_alt = False
         self._timer_vorlauf: CALLBACK_TYPE | None = None
-        self._timer_nachlauf: CALLBACK_TYPE | None = None
+        self._timer_phase: list[CALLBACK_TYPE] = []   # Schritte und Ende der laufenden Phase
         self._unsub_signal: CALLBACK_TYPE | None = None
 
     # --- Einstellungen ------------------------------------------------
 
-    def plan(self) -> dict[int, dict[str, str]]:
-        """Muster je Relais: Optionen ueber den Vorgaben, nur Relais, die die Box meldet."""
-        return plan_fuer(self.entry.options.get(CONF_LAMPE_PLAN), self.relais_nummern())
+    @property
+    def hauptlicht(self) -> str | None:
+        wert = self.entry.options.get(CONF_HAUPTLICHT)
+        return str(wert) if wert else None
 
-    def relais_nummern(self) -> list[int]:
-        """Relais der Box (ohne defekte); vor der ersten Antwort die Vorgabe 1-4."""
-        nrn = [int(r["nr"]) for r in self.coordinator.brauchbare_relais() if "nr" in r]
-        return nrn or list(range(1, LAMPE_PLAN_FELDER + 1))
+    @property
+    def fenster(self) -> tuple[time, time]:
+        return (
+            zeit_lesen(self.entry.options.get(CONF_HAUPTLICHT_VON), HAUPTLICHT_VON_STANDARD),
+            zeit_lesen(self.entry.options.get(CONF_HAUPTLICHT_BIS), HAUPTLICHT_BIS_STANDARD),
+        )
 
-    def relais_beteiligt(self) -> list[int]:
-        """Relais, die in irgendeiner Phase etwas tun (die muessen beim Stopp aus)."""
-        return sorted(nr for nr, m in self.plan().items() if m[LAMPE_AKTIV] != "aus" or m[LAMPE_NACHLAUF] != "aus")
+    def relais_der_box(self) -> set[int]:
+        """Relais, die die Box meldet (ohne defekte); vor der ersten Antwort alle."""
+        nrn = {int(r["nr"]) for r in self.coordinator.brauchbare_relais() if "nr" in r}
+        return nrn or set(ALLE_RELAIS)
 
     @property
     def vorlauf_ab(self) -> datetime | None:
@@ -149,10 +203,13 @@ class WeckerLampe:
         return self.naechster_wecker - timedelta(seconds=LAMPE_VORLAUF_S)
 
     def attribute(self) -> dict[str, Any]:
+        von, bis = self.fenster
         return {
             "phase": self.phase,
-            "relais": self.relais_beteiligt(),
-            "plan": {str(nr): dict(m) for nr, m in sorted(self.plan().items())},
+            "relais": sorted(self.relais_der_box() & set(ALLE_RELAIS)),
+            "hauptlicht": self.hauptlicht,
+            "hauptlicht_fenster": f"{von.strftime('%H:%M')}-{bis.strftime('%H:%M')}",
+            "hauptlicht_dabei": self.hauptlicht_dabei,
             "naechster_wecker": self.naechster_wecker.isoformat() if self.naechster_wecker else None,
             "vorlauf_ab": self.vorlauf_ab.isoformat() if self.vorlauf_ab else None,
             "fehler": self.fehler,
@@ -171,19 +228,20 @@ class WeckerLampe:
             self._unsub_signal()
             self._unsub_signal = None
         self._timer_vorlauf_weg()
-        self._timer_nachlauf_weg()
+        self._timer_phase_weg()
 
     async def async_setzen(self, an: bool, befehl: bool = True) -> None:
-        """Schalter umlegen. Aus: Lampe sofort aus, keine Timer mehr."""
+        """Schalter umlegen. Aus: alles sofort aus, keine Timer mehr."""
         self.aktiv = an
         if an:
             self._wecker_geaendert()
             return
         self._timer_vorlauf_weg()
-        self._timer_nachlauf_weg()
+        self._timer_phase_weg()
         if befehl and self.phase != PHASE_AUS:
-            await self._stoppen()
+            await self._alles_aus()
         self.phase = PHASE_AUS
+        self.hauptlicht_dabei = False
         self._melden()
 
     # --- Reaktion auf den Wecker --------------------------------------
@@ -201,20 +259,17 @@ class WeckerLampe:
             return
 
         if flanke_an:
-            self._klingeln()
+            self._phase_starten(PHASE_KLINGELN)
         elif flanke_aus:
-            if schlummert:
-                self._schlummern()
-            else:
-                self._beendet()
-        elif klingelt and self.phase not in (PHASE_KLINGELN,):
+            self._phase_starten(PHASE_SCHLUMMER if schlummert else PHASE_NACHLAUF)
+        elif klingelt and self.phase != PHASE_KLINGELN:
             # HA hat das Klingeln erst jetzt gesehen (Start, Neuladen)
-            self._klingeln()
+            self._phase_starten(PHASE_KLINGELN)
         elif self.phase == PHASE_VORLAUF and not klingelt:
             # Vorlauf laeuft, aber der Weckruf ist weg (abgeschaltet, uebersprungen)
             jetzt = dt_util.utcnow()
             if naechster is None or naechster - jetzt > timedelta(seconds=LAMPE_VORLAUF_S + 30):
-                self._ausschalten()
+                self._abbrechen()
 
         self._vorlauf_planen(klingelt)
         self._melden()
@@ -230,7 +285,7 @@ class WeckerLampe:
             # Schon im Vorlauffenster (z. B. HA gerade gestartet); nur, wenn
             # der Weckruf noch nicht lange vorbei ist
             if self.naechster_wecker and jetzt < self.naechster_wecker + timedelta(seconds=30):
-                self._vorlauf()
+                self._phase_starten(PHASE_VORLAUF)
             return
         self._timer_vorlauf = async_track_point_in_utc_time(self.hass, self._vorlauf_faellig, ab)
 
@@ -238,84 +293,121 @@ class WeckerLampe:
     def _vorlauf_faellig(self, _jetzt: datetime) -> None:
         self._timer_vorlauf = None
         if self.aktiv and self.phase in (PHASE_AUS, PHASE_NACHLAUF, PHASE_SCHLUMMER):
-            self._vorlauf()
-            self._melden()
-
-    @callback
-    def _nachlauf_vorbei(self, _jetzt: datetime) -> None:
-        self._timer_nachlauf = None
-        if self.phase == PHASE_NACHLAUF:
-            self.phase = PHASE_AUS      # die Box hat das Muster selbst beendet
-            self._vorlauf_planen(False)
+            self._phase_starten(PHASE_VORLAUF)
             self._melden()
 
     # --- Phasen -------------------------------------------------------
 
-    def _vorlauf(self) -> None:
-        self._timer_nachlauf_weg()
-        self.phase = PHASE_VORLAUF
-        self._starten(LAMPE_AKTIV, LAMPE_VORLAUF_S + LAMPE_KLINGELN_MAX_S)
-
-    def _klingeln(self) -> None:
-        self._timer_nachlauf_weg()
+    def _phase_starten(self, phase: str) -> None:
+        """Phase wechseln: Timer der alten Phase weg, Schritte der neuen setzen."""
+        self._timer_phase_weg()
         vorher = self.phase
-        self.phase = PHASE_KLINGELN
-        if vorher == PHASE_VORLAUF:
-            return                      # Muster laeuft schon, nicht neu starten
-        self._starten(LAMPE_AKTIV, LAMPE_KLINGELN_MAX_S)
+        self.phase = phase
+        self.coordinator.test_aktiv = False     # ein Ablauf verdraengt den Testmodus
+        if vorher in (PHASE_AUS, PHASE_NACHLAUF) and phase in (PHASE_VORLAUF, PHASE_KLINGELN):
+            # neuer Ablauf: jetzt faellt die Entscheidung ueber das Hauptlicht
+            self.hauptlicht_dabei = self._hauptlicht_erlaubt()
+        schritte: list[tuple[int, Callable[[], Awaitable[None]]]] = []
+        for verz, nr, muster, dauer in RELAIS_ABLAUF.get(phase, []):
+            if nr in self.relais_der_box():
+                schritte.append((verz, self._relais_befehl(nr, muster, dauer)))
+        if phase == PHASE_SCHLUMMER:
+            schritte.append((0, self._relais_stopp()))
+        if self.hauptlicht_dabei and self.hauptlicht:
+            for verz, dienst, daten in LICHT_ABLAUF.get(phase, []):
+                schritte.append((verz, self._licht_befehl(dienst, daten)))
+        self._schritte_setzen(schritte)
+        if phase == PHASE_NACHLAUF:
+            self._timer_phase.append(async_call_later(self.hass, LAMPE_NACHLAUF_S, self._nachlauf_vorbei))
 
-    def _schlummern(self) -> None:
-        self._timer_nachlauf_weg()
-        self.phase = PHASE_SCHLUMMER
-        self.hass.async_create_task(self._stoppen())
+    def _schritte_setzen(self, schritte: list[tuple[int, Callable[[], Awaitable[None]]]]) -> None:
+        """Schritte ohne Verzoegerung sofort (in Reihenfolge), die anderen per Timer."""
+        sofort = [s for v, s in schritte if v <= 0]
+        if sofort:
+            self.hass.async_create_task(self._nacheinander(sofort))
+        for verz, schritt in schritte:
+            if verz > 0:
+                self._timer_phase.append(
+                    async_call_later(self.hass, verz, self._schritt_faellig(schritt))
+                )
 
-    def _beendet(self) -> None:
-        self._timer_nachlauf_weg()
-        self.phase = PHASE_NACHLAUF
-        self._starten(LAMPE_NACHLAUF, LAMPE_NACHLAUF_S, rest_aus=True)
-        self._timer_nachlauf = async_call_later(self.hass, LAMPE_NACHLAUF_S, self._nachlauf_vorbei)
+    def _schritt_faellig(self, schritt: Callable[[], Awaitable[None]]) -> Callable[[datetime], None]:
+        @callback
+        def _ausfuehren(_jetzt: datetime) -> None:
+            self.hass.async_create_task(self._nacheinander([schritt]))
+        return _ausfuehren
 
-    def _ausschalten(self) -> None:
-        self._timer_nachlauf_weg()
-        self.phase = PHASE_AUS
-        self.hass.async_create_task(self._stoppen())
-
-    # --- Befehle an die Box -------------------------------------------
-
-    def _starten(self, phase: str, dauer_s: int, rest_aus: bool = False) -> None:
-        self.hass.async_create_task(self._befehl_starten(phase, dauer_s, rest_aus))
-
-    async def _befehl_starten(self, phase: str, dauer_s: int, rest_aus: bool) -> None:
-        """Je Muster ein Befehl an die Box; "aus" wird gestoppt, wenn rest_aus gesetzt ist.
-
-        rest_aus gilt fuer den Nachlauf: Relais, die dort nichts mehr tun,
-        liefen vorher und muessen aus.
-        """
-        gruppen: dict[str, list[int]] = {}
-        for nr, m in self.plan().items():
-            gruppen.setdefault(m[phase], []).append(nr)
-        aus = gruppen.pop("aus", [])
-        try:
-            if rest_aus and aus:
-                await self.coordinator.async_alarm_stoppen(sorted(aus))
-            for muster in sorted(gruppen):
-                await self.coordinator.async_alarm_starten(gruppen[muster], muster, dauer_s)
-            self.fehler = None
-        except Exception as err:  # noqa: BLE001
-            self.fehler = str(err)
-            _LOGGER.warning("Weckerlampe: %s nicht gestartet: %s", phase, err)
+    async def _nacheinander(self, schritte: list[Callable[[], Awaitable[None]]]) -> None:
+        for schritt in schritte:
+            await schritt()
         self._melden()
 
-    async def _stoppen(self) -> None:
-        relais = self.relais_beteiligt()
-        if not relais:
-            return
-        try:
-            await self.coordinator.async_alarm_stoppen(relais)
-            self.fehler = None
-        except Exception as err:  # noqa: BLE001
-            self.fehler = str(err)
-            _LOGGER.warning("Weckerlampe: nicht gestoppt: %s", err)
+    @callback
+    def _nachlauf_vorbei(self, _jetzt: datetime) -> None:
+        if self.phase == PHASE_NACHLAUF:
+            self.phase = PHASE_AUS      # die Box hat die Muster selbst beendet
+            self.hauptlicht_dabei = False
+            self._timer_phase = []
+            self._vorlauf_planen(False)
+            self._melden()
+
+    def _abbrechen(self) -> None:
+        """Vorlauf ohne Weckruf: alles aus."""
+        self._timer_phase_weg()
+        self.phase = PHASE_AUS
+        self.hass.async_create_task(self._alles_aus())
+
+    def _hauptlicht_erlaubt(self) -> bool:
+        if not self.hauptlicht:
+            return False
+        von, bis = self.fenster
+        return im_fenster(dt_util.now().time().replace(tzinfo=None), von, bis)
+
+    # --- Befehle ------------------------------------------------------
+
+    def _relais_befehl(self, nr: int, muster: str, dauer_s: int) -> Callable[[], Awaitable[None]]:
+        async def _senden() -> None:
+            try:
+                await self.coordinator.async_alarm_starten([nr], muster, dauer_s)
+                self.fehler = None
+            except Exception as err:  # noqa: BLE001
+                self.fehler = str(err)
+                _LOGGER.warning("Weckerlampe: Relais %s %s nicht gestartet: %s", nr, muster, err)
+        return _senden
+
+    def _relais_stopp(self) -> Callable[[], Awaitable[None]]:
+        async def _senden() -> None:
+            relais = sorted(self.relais_der_box() & set(ALLE_RELAIS))
+            if not relais:
+                return
+            try:
+                await self.coordinator.async_alarm_stoppen(relais)
+                self.fehler = None
+            except Exception as err:  # noqa: BLE001
+                self.fehler = str(err)
+                _LOGGER.warning("Weckerlampe: nicht gestoppt: %s", err)
+        return _senden
+
+    def _licht_befehl(self, dienst: str, daten: dict[str, Any]) -> Callable[[], Awaitable[None]]:
+        async def _senden() -> None:
+            entity = self.hauptlicht
+            if not entity:
+                return
+            try:
+                await self.hass.services.async_call(
+                    "light", dienst, {"entity_id": entity, **daten}, blocking=True
+                )
+            except Exception as err:  # noqa: BLE001
+                self.fehler = str(err)
+                _LOGGER.warning("Weckerlampe: Hauptlicht %s %s: %s", entity, dienst, err)
+        return _senden
+
+    async def _alles_aus(self) -> None:
+        """Leuchten stoppen und, wenn es mitgemacht hat, das Hauptlicht aus."""
+        await self._relais_stopp()()
+        if self.hauptlicht_dabei and self.hauptlicht:
+            await self._licht_befehl("turn_off", {})()
+        self.hauptlicht_dabei = False
         self._melden()
 
     # --- Kleinkram ----------------------------------------------------
@@ -325,10 +417,10 @@ class WeckerLampe:
             self._timer_vorlauf()
             self._timer_vorlauf = None
 
-    def _timer_nachlauf_weg(self) -> None:
-        if self._timer_nachlauf:
-            self._timer_nachlauf()
-            self._timer_nachlauf = None
+    def _timer_phase_weg(self) -> None:
+        for t in self._timer_phase:
+            t()
+        self._timer_phase = []
 
     def _melden(self) -> None:
         async_dispatcher_send(self.hass, SIGNAL_LAMPE.format(self.entry.entry_id))

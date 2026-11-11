@@ -34,7 +34,7 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Relais klicken nur leise, Eingaenge lesen HIGH. Hat am 7./8.11. ein „defektes
   Relais" vorgetaeuscht.
 - Die HTTP-Schnittstelle der Box (`/api/state`, `/api/relais/<nr>`,
-  `/api/alarm`, `/api/alarm/stop`, Ereignisstrom `:8081/api/events`) ist der
+  `/api/alarm`, `/api/alarm/stop`, `/api/led`, Ereignisstrom `:8081/api/events`) ist der
   Vertrag zwischen Firmware und `relais.py`. Aenderungen immer auf beiden
   Seiten und im README. Der Ereignisstrom laeuft auf einem eigenen Port, weil
   der Arduino-WebServer keine Verbindung offen halten kann.

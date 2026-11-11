@@ -340,12 +340,14 @@ pulsierend = Alarmmuster laeuft.
 | POST | `/api/relais/<nr>?an=1` | Relais schalten (beendet ein Muster) |
 | POST | `/api/alarm?relais=1,3&muster=doppelblitz&dauer=0` | Muster starten; `relais=alle`, `dauer` in s, 0 = bis Stopp |
 | POST | `/api/alarm/stop?relais=1` | Muster beenden, Relais aus (ohne `relais` = alle) |
+| POST | `/api/led?dunkel=1` | Nachtruhe: RGB-LED der Box bleibt aus, solange kein Muster laeuft (gespeichert; die Integration setzt das 20-8 Uhr) |
 | POST | `/api/wifi?ssid=&pass=` | WLAN speichern, Neustart |
 
 Muster: `dauer`, `blinken` (1 s/1 s), `langsam` (2 s/2 s), `schnell` (¼ s),
 `doppelblitz` (100/120/100/680 ms wie eine Brandmeldezentrale),
 `dreifachblitz` (drei 60-ms-Blitze im 0,8-s-Takt, wie ein Stroboskop),
-`intervall` (10 s an, 2 s aus, etwa fuer eine Blitzleuchte im Dauertest), `sos`.
+`intervall` (10 s an, 2 s aus, etwa fuer eine Blitzleuchte im Dauertest),
+`takt5` (Doppelblitz alle 5 s), `sos`.
 Die Muster laufen auf dem ESP, HA sagt nur, welches wie lange. Jedes Relais
 in `/api/state` traegt `pegel` (den tatsaechlich gemessenen Pin, zur
 Fehlersuche) und bei der Bauweise „Lampen" einen `name`.
@@ -360,38 +362,42 @@ zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
 | Entity | Inhalt |
 |---|---|
 | `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s`. Meldet die Box Namen (Bauweise „Lampen"), heissen sie danach: `switch.relaisbox_lampe`, `_rot`, `_warnleuchte` |
-| `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `plan`, `relais`, `naechster_wecker`, `vorlauf_ab` |
+| `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `relais`, `hauptlicht`, `hauptlicht_fenster`, `hauptlicht_dabei`, `naechster_wecker`, `vorlauf_ab` |
+| `switch.relaisbox_testmodus` | Lichtbild zum Aufbauen: Lampe `dreifachblitz`, Rot `langsam`, Warnleuchte `intervall`, bis man ihn ausschaltet; ein Weckruf nimmt ihn zurueck |
 | `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
 | `binary_sensor.relaisbox_eingang` | Taster an GPIO 7 (fehlt bei der Bauweise „Lampen"); Attribute `seit_s`, `zaehler` |
 | `button.relaisbox_alarm_stoppen` | alles aus |
 | `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
 
-**Weckerlampe.** Die Relais der Box folgen von selbst dem Wecker der App,
-ohne Automation. Jedes Relais hat ein Muster „beim Weckruf" und eins „nach
-dem Beenden" (`aus` = dieses Relais macht in der Phase nichts). Vorgabe,
-passend zur Bauweise „Lampen":
+**Weckerlampe.** Die Leuchten der Box und ein dimmbares Hauptlicht folgen
+von selbst dem Wecker der App, ohne Automation. Relais-Nummern wie in der
+Bauweise „Lampen": 1 Lampe (mit gruener LED), 3 Rot, 4 Warnleuchte (blitzt
+bei Dauerplus von selbst). Das Hauptlicht ist eine `light`-Entitaet aus
+„Konfigurieren" (etwa ein Shelly Dimmer); leer = keins.
 
-| Relais | beim Weckruf | nach dem Beenden |
-|---|---|---|
-| 1 Lampe (die gruene LED haengt mit daran) | `dreifachblitz` | `doppelblitz` |
-| 2 (frei; bei der Standardbox Relais 2) | `langsam` | `aus` |
-| 3 Rot | `langsam` | `aus` |
-| 4 Warnleuchte (blitzt selbst, braucht nur Dauerplus) | `dauer` | `aus` |
+| Phase | Rot | Lampe | Warnleuchte | Hauptlicht |
+|---|---|---|---|---|
+| Vorlauf, 1 min vor dem Weckruf | an | - | - | 3 %, in der Minute auf 10 % |
+| Klingeln | blinkt | Doppelblitz | an | 100 % |
+| Schlummern | aus | aus | aus | 10 % |
+| Nach dem Beenden | schnell, 5 min | 5er-Takt, 10 min | noch 30 s | 50 % fuer 10 min, dann in 30 s aus; danach Warnleuchte noch 10 s |
 
-1. Eine Minute vor dem Weckruf starten die Muster „beim Weckruf".
-2. Klingelt der Wecker, laufen sie weiter.
-3. Schlummern: alles aus. Klingelt es danach wieder, geht es wie beim
-   Klingeln weiter.
-4. Beenden: fuenf Minuten lang die Muster „nach dem Beenden", der Rest aus,
-   dann ist Ruhe.
-
-Der Schalter `switch.relaisbox_weckerlampe` schaltet das ein und aus (bleibt
-ueber Neustarts erhalten, neu angelegt ist er an). Die Muster je Relais
-stehen unter „Konfigurieren" der Relaisbox; der Dialog zeigt die Relais, die
-die Box meldet (hoechstens 1-4). Jeder Start bekommt eine Hoechstdauer
-(Vorlauf 11 min, Klingeln 10 min, Nachlauf 5 min): meldet sich das Handy
-nicht mehr, gehen die Lampen trotzdem aus. Gezaehlt werden alle
+Klingelt es nach dem Schlummern wieder, geht es wie beim Klingeln weiter;
+fehlte der Vorlauf (HA gerade gestartet), startet das Klingeln direkt. Nach
+10:40 min Nachlauf ist Ruhe. Das Hauptlicht macht nur im Zeitfenster aus den
+Optionen mit (Vorgabe 3 bis 10 Uhr, entschieden beim Start eines Ablaufs);
+ausserhalb laufen nur die Leuchten. Der Schalter
+`switch.relaisbox_weckerlampe` schaltet das Ganze ein und aus (bleibt ueber
+Neustarts erhalten, neu angelegt ist er an); aus heisst sofort alles aus,
+auch das Hauptlicht, wenn es mitgemacht hat. Jedes Muster auf der Box bekommt
+eine Hoechstdauer (Vorlauf 11 min, Klingeln 10 min): meldet sich das Handy
+nicht mehr, gehen die Leuchten trotzdem aus. Gezaehlt werden alle
 Wecker-Eintraege der Integration.
+
+**Nachtruhe der Box.** Zwischen 20 und 8 Uhr schaltet die Integration die
+RGB-LED der Box dunkel (`/api/led?dunkel=1`, bei jeder Abfrage abgeglichen);
+laeuft ein Muster, zeigt die LED weiter Amber. Die rote Betriebs-LED des
+DevKits haengt fest an 3,3 V und laesst sich nicht abschalten (abkleben).
 
 **Bauweise „Lampen".** `pio run -e esp32s3-lampe -t upload` baut die
 Firmware fuer drei F5305S-MOSFET-Module (schalten die Plusleitung einer

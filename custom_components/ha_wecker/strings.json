@@ -51,17 +51,12 @@
       },
       "relais": {
         "title": "Relaisbox",
-        "description": "Derzeit: {url}\n\nWeckerlampe: die Relais folgen dem Wecker der App. Eine Minute vor dem Weckruf startet je Relais das Muster „beim Weckruf“ und läuft beim Klingeln weiter; beim Schlummern ist alles aus; nach dem Beenden läuft fünf Minuten das Muster „nach dem Beenden“. „aus“ heißt: dieses Relais macht in der Phase nichts. Der Schalter „Weckerlampe“ schaltet das Ganze ein und aus.\n\nRelais der Box: {lampen}",
+        "description": "Derzeit: {url}\n\nWeckerlampe (Schalter „Weckerlampe“): eine Minute vor dem Weckruf leuchtet Rot, das Hauptlicht geht auf 3 % und steigt auf 10 %. Beim Klingeln blinkt Rot, die Lampe macht Doppelblitz, die Warnleuchte geht an, das Hauptlicht auf 100 %. Schlummern: alles aus, Hauptlicht 10 %. Nach dem Beenden: Warnleuchte 30 s, Rot schnell 5 min, Lampe 10 min im 5er-Takt, Hauptlicht 50 % für 10 min, dann in 30 s aus, danach die Warnleuchte noch 10 s.\n\nDas Hauptlicht muss dimmbar sein (etwa ein Shelly Dimmer) und macht nur im Zeitfenster mit; leer = kein Hauptlicht.",
         "data": {
           "host": "Adresse der Relaisbox",
-          "lampe_1_aktiv": "Relais 1: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
-          "lampe_1_nachlauf": "Relais 1: nach dem Beenden (5 Minuten)",
-          "lampe_2_aktiv": "Relais 2: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
-          "lampe_2_nachlauf": "Relais 2: nach dem Beenden (5 Minuten)",
-          "lampe_3_aktiv": "Relais 3: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
-          "lampe_3_nachlauf": "Relais 3: nach dem Beenden (5 Minuten)",
-          "lampe_4_aktiv": "Relais 4: beim Weckruf (ab 1 Minute vorher und beim Klingeln)",
-          "lampe_4_nachlauf": "Relais 4: nach dem Beenden (5 Minuten)"
+          "hauptlicht": "Hauptlicht (dimmbar)",
+          "hauptlicht_von": "Hauptlicht mitnehmen ab",
+          "hauptlicht_bis": "Hauptlicht mitnehmen bis"
         }
       }
     },
