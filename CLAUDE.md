@@ -58,6 +58,18 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   einen WiFiClient ist eine eigene Uebertragung an den ESP32-S3. Kopf und
   Rumpf werden darum erst zusammengebaut und mit einem `write` geschickt, die
   Seite in Happen von 1460 Byte.
+- **Saeule: der Blinktakt zaehlt ab dem Einrasten**, nicht ab `millis()` null
+  (`blinkAb`, in `statusSetzen` gesetzt). Sonst ist der erste Impuls
+  angeschnitten und beim Alarm faellt Rot im Einrastmoment aus, statt aus der
+  Ruhephase weiterzuleuchten. Gleiches gilt fuer den Testmodus (`testSeit`).
+- **Saeule: die Phasen der Ansage haengen allein an der Zeit.** Frueher endete
+  die Ruhephase erst, wenn die Schleife `wechselAktiv` loeschte - bei einer
+  blockierten Schleife stand die Moduslampe sekundenlang zu lange still.
+  `eingerastet()` rechnet das aus `statusSeit` aus.
+- **Saeule: Animationen nie behaupten, immer messen.** `POST /api/spur?an=1`,
+  Vorgang ausloesen, `GET /api/spur` - jede Pegelaenderung mit Zeitstempel im
+  10-ms-Takt. Eine HTTP-Abfrage dauert laenger als ein Blinkimpuls, mit
+  Pollen laesst sich gar nichts pruefen.
 - **Saeule: `an` und `live` sind zwei Dinge.** `an` ist der logische Zustand
   (bleibt stehen, waehrend die Leuchte blinkt), `live` der Pegel im Augenblick.
   HA nimmt `an`, das Dashboard `live`. Der Ereignisstrom pusht nur bei

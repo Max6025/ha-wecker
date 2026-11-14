@@ -153,8 +153,7 @@ static bool testAn = false;
 static unsigned long statusSeit = 0;
 static bool wechselAktiv = false;
 static bool pfeilHoch = true;
-static bool bildSteht = false;
-static bool pfeilSteht = false;
+static unsigned long blinkAb = 0;   // ab wann der Blinktakt zaehlt
 
 static uint8_t abbauFolge[STUFEN];
 static uint8_t abbauSchritte = 0;
@@ -168,24 +167,42 @@ static void abbauFolgeBauen(uint8_t modus) {
 static unsigned long wechselZeit()  { return millis() - statusSeit; }
 static unsigned long aufbauDauer()  { return STUFEN * AUFBAU_MS; }
 static unsigned long wechselDauer() { return aufbauDauer() + abbauSchritte * ABBAU_MS; }
+// Alle drei Phasen haengen allein an der Zeit. Frueher endete die Ruhephase
+// erst, wenn die Schleife "wechselAktiv" loeschte - und die kann beim
+// Ausliefern einer Seite ueber eine Sekunde stehen. Die Moduslampe stand dann
+// zu lange still, bevor das Blinken anfing.
 static bool imWechsel()   { return wechselAktiv && wechselZeit() < wechselDauer(); }
 static bool imAufbau()    { return wechselZeit() < aufbauDauer(); }
-static bool inRuhephase() { return wechselAktiv && !imWechsel(); }
+static bool inRuhephase() {
+  return wechselAktiv && wechselZeit() >= wechselDauer()
+                      && wechselZeit() < wechselDauer() + RUHE_MS;
+}
+static bool eingerastet() { return !wechselAktiv || wechselZeit() >= wechselDauer() + RUHE_MS; }
 
 static void sseSenden();   // vorab
 
 static void statusSetzen(Status neu, bool ansage = true, bool erzwingen = false) {
   if (neu == status && ansage && !erzwingen) return;
+  // Geschlossen aendern: die Unterbrechung stellt zwischendurch die Lampen
+  // und darf keinen halb umgestellten Zustand zu sehen bekommen.
+  noInterrupts();
   pfeilHoch = (neu >= status);
   abbauFolgeBauen(modusStufe(neu));
   status = neu;
   statusSeit = millis();
   wechselAktiv = ansage;
-  bildSteht = false;
-  pfeilSteht = false;
+  // Der Blinktakt zaehlt ab dem Einrasten, nicht ab dem Einschalten des
+  // Geraets. Sonst ist der erste Impuls angeschnitten, und beim Alarm faellt
+  // Rot im Einrastmoment aus, statt aus der Ruhephase weiterzuleuchten.
+  blinkAb = statusSeit + (ansage ? (aufbauDauer() + abbauSchritte * ABBAU_MS) + RUHE_MS : 0);
+  interrupts();
 }
 
-static bool takt(unsigned long periode) { return (millis() % periode) < (periode / 2); }
+// Taktgeber des Blinkens: true in der ersten Haelfte jeder Periode, gezaehlt
+// ab dem Einrasten des Status.
+static bool takt(unsigned long periode) {
+  return ((millis() - blinkAb) % periode) < (periode / 2);
+}
 
 // ------------------------------------------------------------- Testmodus
 
@@ -194,9 +211,11 @@ static bool takt(unsigned long periode) { return (millis() % periode) < (periode
 static const unsigned long TEST_SCHRITT_MS = 300;
 static const unsigned long TEST_WARN_AN_MS = 2000;
 static const unsigned long TEST_WARN_AUS_MS = 3000;
+static unsigned long testSeit = 0;       // ab wann der Testmodus laeuft
 
 static void testStellen() {
-  unsigned long t = millis();
+  // Ab dem Einschalten zaehlen, sonst ist der erste Schritt angeschnitten
+  unsigned long t = millis() - testSeit;
   uint8_t i = (uint8_t)((t / TEST_SCHRITT_MS) % (STUFEN * 2 - 2));   // hin und zurueck
   if (i >= STUFEN) i = (uint8_t)(STUFEN * 2 - 2 - i);
   for (uint8_t s = 0; s < STUFEN; s++) setzen(s, s == i);
@@ -335,7 +354,7 @@ static bool diagAllesOk() {
 // durch und die Ruhephase auch - genau der Augenblick, in dem Rot und
 // Hinweisleuchte im Wechsel zu blinken anfangen.
 static void alarmWarnPflegen() {
-  bool soll = autoModus && !testAn && status == ALARM && !wechselAktiv;
+  bool soll = autoModus && !testAn && status == ALARM && eingerastet();
   if (soll && !warnVomAlarm) {
     warnVorAlarm = warnAn;
     warnAn = true;
@@ -457,10 +476,9 @@ static void matrixSpiegeln() {
   matrix.endDraw();
 }
 
-// Ein Takt fuer die Schleife: Alarmkopplung und Matrix. Die Leuchten selbst
-// stellt der Zeitgeber unten, nicht die Schleife.
+// Ein Takt fuer die Schleife: nur noch die Matrix. Lampen und Alarmkopplung
+// macht der Zeitgeber unten.
 static void takten() {
-  alarmWarnPflegen();
   matrixSpiegeln();
 }
 
@@ -473,6 +491,30 @@ static void takten() {
 // Darum stellt ein Hardware-Zeitgeber die Ausgaenge hundert Mal je Sekunde,
 // voellig unabhaengig von loop(). In der Unterbrechung wird nur geschaltet:
 // keine Strings, keine Matrix, kein Netz.
+
+// ---------------------------------------------------------- Mitschreiber
+//
+// Zum Pruefen der Animationen: bei jeder Aenderung des Leuchtbildes schreibt
+// der Takt einen Eintrag mit Zeitstempel mit. Nur so laesst sich von aussen
+// nachmessen, ob eine Stufe wirklich 180 ms steht und die Stoerung wirklich
+// mit 200 ms blinkt - eine HTTP-Abfrage ist dafuer viel zu langsam.
+
+struct Spur { uint32_t t; uint8_t muster; };
+static const uint16_t SPUR_MAX = 140;
+static Spur spur[SPUR_MAX];
+static volatile uint16_t spurAnzahl = 0;
+static volatile bool spurLaeuft = true;   // ab dem Einschalten, fuer den Startablauf
+
+static void spurSchreiben() {
+  if (!spurLaeuft) return;
+  uint8_t m = 0;
+  for (uint8_t i = 0; i < ANZAHL; i++) if (istAn[i]) m |= (uint8_t)(1 << i);
+  if (spurAnzahl && spur[spurAnzahl - 1].muster == m) return;
+  if (spurAnzahl >= SPUR_MAX) { spurLaeuft = false; return; }
+  spur[spurAnzahl].t = millis();
+  spur[spurAnzahl].muster = m;
+  spurAnzahl++;
+}
 
 FspTimer taktgeber;
 
@@ -491,8 +533,10 @@ static void taktISR(timer_callback_args_t*) {
   taktLetzter = jetzt;
   taktZaehler++;
 
-  if (phase != PH_BETRIEB) return;     // Startablauf stellt selbst
+  spurSchreiben();                     // auch Startablauf und Diagnose mitschreiben
+  if (phase != PH_BETRIEB) return;     // den Startablauf stellt die Schleife
   if (diagLaeuft()) return;            // die Diagnose auch
+  alarmWarnPflegen();
   lampenStellen();
 }
 
@@ -559,35 +603,43 @@ static void gedaechtnisLaden() {
 
 static unsigned long startSeit = 0;
 
-static const unsigned long ST_AUF_MS   = 300;                 // je Stufe dazu
-static const unsigned long ST_HALT_MS  = 600;                 // alle zusammen
-static const unsigned long ST_AB_MS    = 225;                 // je Stufe weg
-static const unsigned long ST_AUF_ENDE = STUFEN * ST_AUF_MS;             // 1200
-static const unsigned long ST_HALT_ENDE = ST_AUF_ENDE + ST_HALT_MS;      // 1800
-static const unsigned long ST_ENDE = ST_HALT_ENDE + STUFEN * ST_AB_MS;   // 2700
-static const bool START_MIT_BLITZ = true;     // ein Impuls der Warnleuchte
+// Ein Punkt laeuft einmal hoch und wieder runter, dann blitzt die Saeule
+// zweimal komplett auf - kurz, lebendig, und man sieht jede Leuchte einzeln
+// und alle zusammen. Danach ist alles dunkel und der alte Status kommt.
+static const unsigned long ST_LAUF_MS = 120;              // je Stufe beim Lauflicht
+static const unsigned long ST_LAUF_ENDE = 8 * ST_LAUF_MS; //  960: hoch und runter
+static const unsigned long ST_BLITZ1_ENDE = ST_LAUF_ENDE + 300;   // 1260 alle an
+static const unsigned long ST_PAUSE_ENDE  = ST_BLITZ1_ENDE + 200; // 1460 alles aus
+static const unsigned long ST_BLITZ2_ENDE = ST_PAUSE_ENDE + 300;  // 1760 alle an
+static const unsigned long ST_ENDE        = ST_BLITZ2_ENDE + 240; // 2000 aus, fertig
+static const bool START_MIT_BLITZ = true;     // die Warnleuchte zuckt einmal mit
 
 static void startStellen() {
   unsigned long t = millis() - startSeit;
+  bool warn = false;
 
-  if (t < ST_AUF_ENDE) {
-    uint8_t i = (uint8_t)(t / ST_AUF_MS);
-    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, s <= i);
-    setzen(IDX_WARN, false);
-  } else if (t < ST_HALT_ENDE) {
+  if (t < ST_LAUF_ENDE) {
+    // Lauflicht: 0,1,2,3,3,2,1,0 - oben und unten je zwei Schritte, damit die
+    // Umkehr nicht wie ein Stolpern aussieht
+    uint8_t i = (uint8_t)(t / ST_LAUF_MS);
+    static const uint8_t WEG[8] = {0, 1, 2, 3, 3, 2, 1, 0};
+    uint8_t an = WEG[i];
+    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, s == an);
+  } else if (t < ST_BLITZ1_ENDE) {
     for (uint8_t s = 0; s < STUFEN; s++) setzen(s, true);
-    // kurzer Impuls, damit man auch die Blitzleuchte einmal sieht
-    setzen(IDX_WARN, START_MIT_BLITZ && t > ST_AUF_ENDE + 100 && t < ST_AUF_ENDE + 400);
+    warn = START_MIT_BLITZ;
+  } else if (t < ST_PAUSE_ENDE) {
+    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, false);
+  } else if (t < ST_BLITZ2_ENDE) {
+    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, true);
   } else {
-    // von oben nach unten wieder aus
-    int grenze = (int)STUFEN - 1 - (int)((t - ST_HALT_ENDE) / ST_AB_MS);
-    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, (int)s < grenze);
-    setzen(IDX_WARN, false);
+    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, false);
   }
+  setzen(IDX_WARN, warn);
 
   // Balken auf der Matrix waechst mit dem Ablauf
   static unsigned long letzterBalken = 0;
-  if (millis() - letzterBalken > 120) {
+  if (millis() - letzterBalken > 100) {
     letzterBalken = millis();
     int breite = (int)((t * 12) / ST_ENDE);
     if (breite > 12) breite = 12;
@@ -935,8 +987,7 @@ static void httpBedienen() {
           for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
           autoModus = false;
         }
-        bildSteht = false;
-        geaendert = true;
+            geaendert = true;
       }
       sendeJson(c, 200, stateJson());
     } else {
@@ -973,8 +1024,7 @@ static void httpBedienen() {
         if (autoModus) {                  // von Hand schalten heisst manuell
           for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
           autoModus = false;
-          bildSteht = false;
-        }
+              }
         manuell[i] = an;
         testAn = false;
       }
@@ -984,11 +1034,32 @@ static void httpBedienen() {
   } else if (pfad == "/api/test") {
     bool an = wahr(argWert(ziel, "an"));
     if (an != testAn) {
+      testSeit = millis();
       testAn = an;
-      if (!an) { bildSteht = false; statusSetzen(status, false); }
+      if (!an) statusSetzen(status, false);
       geaendert = true;
     }
     sendeJson(c, 200, stateJson());
+  } else if (pfad == "/api/spur") {
+    if (methode == "POST") {
+      bool an = wahr(argWert(ziel, "an"));
+      spurLaeuft = false;
+      if (an) spurAnzahl = 0;      // nur beim Starten leeren, nicht beim Anhalten
+      spurLaeuft = an;
+      sendeJson(c, 200, String("{\"ok\":true,\"laeuft\":") + (spurLaeuft ? "true" : "false") + "}");
+    } else {
+      String s;
+      s.reserve(3200);
+      s += "{\"laeuft\":" + String(spurLaeuft ? "true" : "false");
+      s += ",\"anzahl\":" + String(spurAnzahl) + ",\"spur\":[";
+      uint32_t null_ = spurAnzahl ? spur[0].t : 0;
+      for (uint16_t i = 0; i < spurAnzahl; i++) {
+        if (i) s += ",";
+        s += "[" + String(spur[i].t - null_) + "," + String(spur[i].muster) + "]";
+      }
+      s += "]}";
+      sendeJson(c, 200, s);
+    }
   } else if (pfad == "/api/diagnose") {
     if (!diagLaeuft()) diagnoseStarten();
     sendeJson(c, 200, stateJson());
@@ -1007,7 +1078,6 @@ static void httpBedienen() {
   c.flush();
   c.stop();
   if (geaendert) merkenBald();
-  (void)methode;
 }
 
 // ----------------------------------------------------------------- Ablauf
@@ -1048,14 +1118,17 @@ void loop() {
   }
 
   if (phase == PH_WLAN) {
+    // Erst den Status wieder aufnehmen, dann ins WLAN. Andersherum stand die
+    // Saeule nach dem Einschalten dreizehn Sekunden dunkel da und sah aus wie
+    // tot - so lange dauert das Verbinden. Ab hier stellt der Zeitgeber die
+    // Lampen, der laeuft auch weiter, waehrend WiFi.begin() blockiert.
+    phase = PH_BETRIEB;
+    statusSetzen(status, true);
     wlanVerbinden();
     // Startbild: das letzte Glied der Adresse, damit man sie am Geraet sieht
     if (WiFi.status() == WL_CONNECTED) matrixAdresse(WiFi.localIP()[3]);
     else                               matrixZahl("--");
-    // Jetzt den Status wieder aufnehmen, der vor dem Stromausfall stand
-    phase = PH_BETRIEB;
-    matrixBild = 0xFF;
-    statusSetzen(status, true);
+    matrixBild = 0xFF;          // danach wieder das Abbild der Saeule
     merkenJetzt();
     return;
   }

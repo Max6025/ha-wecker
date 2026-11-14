@@ -504,11 +504,40 @@ oben, genau die, die gerade brennen, und bei eingeschalteter Blitzleuchte zwei
 Striche an den Seiten. Das Blinken laeuft mit. Buchstaben waren auf zwoelf mal
 acht Punkten nicht zu entziffern, ein Abbild schon - und es sagt mehr.
 
-**Nach dem Einschalten** laeuft die Saeule einmal sichtbar durch (von unten
-nach oben dazu, alle zusammen mit einem Blitz, von oben nach unten wieder aus,
-etwa 2,7 Sekunden), zeigt dann das letzte Glied ihrer IP-Adresse Ziffer fuer
-Ziffer auf der LED-Matrix und nimmt danach genau den Status wieder auf, der vor
-dem Stromausfall stand. Status, Betriebsart und Warnleuchte liegen dafuer im
+**Nach dem Einschalten** laeuft ein Punkt einmal die Saeule hoch und wieder
+herunter (je Stufe 120 ms), dann blitzt sie zweimal komplett auf - beim ersten
+Mal zuckt die Blitzleuchte mit. Nach zwei Sekunden ist der Ablauf vorbei und
+die Saeule nimmt **sofort** den Status wieder auf, der vor dem Stromausfall
+stand; erst danach verbindet sie sich mit dem WLAN und zeigt das letzte Glied
+ihrer Adresse Ziffer fuer Ziffer auf der Matrix. Die Reihenfolge ist Absicht:
+andersherum stand die Saeule dreizehn Sekunden dunkel da und sah aus wie tot,
+so lange dauert das Verbinden.
+
+**Mitschreiber zum Nachmessen.** `POST /api/spur?an=1` startet eine
+Aufzeichnung, `GET /api/spur` gibt sie zurueck: jede Aenderung des
+Leuchtbildes mit Zeitstempel, aufgenommen im Takt (10 ms). Damit laesst sich
+jede Animation von aussen nachmessen - eine HTTP-Abfrage allein ist dafuer viel
+zu langsam, die dauert laenger als ein Blinkimpuls. Der Startablauf wird
+automatisch ab dem Einschalten mitgeschrieben.
+
+Nachgemessene Zeiten (alle auf dem Geraet, nicht gerechnet):
+
+| Vorgang                         | Soll        | Gemessen |
+|---------------------------------|-------------|----------|
+| Aufbau der Ansage, je Stufe     | 180 ms      | 180 ms   |
+| Abbau der Ansage, je Stufe      | 180 ms      | 180 ms   |
+| Ruhephase vor dem Blinken       | 1400 ms     | 1400 ms  |
+| Hinweis blinkt                  | 1000 ms     | 1000 ms  |
+| Achtung blinkt                  | 400 ms      | 400 ms   |
+| Stoerung blinkt                 | 200 ms      | 200 ms   |
+| Alarm, Rot und Hinweis wechseln | 250 ms      | 250 ms   |
+| Testmodus, je Stufe             | 300 ms      | 300 ms   |
+| Warnleuchte im Test             | 2000/3000 ms| 2000/3000|
+| Startablauf gesamt              | 2000 ms     | 2000 ms  |
+
+Unter Last gemessen: waehrend acht Abrufe der ganzen Dashboard-Seite die
+Schleife bis zu 1,26 s blockierten, waren **alle 53 Blinkimpulse exakt
+200 ms** lang. Status, Betriebsart und Warnleuchte liegen dafuer im
 Daten-Flash des RA4M1 (`Preferences`); geschrieben wird verzoegert und nur bei
 echter Aenderung.
 
