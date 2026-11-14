@@ -38,6 +38,7 @@ from .const import (
 )
 from .ablauf import Weckablauf
 from .saeule import SaeuleCoordinator
+from .strom import Stromplan
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class WeckerData:
         self.entry = entry
         self.payload: dict[str, Any] | None = None
         self.ablauf: Any = None            # Weckablauf, siehe ablauf.py
+        self.strom: Any = None             # Stromplan der Saeule, siehe strom.py
         self.last_seen: datetime | None = None
         self._store: Store = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
@@ -155,9 +157,15 @@ async def _setup_wecker(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Der Weckablauf haengt am Wecker, nicht an einem Leuchtmittel: hier liegen
     # die Weckzeiten. Die Geraete, die er steuert, stehen in anderen Eintraegen.
     data.ablauf = Weckablauf(hass, entry)
+    # Die Steckdose der Saeule haengt am selben Weckplan. Sie schreibt ins
+    # Protokoll des Weckablaufs, damit alles an einer Stelle nachzulesen ist.
+    data.strom = Stromplan(hass, entry, data.ablauf.notiz_extern, data.ablauf.melden)
+    data.ablauf.strom = data.strom
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_WECKER)
     data.ablauf.async_start()
     entry.async_on_unload(data.ablauf.async_stop)
+    data.strom.async_start()
+    entry.async_on_unload(data.strom.async_stop)
 
 
 async def _setup_saeule(hass: HomeAssistant, entry: ConfigEntry) -> None:

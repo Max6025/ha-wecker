@@ -125,6 +125,29 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Jetzt bestimmen die Zeitbloecke der Ablaufdatei, welcher Ablauf gilt.
 - **Kann eine Leuchte kein `transition`**, wird der Dienst ohne wiederholt,
   statt den Schritt verfallen zu lassen.
+- **Der Strom der Saeule ist kein Ablaufschritt** (`strom.py`). Die Steckdose
+  soll fuenf Minuten vor dem Weckruf an und erst abends wieder aus - ein
+  Schritt im Weckablauf ginge nicht, dessen Lauf endet nach `ABLAUF_MAX_S`.
+  Eigene Einheit, eigene Timer, aber dieselbe Weckzeit
+  (`ablauf.naechste_weckzeit`) und dasselbe Protokoll.
+- **Nie nachtraeglich ausschalten.** War Home Assistant um 21 Uhr aus, bleibt
+  die Steckdose an. Eine zu lange angeschaltete Dose kostet nichts, eine zur
+  falschen Zeit ausgeschaltete nimmt der Saeule mitten im Betrieb den Strom.
+  Einschalten wird dagegen nachgeholt - aber nur einmal je An-Phase
+  (`_phase_gesehen`), sonst dreht jede Meldung der App eine von Hand
+  ausgeschaltete Dose wieder an.
+- **`hass.async_create_task` startet die Aufgabe sofort** und laesst sie bis
+  zum ersten echten Warten durchlaufen. Als `strom._schalten` am Ende neu
+  plante, lief das synchron in die Planung zurueck - einmal im Kreis je
+  Schaltvorgang, bis der Stapel voll war. Planen darf nur der Timer-Rueckruf.
+- **Der Stromplan muss selbst melden.** Weckablauf und Stromplan haengen am
+  selben Signal (`SIGNAL_WECKER_ALLE`), der Ablauf ist zuerst angemeldet und
+  schreibt den Schalterzustand - ohne eigenes `_melden()` stehen die
+  Zeitpunkte im Attribut `strom` noch auf dem Stand von vorher.
+- **Dienstaufrufe auf `switch` im Test nicht mit `async_mock_service` fangen.**
+  Die Integration richtet die Plattform `switch` selbst ein, deren echter
+  Dienst ueberschreibt den Mock und die Aufrufe landen nirgends. Stattdessen
+  `EVENT_CALL_SERVICE` am Bus mitschneiden (`_schaltrufe` in den Tests).
 - **Weckruf:** Im Empfaenger nur PARTIAL_WAKE_LOCK. Schaltet man den Bildschirm
   vorher selbst ein, zeigt Android (ohne Sperre) statt der Weckruf-Seite nur den
   Hinweis oben. Bei eingeschaltetem, entsperrtem Handy kommt die Seite nur ueber

@@ -48,7 +48,9 @@ ha-wecker/
    HA Wecker -> *Signalsaeule* -> Adresse der Saeule.
 4. **Weckablauf einstellen:** beim Geraet „Wecker" auf Konfigurieren, dort das
    **Hauptlicht** waehlen und die **Ablaufdatei** anpassen (Abschnitt 6a).
-   Danach den Knopf **Probelauf** druecken - er spielt alles sofort durch.
+   Haengt die Saeule an einer schaltbaren Steckdose, hier auch die
+   **Steckdose der Saeule** eintragen (Abschnitt 6b). Danach den Knopf
+   **Probelauf** druecken - er spielt alles sofort durch.
 
 ---
 
@@ -491,6 +493,8 @@ anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
 |---|---|
 | Hauptlicht | eine dimmbare `light`-Entitaet; leer = kein Hauptlicht |
 | Ablaufdatei | JSON mit Zeitbloecken (siehe unten); leer = Standardablauf |
+| Steckdose der Saeule | eine `switch`-Entitaet; leer = nicht schalten (Abschnitt 6b) |
+| Stromplan | JSON mit Vorlauf und Ausschaltzeiten; leer = Standardplan |
 
 **Entitaeten**
 
@@ -563,6 +567,60 @@ vorher der Vorlauf.
 zeigt jeden Schritt mit Zeit, Ziel und Ergebnis - auch die gescheiterten. Fuer
 einen schnellen Versuch den Knopf **Probelauf** druecken, statt bis zum
 naechsten Morgen zu warten.
+
+---
+
+## 6b. Strom fuer die Saeule (Steckdose nach dem Weckplan)
+
+Die Saeule haengt an einer schaltbaren Steckdose (bei Max ein Shelly Plug im
+Zimmer). Sie soll **kurz vor dem Weckruf** Strom bekommen - sonst ist der
+Arduino noch nicht im Netz, wenn der Vorlauf ihn ansprechen will - und abends
+wieder aus. Das steht in `strom.py` und haengt am selben Wecker wie der
+Weckablauf; die Weckzeit kommt aus demselben Rechenweg
+(`ablauf.naechste_weckzeit`), es gibt keine zweite Wahrheit darueber, wann
+geweckt wird.
+
+**Einstellen:** dieselben Optionen wie der Weckablauf, Felder *Steckdose der
+Saeule* und *Stromplan*. Was der Stromplan schaltet, steht im **Protokoll des
+Weckablaufs** - eine Stelle zum Hinschauen - und die Zeitpunkte stehen im
+Attribut `strom` von `switch.ha_wecker_weckablauf`.
+
+```json
+{
+  "version": 1,
+  "vorlauf": 300,
+  "aus": [
+    { "wochentage": ["mo", "di", "mi", "do", "fr"], "zeit": "21:00" },
+    { "wochentage": ["sa", "so"], "zeit": "22:00" }
+  ]
+}
+```
+
+Das ist zugleich der **Standardplan**, wenn das Feld leer bleibt: fuenf
+Minuten vor dem Weckruf an, werktags um 21 Uhr aus, am Wochenende um 22 Uhr.
+Dazwischen schaltet nichts - die Steckdose bleibt den ganzen Tag an.
+
+- `vorlauf` sind **Sekunden** vor dem Weckruf, `aus` eine Liste aus
+  `wochentage` und `zeit`. Ohne `wochentage` gilt der Eintrag an jedem Tag.
+- **Ausgeschaltet wird nur zum Zeitpunkt selbst, nie nachtraeglich.** War Home
+  Assistant um 21 Uhr aus, bleibt die Steckdose an, bis die naechste
+  Ausschaltzeit kommt. Eine Steckdose, die zu lange an ist, kostet nichts -
+  eine, die zur falschen Zeit ausgeht, nimmt der Saeule mitten im Betrieb den
+  Strom.
+- **Eingeschaltet wird auch nachtraeglich**, aber nur einmal je An-Phase:
+  liegt das naechste Ausschalten vor dem naechsten Einschalten, laeuft gerade
+  eine An-Phase, und eine ausgeschaltete Steckdose wird angedreht. Wer sie von
+  Hand ausschaltet, bekommt sie nicht bei der naechsten Meldung der App wieder
+  angedreht - erst in der naechsten Phase.
+- Der **Probelauf** schaltet die Steckdose vorher ein, sonst antwortet die
+  Saeule nicht und das halbe Protokoll steht auf „Fehler".
+- Ohne eingetragene Entitaet bleibt der Stromplan still.
+
+**Fallstrick, der hier schon zugebissen hat:** `hass.async_create_task` startet
+die Aufgabe sofort und laesst sie bis zum ersten echten Warten durchlaufen.
+Als `_schalten` am Ende noch neu plante, lief das synchron in die Planung
+zurueck - einmal im Kreis fuer jeden Schaltvorgang, bis der Stapel voll war.
+Deshalb plant jetzt nur der Timer-Rueckruf, nie das Schalten selbst.
 
 ---
 

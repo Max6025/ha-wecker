@@ -26,11 +26,14 @@ from .const import (
     CONF_ABLAUF,
     CONF_HAUPTLICHT,
     CONF_HOST,
+    CONF_STROM,
+    CONF_STROMPLAN,
     CONF_TYP,
     DOMAIN,
     TYP_SAEULE,
     TYP_WECKER,
 )
+from .strom import stromplan_lesen
 from .saeule import host_zu_url, saeule_abfragen
 
 DEFAULT_NAME_WECKER = "HA Wecker"
@@ -118,7 +121,7 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class WeckerOptionsFlow(OptionsFlow):
-    """Webhook-Adresse, Hauptlicht und die Ablaufdatei des Weckablaufs."""
+    """Webhook-Adresse, Hauptlicht, Ablaufdatei und Stromplan der Saeule."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         # Bewusst eigenes Attribut: self.config_entry wird in neueren
@@ -133,18 +136,24 @@ class WeckerOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             roh = (user_input.get(CONF_ABLAUF) or "").strip()
+            roh_strom = (user_input.get(CONF_STROMPLAN) or "").strip()
             _, fehler = ablauf_lesen(roh)
+            _, fehler_strom = stromplan_lesen(roh_strom)
             if fehler:
                 errors[CONF_ABLAUF] = "ablauf_fehler"
-            else:
+            if fehler_strom:
+                errors[CONF_STROMPLAN] = "stromplan_fehler"
+            if not errors:
                 daten = dict(opt)
                 daten[CONF_ABLAUF] = roh
-                # Leere Auswahl heisst: kein Hauptlicht mehr, also wirklich loeschen
-                licht = user_input.get(CONF_HAUPTLICHT)
-                if licht:
-                    daten[CONF_HAUPTLICHT] = str(licht)
-                else:
-                    daten.pop(CONF_HAUPTLICHT, None)
+                daten[CONF_STROMPLAN] = roh_strom
+                # Leere Auswahl heisst: nicht mehr gesetzt, also wirklich loeschen
+                for feld, domaene in ((CONF_HAUPTLICHT, "light"), (CONF_STROM, "switch")):
+                    wert = user_input.get(feld)
+                    if wert:
+                        daten[feld] = str(wert)
+                    else:
+                        daten.pop(feld, None)
                 return self.async_create_entry(title="", data=daten)
 
         webhook_url = f"/api/webhook/{self._entry.data.get(CONF_WEBHOOK_ID, '')}"
@@ -167,12 +176,26 @@ class WeckerOptionsFlow(OptionsFlow):
         felder[vol.Optional(CONF_ABLAUF, description={"suggested_value": vorgabe})] = (
             selector.TextSelector(selector.TextSelectorConfig(multiline=True))
         )
+        felder[vol.Optional(CONF_STROM, description={"suggested_value": opt.get(CONF_STROM)})] = (
+            selector.EntitySelector(selector.EntitySelectorConfig(domain="switch"))
+        )
+        felder[
+            vol.Optional(
+                CONF_STROMPLAN,
+                description={"suggested_value": opt.get(CONF_STROMPLAN) or ""},
+            )
+        ] = selector.TextSelector(selector.TextSelectorConfig(multiline=True))
         _, fehler = ablauf_lesen(opt.get(CONF_ABLAUF))
+        _, fehler_strom = stromplan_lesen(opt.get(CONF_STROMPLAN))
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(felder),
             errors=errors,
-            description_placeholders={"webhook_url": webhook_url, "fehler": fehler or "-"},
+            description_placeholders={
+                "webhook_url": webhook_url,
+                "fehler": fehler or "-",
+                "fehler_strom": fehler_strom or "-",
+            },
         )
 
 

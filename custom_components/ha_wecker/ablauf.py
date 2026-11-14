@@ -245,6 +245,7 @@ class Weckablauf:
         self.naechster_wecker: datetime | None = None
         self.nullpunkt: datetime | None = None  # Weckruf, auf den sich "zeit" bezieht
         self.beendet_um: datetime | None = None # wann der Weckruf beendet wurde
+        self.strom: Any = None                  # Stromplan der Saeule, siehe strom.py
         self.protokoll: list[dict[str, Any]] = []
         self._klingelt_alt = False
         self._timer: list[CALLBACK_TYPE] = []
@@ -284,6 +285,7 @@ class Weckablauf:
             "nullpunkt": self.nullpunkt.isoformat() if self.nullpunkt else None,
             "beendet_um": self.beendet_um.isoformat() if self.beendet_um else None,
             "ablauf_fehler": fehler,
+            "strom": self.strom.attribute() if self.strom else None,
             "protokoll": list(reversed(self.protokoll)),
         }
 
@@ -310,7 +312,7 @@ class Weckablauf:
             return
         self._timer_weg()
         self.laeuft = self.probelauf = False
-        self._melden()
+        self.melden()
 
     # --- Reaktion auf den Wecker --------------------------------------
 
@@ -323,7 +325,7 @@ class Weckablauf:
         self._klingelt_alt = klingelt
 
         if not self.aktiv or self.probelauf:
-            self._melden()
+            self.melden()
             return
 
         if flanke_an:
@@ -334,7 +336,7 @@ class Weckablauf:
             # Nachlauf gilt noch nicht. Ohne Aufraeumen bliebe die Saeule im
             # Alarm stehen und das Licht an, bis es wieder klingelt.
             self._timer_weg()
-            self._notiz("Schlummern", "Ablauf angehalten, Saeule zurueck", "ok")
+            self.notiz("Schlummern", "Ablauf angehalten, Saeule zurueck", "ok")
             self.laeuft = False
             self.hass.async_create_task(self._schlummern())
         elif flanke_aus:
@@ -343,7 +345,7 @@ class Weckablauf:
             self._starten(self.beendet_um, AB_ENDE)
         elif not self.laeuft and naechster is not None:
             self._starten(naechster, AB_WECKRUF)
-        self._melden()
+        self.melden()
 
     def _starten(self, nullpunkt: datetime, art: str, nur_ab_null: bool = False) -> None:
         """Die Schritte des Blocks mit diesem Bezugspunkt auf Zeitpunkte legen.
@@ -354,14 +356,14 @@ class Weckablauf:
         """
         ablauf, fehler = self.ablauf
         if fehler:
-            self._notiz("Ablaufdatei", fehler, "fehler")
+            self.notiz("Ablaufdatei", fehler, "fehler")
         bezugszeit = self.nullpunkt if art == AB_ENDE and self.nullpunkt else nullpunkt
         block = block_waehlen(ablauf, bezugszeit)
         if block is None:
             self._timer_weg()
             self.laeuft = False
             self.block = None
-            self._notiz("Kein Block", "Weckzeit passt in keinen Zeitblock", "uebersprungen")
+            self.notiz("Kein Block", "Weckzeit passt in keinen Zeitblock", "uebersprungen")
             return
         self._timer_weg()
         self.block = str(block.get("name") or "ohne Namen")
@@ -403,7 +405,7 @@ class Weckablauf:
                 async_track_point_in_utc_time(self.hass, self._fertig, ende)
             )
         woher = "ab dem Weckruf" if art == AB_WECKRUF else "ab dem Beenden"
-        self._notiz(
+        self.notiz(
             "Geplant",
             f"Block \"{self.block}\", {geplant} Schritte {woher} "
             f"{dt_util.as_local(nullpunkt):%H:%M:%S}",
@@ -421,7 +423,7 @@ class Weckablauf:
         war_probe = self.probelauf
         self.laeuft = self.probelauf = False
         self.beendet_um = None
-        self._notiz("Fertig", "Probelauf beendet" if war_probe else "Ablauf beendet", "ok")
+        self.notiz("Fertig", "Probelauf beendet" if war_probe else "Ablauf beendet", "ok")
         # Gleich den naechsten Vorlauf planen, sonst wartet er auf die naechste
         # Meldung der App - und die kommt vielleicht erst beim Klingeln.
         self._wecker_geaendert()
@@ -445,8 +447,10 @@ class Weckablauf:
         self.protokoll = []
         self.probelauf = True
         self.beendet_um = None
+        if self.strom is not None:
+            await self.strom.async_sichern()
         weckruf = dt_util.utcnow() + timedelta(seconds=vorlauf_s)
-        self._notiz(
+        self.notiz(
             "Probelauf",
             f"Klingeln in {vorlauf_s} s, Beenden {klingelt_s} s spaeter",
             "ok",
@@ -455,7 +459,7 @@ class Weckablauf:
         self._probe_timer = async_track_point_in_utc_time(
             self.hass, self._probe_beenden, weckruf + timedelta(seconds=klingelt_s)
         )
-        self._melden()
+        self.melden()
 
     @callback
     def _probe_beenden(self, _jetzt: datetime) -> None:
@@ -463,15 +467,15 @@ class Weckablauf:
         if not self.probelauf:
             return
         self.beendet_um = dt_util.utcnow()
-        self._notiz("Probelauf", "Weckruf beendet", "ok")
+        self.notiz("Probelauf", "Weckruf beendet", "ok")
         self._starten(self.beendet_um, AB_ENDE)
-        self._melden()
+        self.melden()
 
     async def _schlummern(self) -> None:
         """Beim Schlummern zurueck in den Ruhestand, aber den Wecker nicht vergessen."""
         await self._saeule({"status": STATUS_STANDARD})
         await self._licht({"aus": True})
-        self._melden()
+        self.melden()
 
     async def async_abbrechen(self) -> None:
         """Laufenden Ablauf stoppen und aufraeumen: Licht aus, Saeule auf Ruhe."""
@@ -479,11 +483,11 @@ class Weckablauf:
         war = self.laeuft or self.probelauf
         self.laeuft = self.probelauf = False
         self.beendet_um = None
-        self._notiz("Abbruch", "Ablauf gestoppt" if war else "nichts lief", "ok")
+        self.notiz("Abbruch", "Ablauf gestoppt" if war else "nichts lief", "ok")
         if war:
             await self._licht({"aus": True})
             await self._saeule({"status": STATUS_STANDARD})
-        self._melden()
+        self.melden()
 
     # --- Schritte ausfuehren ------------------------------------------
 
@@ -492,12 +496,12 @@ class Weckablauf:
             await self._licht(schritt["licht"])
         if "saeule" in schritt:
             await self._saeule(schritt["saeule"])
-        self._melden()
+        self.melden()
 
     async def _licht(self, wunsch: dict[str, Any]) -> None:
         ziel = self.hauptlicht
         if not ziel:
-            self._notiz("Hauptlicht", "keine Entitaet eingestellt", "fehler")
+            self.notiz("Hauptlicht", "keine Entitaet eingestellt", "fehler")
             return
         aus = bool(wunsch.get("aus"))
         daten: dict[str, Any] = {"entity_id": ziel}
@@ -511,7 +515,7 @@ class Weckablauf:
             beschreibung += f" in {int(wunsch['dauer'])} s"
         try:
             await self.hass.services.async_call("light", dienst, daten, blocking=True)
-            self._notiz(f"Hauptlicht {ziel}", beschreibung, "ok")
+            self.notiz(f"Hauptlicht {ziel}", beschreibung, "ok")
         except Exception as err:  # noqa: BLE001
             # Viele Leuchten koennen kein "transition". Dann ohne, statt
             # den Schritt stillschweigend fallen zu lassen.
@@ -519,32 +523,42 @@ class Weckablauf:
                 daten.pop("transition")
                 try:
                     await self.hass.services.async_call("light", dienst, daten, blocking=True)
-                    self._notiz(f"Hauptlicht {ziel}", beschreibung + " (ohne Uebergang)", "ok")
+                    self.notiz(f"Hauptlicht {ziel}", beschreibung + " (ohne Uebergang)", "ok")
                     return
                 except Exception as err2:  # noqa: BLE001
                     err = err2
-            self._notiz(f"Hauptlicht {ziel}", f"{beschreibung}: {err}", "fehler")
+            self.notiz(f"Hauptlicht {ziel}", f"{beschreibung}: {err}", "fehler")
             _LOGGER.warning("Weckablauf: Hauptlicht %s %s: %s", ziel, dienst, err)
 
     async def _saeule(self, wunsch: dict[str, Any]) -> None:
         coordinator = self.saeule()
         if coordinator is None:
-            self._notiz("Signalsaeule", "nicht eingerichtet", "uebersprungen")
+            self.notiz("Signalsaeule", "nicht eingerichtet", "uebersprungen")
             return
         try:
             if "status" in wunsch:
                 await coordinator.async_status(str(wunsch["status"]))
-                self._notiz("Signalsaeule", f"Status {wunsch['status']}", "ok")
+                self.notiz("Signalsaeule", f"Status {wunsch['status']}", "ok")
             if "warn" in wunsch:
                 await coordinator.async_schalten(5, bool(wunsch["warn"]))
-                self._notiz("Signalsaeule", f"Warnleuchte {'an' if wunsch['warn'] else 'aus'}", "ok")
+                self.notiz("Signalsaeule", f"Warnleuchte {'an' if wunsch['warn'] else 'aus'}", "ok")
         except Exception as err:  # noqa: BLE001
-            self._notiz("Signalsaeule", str(err), "fehler")
+            self.notiz("Signalsaeule", str(err), "fehler")
             _LOGGER.warning("Weckablauf: Saeule %s: %s", wunsch, err)
 
     # --- Kleinkram ----------------------------------------------------
 
-    def _notiz(self, was: str, text: str, ergebnis: str) -> None:
+    def notiz_extern(self, was: str, text: str, ergebnis: str) -> None:
+        """Notiz von aussen - der Stromplan schreibt ins selbe Protokoll.
+
+        Anders als bei den eigenen Schritten muss der Schalter danach gleich
+        aufgefrischt werden, sonst steht die neue Zeile erst beim naechsten
+        Anlass im Protokoll.
+        """
+        self.notiz(was, text, ergebnis)
+        self.melden()
+
+    def notiz(self, was: str, text: str, ergebnis: str) -> None:
         self.protokoll.append(
             {
                 "zeit": dt_util.as_local(dt_util.utcnow()).strftime("%d.%m. %H:%M:%S"),
@@ -563,5 +577,5 @@ class Weckablauf:
             self._probe_timer()
             self._probe_timer = None
 
-    def _melden(self) -> None:
+    def melden(self) -> None:
         async_dispatcher_send(self.hass, SIGNAL_ABLAUF.format(self.entry.entry_id))

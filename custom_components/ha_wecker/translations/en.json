@@ -40,10 +40,12 @@
     "step": {
       "init": {
         "title": "HA Wecker",
-        "description": "Webhook URL for the app:\n{webhook_url}\n\nWake-up sequence: see the German text.\n\nLast check: {fehler}",
+        "description": "Webhook URL for the app:\n{webhook_url}\n\nWake-up sequence: see the German text.\n\nLast check: {fehler}\n\nStrom der Säule: Die Säule hängt an einer schaltbaren Steckdose. Sie geht kurz vor dem Weckruf an und bleibt an, bis die Ausschaltzeit des Wochentags erreicht ist – dazwischen schaltet nichts. \"vorlauf\" sind Sekunden vor dem Weckruf, \"aus\" eine Liste aus Wochentagen und Uhrzeit. Leer heißt: fünf Minuten vorher an, Mo–Fr um 21:00 aus, Sa+So um 22:00. Ausgeschaltet wird nur zum Zeitpunkt selbst – war Home Assistant gerade aus, bleibt die Steckdose an, statt der Säule nachträglich den Strom zu nehmen. Eingeschaltet wird auch nachträglich.\n\nStromplan geprüft: {fehler_strom}",
         "data": {
           "hauptlicht": "Main light (dimmable, empty = none)",
-          "ablauf": "Sequence file (JSON)"
+          "ablauf": "Sequence file (JSON)",
+          "strom": "Steckdose der Säule (leer = nicht schalten)",
+          "stromplan": "Stromplan (JSON, leer = Standard)"
         }
       },
       "saeule": {
@@ -58,7 +60,8 @@
       "host_fehlt": "Please enter an address.",
       "nicht_erreichbar": "No relay box answers at this address.",
       "keine_saeule": "No signal tower answers at this address.",
-      "ablauf_fehler": "The sequence file is invalid."
+      "ablauf_fehler": "The sequence file is invalid.",
+      "stromplan_fehler": "Der Stromplan ist nicht in Ordnung – siehe Beschreibung oben."
     }
   },
   "entity": {

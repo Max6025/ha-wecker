@@ -40,10 +40,12 @@
     "step": {
       "init": {
         "title": "HA Wecker",
-        "description": "Adresse für die App:\n{webhook_url}\n\nWeckablauf: Was rund um den Weckruf passiert, steht in der Ablaufdatei. \"zeit\" zählt in Sekunden, \"ab\" sagt wovon: \"weckruf\" (Vorgabe) ab dem Klingeln, negativ heißt vorher; \"ende\" ab dem Moment, in dem du den Weckruf beendest. Es gilt der erste Block, dessen Wochentag und Zeitfenster zur Weckzeit passen; von = bis heißt: immer. \"licht\" steuert das Hauptlicht (prozent, dauer in Sekunden für den Übergang, aus), \"saeule\" die Signalsäule (status, warn). Der Knopf „Probelauf“ spielt alles sofort durch, „Ablauf abbrechen“ stoppt ihn.\n\nZuletzt geprüft: {fehler}",
+        "description": "Adresse für die App:\n{webhook_url}\n\nWeckablauf: Was rund um den Weckruf passiert, steht in der Ablaufdatei. \"zeit\" zählt in Sekunden, \"ab\" sagt wovon: \"weckruf\" (Vorgabe) ab dem Klingeln, negativ heißt vorher; \"ende\" ab dem Moment, in dem du den Weckruf beendest. Es gilt der erste Block, dessen Wochentag und Zeitfenster zur Weckzeit passen; von = bis heißt: immer. \"licht\" steuert das Hauptlicht (prozent, dauer in Sekunden für den Übergang, aus), \"saeule\" die Signalsäule (status, warn). Der Knopf „Probelauf“ spielt alles sofort durch, „Ablauf abbrechen“ stoppt ihn.\n\nZuletzt geprüft: {fehler}\n\nStrom der Säule: Die Säule hängt an einer schaltbaren Steckdose. Sie geht kurz vor dem Weckruf an und bleibt an, bis die Ausschaltzeit des Wochentags erreicht ist – dazwischen schaltet nichts. \"vorlauf\" sind Sekunden vor dem Weckruf, \"aus\" eine Liste aus Wochentagen und Uhrzeit. Leer heißt: fünf Minuten vorher an, Mo–Fr um 21:00 aus, Sa+So um 22:00. Ausgeschaltet wird nur zum Zeitpunkt selbst – war Home Assistant gerade aus, bleibt die Steckdose an, statt der Säule nachträglich den Strom zu nehmen. Eingeschaltet wird auch nachträglich.\n\nStromplan geprüft: {fehler_strom}",
         "data": {
           "hauptlicht": "Hauptlicht (dimmbare Lampe, leer = keines)",
-          "ablauf": "Ablaufdatei (JSON)"
+          "ablauf": "Ablaufdatei (JSON)",
+          "strom": "Steckdose der Säule (leer = nicht schalten)",
+          "stromplan": "Stromplan (JSON, leer = Standard)"
         }
       },
       "saeule": {
@@ -58,7 +60,8 @@
       "host_fehlt": "Bitte eine Adresse eingeben.",
       "nicht_erreichbar": "Unter dieser Adresse antwortet keine Signalsäule.",
       "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule.",
-      "ablauf_fehler": "Die Ablaufdatei ist nicht in Ordnung – siehe Beschreibung oben."
+      "ablauf_fehler": "Die Ablaufdatei ist nicht in Ordnung – siehe Beschreibung oben.",
+      "stromplan_fehler": "Der Stromplan ist nicht in Ordnung – siehe Beschreibung oben."
     }
   },
   "entity": {

@@ -27,6 +27,11 @@ STORAGE_VERSION = 1
 # Weckablauf (siehe ablauf.py): haengt am Wecker, steuert Hauptlicht und Saeule
 CONF_HAUPTLICHT = "hauptlicht"          # dimmbare light-Entitaet; leer = keines
 CONF_ABLAUF = "ablauf"                  # JSON mit Zeitbloecken; leer = Standardablauf
+
+# Strom fuer die Saeule (siehe strom.py): schaltbare Steckdose, die kurz vor
+# dem Weckruf angeht und abends wieder aus
+CONF_STROM = "strom"                    # switch-Entitaet; leer = kein Schalten
+CONF_STROMPLAN = "stromplan"            # JSON mit Vorlauf und Ausschaltzeiten
 PROTOKOLL_MAX = 40                      # so viele Schritte bleiben sichtbar
 PROBELAUF_VORLAUF_S = 60                # Probelauf: so lange bis zum "Klingeln"
 PROBELAUF_KLINGELT_S = 30               # ... und so lange, bis er "beendet" wird

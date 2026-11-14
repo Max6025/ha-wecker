@@ -5,7 +5,7 @@ import copy
 
 import pytest
 from homeassistant.const import CONF_WEBHOOK_ID
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
@@ -697,3 +697,209 @@ async def test_schlummern_raeumt_die_saeule_zurueck(
     zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
     assert zustand["laeuft"] is False
     assert [e for e in zustand["protokoll"] if e["was"] == "Schlummern"]
+
+
+# ---------------------------------------------------------------------------
+# Stromplan: die Steckdose der Saeule folgt demselben Weckplan
+# ---------------------------------------------------------------------------
+
+
+def _schaltrufe(hass: HomeAssistant, dienst: str) -> list[str]:
+    """Mitschnitt der Aufrufe von switch.<dienst> am Bus.
+
+    async_mock_service hilft hier nicht: die Integration richtet selbst die
+    Plattform "switch" ein, und deren echter Dienst ueberschreibt den Mock.
+    """
+    from homeassistant.const import EVENT_CALL_SERVICE
+    from homeassistant.core import Event
+
+    treffer: list[str] = []
+
+    @callback
+    def _mitschreiben(event: Event) -> None:
+        if event.data.get("domain") != "switch" or event.data.get("service") != dienst:
+            return
+        ziel = (event.data.get("service_data") or {}).get("entity_id")
+        treffer.append(ziel)
+
+    hass.bus.async_listen(EVENT_CALL_SERVICE, _mitschreiben)
+    return treffer
+
+
+async def test_stromplan_json_wird_geprueft() -> None:
+    """Unsinn faellt auf den Standardplan zurueck und wird gemeldet."""
+    from custom_components.ha_wecker.strom import STANDARD_STROMPLAN, stromplan_lesen
+
+    daten, fehler = stromplan_lesen("{kein json")
+    assert daten is STANDARD_STROMPLAN and "nicht lesbar" in fehler
+    daten, fehler = stromplan_lesen('{"vorlauf": 60}')
+    assert daten is STANDARD_STROMPLAN and "aus" in fehler
+    daten, fehler = stromplan_lesen('{"aus": [{"wochentage": ["mo"], "zeit": "halb neun"}]}')
+    assert daten is STANDARD_STROMPLAN and "keine Uhrzeit" in fehler
+    daten, fehler = stromplan_lesen('{"vorlauf": 120, "aus": [{"zeit": "20:15"}]}')
+    assert fehler is None and daten["vorlauf"] == 120
+
+
+async def test_ausschaltzeit_folgt_dem_wochentag() -> None:
+    """Werktags um 21 Uhr, am Wochenende um 22 - aus dem Standardplan."""
+    from datetime import datetime
+
+    from homeassistant.util import dt as dt_util
+
+    from custom_components.ha_wecker.strom import STANDARD_STROMPLAN, naechstes_aus
+
+    def ortszeit(tag: int, stunde: int) -> datetime:
+        return datetime(2026, 11, tag, stunde, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+
+    def aus(tag: int, stunde: int):
+        treffer = naechstes_aus(STANDARD_STROMPLAN, ortszeit(tag, stunde))
+        lokal = dt_util.as_local(treffer)
+        return lokal.weekday(), lokal.hour
+
+    assert aus(20, 7) == (4, 21)      # Freitag frueh -> heute um 21
+    assert aus(20, 23) == (5, 22)     # Freitag nach 21 -> Samstag um 22
+    assert aus(22, 23) == (0, 21)     # Sonntag nach 22 -> Montag um 21
+    assert aus(21, 9) == (5, 22)      # Samstag frueh -> heute um 22
+
+
+def _wochenend_payload() -> dict:
+    """Max' Fall: ein Wecker um 9 Uhr an Samstag und Sonntag."""
+    p = copy.deepcopy(PAYLOAD)
+    p["alarms"] = [
+        dict(
+            p["alarms"][0],
+            hour=9,
+            minute=0,
+            days_mask=0b1100000,
+            days_label="Sa+So",
+            next_trigger=None,
+            enabled=True,
+        )
+    ]
+    return p
+
+
+async def _berlin(hass: HomeAssistant, freezer, wann: str) -> None:
+    """Feste Zeitzone und fester Zeitpunkt - sonst haengt der Test am Kalender."""
+    await hass.config.async_set_time_zone("Europe/Berlin")
+    freezer.move_to(wann)
+
+
+async def _vorspulen(hass: HomeAssistant, freezer, wann: str) -> None:
+    """Uhr stellen und die faelligen Timer feuern."""
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    freezer.move_to(wann)
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+
+
+async def test_strom_geht_vor_dem_weckruf_an(hass: HomeAssistant, freezer) -> None:
+    """Fuenf Minuten vor dem Weckruf bekommt die Saeule Strom - Standardplan."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    # Samstag, 8 Uhr Berlin. Der Wecker steht auf 9, die Ausschaltzeit auf 22.
+    await _berlin(hass, freezer, "2026-11-21 07:00:00")
+    entry = await _setup(hass, options={"strom": "switch.dose"})
+    an = _schaltrufe(hass, "turn_on")
+    aus = _schaltrufe(hass, "turn_off")
+    hass.data[DOMAIN][entry.entry_id].async_set_payload(_wochenend_payload())
+    await hass.async_block_till_done()
+    assert not an and not aus, "eine Stunde vorher darf nichts geschaltet werden"
+
+    strom = hass.states.get("switch.ha_wecker_weckablauf").attributes["strom"]
+    assert strom["entitaet"] == "switch.dose"
+    assert strom["vorlauf_minuten"] == 5.0
+    assert strom["naechstes_an"].startswith("2026-11-21T07:55")
+    assert strom["naechstes_aus"].startswith("2026-11-21T21:00")
+
+    await _vorspulen(hass, freezer, "2026-11-21 07:55:05")
+    assert an == ["switch.dose"]
+    assert not aus
+
+    zeilen = [
+        e
+        for e in hass.states.get("switch.ha_wecker_weckablauf").attributes["protokoll"]
+        if e["was"].startswith("Strom")
+    ]
+    assert zeilen and zeilen[0]["ergebnis"] == "ok"
+    assert "vor dem Weckruf" in zeilen[0]["text"]
+
+
+async def test_strom_geht_zur_ausschaltzeit_aus(hass: HomeAssistant, freezer) -> None:
+    """Am Wochenende um 22 Uhr geht die Steckdose aus, danach gilt der Folgetag.
+
+    Zugleich der Nachholfall: steht das Ausschalten vor dem naechsten
+    Einschalten, laeuft eine An-Phase - beim Start wird eingeschaltet.
+    """
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    # Samstag, 11 Uhr Berlin: der Weckruf ist durch, aus kommt um 22 Uhr
+    await _berlin(hass, freezer, "2026-11-21 10:00:00")
+    entry = await _setup(hass, options={"strom": "switch.dose"})
+    an = _schaltrufe(hass, "turn_on")
+    aus = _schaltrufe(hass, "turn_off")
+    hass.data[DOMAIN][entry.entry_id].async_set_payload(_wochenend_payload())
+    await hass.async_block_till_done()
+
+    assert an == ["switch.dose"]
+    zeilen = [
+        e["text"]
+        for e in hass.states.get("switch.ha_wecker_weckablauf").attributes["protokoll"]
+        if e["was"].startswith("Strom")
+    ]
+    assert "nachgeholt" in zeilen[0]
+
+    await _vorspulen(hass, freezer, "2026-11-21 21:00:05")
+    assert aus == ["switch.dose"]
+
+    # Danach steht der Sonntag an: erst 8:55 an, dann 22 Uhr aus
+    strom = hass.states.get("switch.ha_wecker_weckablauf").attributes["strom"]
+    assert strom["naechstes_an"].startswith("2026-11-22T07:55")
+    assert strom["naechstes_aus"].startswith("2026-11-22T21:00")
+
+
+async def test_strom_wird_nicht_nachtraeglich_ausgeschaltet(
+    hass: HomeAssistant, freezer
+) -> None:
+    """Eine verpasste Ausschaltzeit wird nicht nachgeholt - sonst stirbt die Saeule."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    # Samstag, 23 Uhr Berlin: 22 Uhr ist vorbei, Home Assistant war gerade aus
+    await _berlin(hass, freezer, "2026-11-21 22:00:00")
+    entry = await _setup(hass, options={"strom": "switch.dose"})
+    aus = _schaltrufe(hass, "turn_off")
+    hass.states.async_set("switch.dose", "on")
+    hass.data[DOMAIN][entry.entry_id].async_set_payload(_wochenend_payload())
+    await hass.async_block_till_done()
+    assert not aus
+
+
+async def test_probelauf_schaltet_den_strom_ein(hass: HomeAssistant) -> None:
+    """Ohne Strom antwortet die Saeule nicht - der Probelauf sorgt dafuer."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    async_mock_service(hass, "light", "turn_on")
+    await _setup(hass, options={"strom": "switch.dose", "hauptlicht": "light.decke"})
+    an = _schaltrufe(hass, "turn_on")
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.ha_wecker_probelauf"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert an == ["switch.dose"]
+
+
+async def test_ohne_steckdose_schaltet_nichts(hass: HomeAssistant, freezer) -> None:
+    """Ist keine Entitaet eingestellt, bleibt der Stromplan still."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    await _berlin(hass, freezer, "2026-11-21 07:50:00")
+    entry = await _setup(hass)
+    an = _schaltrufe(hass, "turn_on")
+    hass.data[DOMAIN][entry.entry_id].async_set_payload(_wochenend_payload())
+    await hass.async_block_till_done()
+    assert not an
+    strom = hass.states.get("switch.ha_wecker_weckablauf").attributes["strom"]
+    assert strom["entitaet"] == "nicht eingestellt"
