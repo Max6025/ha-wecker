@@ -29,3 +29,6 @@ CONF_HAUPTLICHT = "hauptlicht"          # dimmbare light-Entitaet; leer = keines
 CONF_ABLAUF = "ablauf"                  # JSON mit Zeitbloecken; leer = Standardablauf
 PROTOKOLL_MAX = 40                      # so viele Schritte bleiben sichtbar
 PROBELAUF_VORLAUF_S = 60                # Probelauf: so lange bis zum "Klingeln"
+PROBELAUF_KLINGELT_S = 30               # ... und so lange, bis er "beendet" wird
+ABLAUF_MAX_S = 7200                     # Sicherheitsnetz: so lange wartet ein
+                                        # Lauf hoechstens auf das Beenden

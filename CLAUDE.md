@@ -96,6 +96,13 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   genau dann an, wenn die App "ringing" auf false setzt - nicht nach Uhrzeit.
   Der Probelauf simuliert das Beenden nach 30 s, sonst liefe die zweite
   Haelfte nie an.
+- **Jeder Lauf braucht ein Ende.** Nach dem letzten Schritt setzt `_fertig()`
+  `laeuft` und `probelauf` zurueck und plant gleich den naechsten Vorlauf.
+  Ohne das blieb `laeuft` stehen: kein Vorlauf mehr, und waehrend `probelauf`
+  stand, wurden echte Weckrufe stillschweigend ignoriert. `_fertig()` raeumt
+  bewusst keine Timer ab - werden mehrere Zeitpunkte gleichzeitig faellig, ist
+  die Reihenfolge nicht garantiert und der letzte Schritt fiele aus.
+  Kommt nie ein Beenden (App stumm), greift `ABLAUF_MAX_S`.
 - **Die naechste Weckzeit wird selbst gerechnet**, aus `hour`, `minute`,
   `days_mask` und `skip_next` der App-Nutzlast (`_termin_rechnen`).
   `next_trigger` ist nur Rueckfallebene: die App meldet sich nur bei

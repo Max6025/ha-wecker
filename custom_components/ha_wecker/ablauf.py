@@ -42,6 +42,7 @@ from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ABLAUF_MAX_S,
     CONF_ABLAUF,
     CONF_HAUPTLICHT,
     DOMAIN,
@@ -366,6 +367,7 @@ class Weckablauf:
         self.laeuft = True
         jetzt = dt_util.utcnow()
         geplant = 0
+        letzter: datetime | None = None
         for schritt in block.get("schritte", []):
             if bezug(schritt) != art:
                 continue
@@ -383,6 +385,19 @@ class Weckablauf:
                 async_track_point_in_utc_time(self.hass, self._faellig(schritt), faellig)
             )
             geplant += 1
+            if letzter is None or faellig > letzter:
+                letzter = faellig
+        # Wann ist der Lauf vorbei? Nach dem Nachlauf steht das fest: mit dem
+        # letzten Schritt. Beim Weckruf-Teil wartet er auf das Beenden - kommt
+        # das nie (App stumm, Handy aus), greift das Sicherheitsnetz, sonst
+        # bliebe "laeuft" fuer immer stehen und kein Vorlauf mehr geplant.
+        ende = (letzter + timedelta(seconds=1)) if art == AB_ENDE and letzter else None
+        if art == AB_WECKRUF:
+            ende = nullpunkt + timedelta(seconds=ABLAUF_MAX_S)
+        if ende is not None:
+            self._timer.append(
+                async_track_point_in_utc_time(self.hass, self._fertig, ende)
+            )
         woher = "ab dem Weckruf" if art == AB_WECKRUF else "ab dem Beenden"
         self._notiz(
             "Geplant",
@@ -390,6 +405,22 @@ class Weckablauf:
             f"{dt_util.as_local(nullpunkt):%H:%M:%S}",
             "ok",
         )
+
+    @callback
+    def _fertig(self, _jetzt: datetime) -> None:
+        """Lauf zu Ende: wieder frei fuer den naechsten Weckruf.
+
+        Hier wird bewusst nicht aufgeraeumt: werden mehrere Zeitpunkte auf
+        einmal faellig, ist die Reihenfolge nicht garantiert, und ein
+        Wegraeumen wuerde den letzten Schritt verschlucken.
+        """
+        war_probe = self.probelauf
+        self.laeuft = self.probelauf = False
+        self.beendet_um = None
+        self._notiz("Fertig", "Probelauf beendet" if war_probe else "Ablauf beendet", "ok")
+        # Gleich den naechsten Vorlauf planen, sonst wartet er auf die naechste
+        # Meldung der App - und die kommt vielleicht erst beim Klingeln.
+        self._wecker_geaendert()
 
     def _faellig(self, schritt: dict[str, Any]):
         @callback

@@ -631,3 +631,36 @@ async def test_beenden_des_weckrufs_startet_den_nachlauf(
     assert zustand["beendet_um"] is not None
     geplant = [e for e in zustand["protokoll"] if e["was"] == "Geplant"]
     assert "ab dem Beenden" in geplant[0]["text"]
+
+
+async def test_nach_dem_ablauf_wieder_frei(hass: HomeAssistant) -> None:
+    """Nach dem letzten Schritt ist der Ablauf wieder aufnahmebereit.
+
+    Vorher blieb "laeuft" stehen und "probelauf" dazu - danach wurde kein
+    Vorlauf mehr geplant und echte Weckrufe wurden stillschweigend ignoriert.
+    """
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed, async_mock_service
+
+    async_mock_service(hass, "light", "turn_on")
+    async_mock_service(hass, "light", "turn_off")
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+
+    start = dt_util.utcnow()
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.ha_wecker_probelauf"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, start + timedelta(seconds=91))
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.ha_wecker_weckablauf").attributes["probelauf"] is True
+
+    # Nach dem letzten Schritt (acht Minuten nach dem Beenden) ist Schluss
+    async_fire_time_changed(hass, start + timedelta(seconds=91 + 482))
+    await hass.async_block_till_done()
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert zustand["probelauf"] is False and zustand["laeuft"] is False
+    assert zustand["beendet_um"] is None
+    assert [e for e in zustand["protokoll"] if e["was"] == "Fertig"]
