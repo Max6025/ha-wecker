@@ -150,8 +150,8 @@ static bool inRuhephase() { return wechselAktiv && !imWechsel(); }
 
 static void sseSenden();   // vorab
 
-static void statusSetzen(Status neu, bool ansage = true) {
-  if (neu == status && ansage) return;
+static void statusSetzen(Status neu, bool ansage = true, bool erzwingen = false) {
+  if (neu == status && ansage && !erzwingen) return;
   pfeilHoch = (neu >= status);
   abbauFolgeBauen(modusStufe(neu));
   status = neu;
@@ -275,8 +275,10 @@ static void diagnoseSchritt() {
     if (seit < 400) return;
     int pegel = digitalRead(LEUCHTEN[i].pin);
     bool ok = !diagRueckmeldung || pegel == HIGH;
-    snprintf(zeile, sizeof(zeile), diagRueckmeldung ? "Pin D%u liest %d" : "Pin D%u gesetzt",
-             LEUCHTEN[i].pin, pegel);
+    if (diagRueckmeldung)
+      snprintf(zeile, sizeof(zeile), "Pin D%u liest %d", LEUCHTEN[i].pin, pegel);
+    else
+      snprintf(zeile, sizeof(zeile), "Pin D%u gesetzt", LEUCHTEN[i].pin);
     diagEintrag(LEUCHTEN[i].name, ok ? 1 : 0, zeile);
     setzen(i, false);
     diagSchritt++;
@@ -799,9 +801,14 @@ static void httpBedienen() {
     if (m == "auto" || m == "manuell") {
       bool neu = (m == "auto");
       if (neu != autoModus) {
-        autoModus = neu;
-        if (neu) statusSetzen(status, false);
-        else for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
+        if (neu) {
+          autoModus = true;
+          statusSetzen(status, true, true);     // Status noch einmal ansagen
+        } else {
+          // das laufende Bild einfrieren: sollAn() noch in Auto auswerten
+          for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
+          autoModus = false;
+        }
         bildSteht = false;
         geaendert = true;
       }
@@ -817,9 +824,10 @@ static void httpBedienen() {
       sendeJson(c, 400, "{\"ok\":false,\"fehler\":\"status\"}");
     } else {
       // Einen Status zu waehlen heisst, die Saeule soll ihn fahren
+      bool warManuell = !autoModus || testAn;
       autoModus = true;
       testAn = false;
-      statusSetzen((Status)gefunden);
+      statusSetzen((Status)gefunden, true, warManuell);
       geaendert = true;
       sendeJson(c, 200, stateJson());
     }

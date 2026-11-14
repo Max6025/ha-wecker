@@ -22,7 +22,8 @@ h1{font-size:20px;margin:0}
 .punkt{width:9px;height:9px;border-radius:50%;background:#444;display:inline-block}
 .punkt.ok{background:var(--gruen);box-shadow:0 0 8px var(--gruen)}
 .gitter{display:grid;grid-template-columns:200px 1fr;gap:16px;margin-top:16px;align-items:start}
-@media(max-width:620px){.gitter{grid-template-columns:1fr}}
+@media(max-width:620px){.gitter{grid-template-columns:1fr}
+  .saeulekarte svg{height:210px;width:auto}}   /* am Handy nicht den halben Schirm */
 .karte{background:var(--karte);border:1px solid var(--rand);border-radius:14px;padding:14px}
 .karte h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;
   color:var(--matt);margin:0 0 10px;font-weight:600}
@@ -192,15 +193,14 @@ function voll() {
   if (!bereit || (z.status_liste || []).length !== E('status').options.length) bauen();
   E('pkt').classList.add('ok');
   E('kopfinfo').textContent = 'Version ' + z.version + ' · ' + z.ip;
-  const d = z.diagnose || {}, t = E('diagtab');
-  t.innerHTML = '';
-  (d.punkte || []).forEach(p => {
+  const d = z.diagnose || {};
+  // in einem Stueck setzen, sonst baut der Browser je Zeile ein eigenes tbody
+  E('diagtab').innerHTML = (d.punkte || []).map(p => {
     const zeichen = p.ok === 1 ? '✓' : (p.ok === 0 ? '✕' : 'i');
     const kl = p.ok === 1 ? 'ok' : (p.ok === 0 ? 'fehl' : 'info');
-    t.insertAdjacentHTML('beforeend',
-      '<tr><td class="z ' + kl + '">' + zeichen + '</td><td class="n">' + p.name +
-      '</td><td class="matt">' + p.text + '</td></tr>');
-  });
+    return '<tr><td class="z ' + kl + '">' + zeichen + '</td><td class="n">' + p.name +
+           '</td><td class="matt">' + p.text + '</td></tr>';
+  }).join('');
   const u = z.usb || {};
   const usbtext = !u.spannung ? 'kein USB' : (!u.rechner ? 'nur Spannung'
     : (u.monitor ? 'Rechner, Port offen' : 'Rechner angesteckt'));
@@ -243,7 +243,8 @@ function anwenden(l) {
              g.style.filter = live[i] ? 'drop-shadow(0 0 14px ' + farbe(r.nr) + ')' : 'none'; }
     if (b) b.classList.toggle('an', !!soll[i]);
   });
-  E('saeuleinfo').textContent = auto ? (z.status_name || '') : 'Manuell';
+  E('saeuleinfo').textContent =
+    l.test ? 'Testmodus' : (auto ? (z.status_name || '') : 'Manuell');
 }
 function farbe(nr) {
   return {1:'#35d07f',2:'#ff9f1c',3:'#ff4d4d',4:'#dbe6ef',5:'#ffe066'}[nr] || '#fff';
