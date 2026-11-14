@@ -53,6 +53,7 @@
 #include "Arduino_LED_Matrix.h"
 #include <WiFiS3.h>
 #include <Preferences.h>
+#include "FspTimer.h"
 #include "arduino_secrets.h"
 #include "seite.h"
 
@@ -82,6 +83,12 @@ struct DiagPunkt {
 };
 
 enum Phase { PH_START, PH_WLAN, PH_BETRIEB };
+
+// Die Betriebsphase liest auch die Zeitgeber-Unterbrechung, darum steht sie
+// hier oben bei den uebrigen Grundgroessen.
+static Phase phase = PH_START;
+static uint32_t schleifeBegann = 0;
+static uint16_t schleifeMax = 0;        // laengster Schleifendurchlauf in ms
 
 ArduinoLEDMatrix matrix;
 WiFiServer server(80);
@@ -395,45 +402,12 @@ static void lampenStellen() {
 
 // -------------------------------------------------------------- LED-Matrix
 
-static void matrixText(const char* text) {
-  matrix.beginDraw();
-  matrix.stroke(0xFFFFFFFF);
-  matrix.textFont(Font_5x7);
-  matrix.beginText(4, 1, 0xFFFFFF);
-  matrix.println(text);
-  matrix.endText();
-  matrix.endDraw();
-}
+// Die Matrix zeigt die Saeule im Kleinen: vier Balken von unten nach oben,
+// genau die, die gerade brennen. Blinkt die Hinweisleuchte, blinkt der oberste
+// Balken mit; die Blitz-Warnleuchte legt zwei Striche an die Seiten.
+// Buchstaben auf zwoelf mal acht Punkten waren nicht zu entziffern, ein
+// Abbild der Saeule schon - und es sagt mehr.
 
-static void matrixLeeren() {
-  matrix.beginDraw();
-  matrix.clear();
-  matrix.endDraw();
-}
-
-static void matrixVoll() {
-  matrix.beginDraw();
-  matrix.clear();
-  matrix.noStroke();
-  matrix.fill(0xFFFFFF);
-  matrix.rect(0, 0, 12, 8);
-  matrix.endDraw();
-}
-
-static void pfeilZeichnen(bool hoch) {
-  matrix.beginDraw();
-  matrix.clear();
-  matrix.stroke(0xFFFFFFFF);
-  matrix.noFill();
-  matrix.line(6, 0, 6, 7);
-  if (hoch) { matrix.line(6, 0, 3, 3); matrix.line(6, 0, 9, 3); }
-  else      { matrix.line(6, 7, 3, 4); matrix.line(6, 7, 9, 4); }
-  matrix.endDraw();
-}
-
-// Die Matrix hat 12x8 Punkte - fuer die Adresse reicht das letzte Glied.
-// (Laufschrift braucht in dieser Bibliothek einen Animationspuffer, das waere
-// fuer zwei Zahlen zu viel Aufwand.)
 static void matrixZahl(const char* text) {
   matrix.beginDraw();
   matrix.clear();
@@ -445,16 +419,96 @@ static void matrixZahl(const char* text) {
   matrix.endDraw();
 }
 
-static void zustandsbildZeichnen() {
-  if (!autoModus) { matrixText("M"); return; }
-  switch (status) {
-    case RUHE:     matrixLeeren();  break;
-    case HINWEIS:  matrixText("i"); break;
-    case ACHTUNG:  matrixText("!"); break;
-    case STOERUNG: matrixText("X"); break;
-    case ALARM:    matrixVoll();    break;
-    default: break;
+// Letztes Glied der Adresse, Ziffer fuer Ziffer - drei Stellen passen nicht
+// nebeneinander auf zwoelf Punkte, nacheinander sind sie gut lesbar.
+static void matrixAdresse(uint8_t letztes) {
+  char ziffern[4];
+  snprintf(ziffern, sizeof(ziffern), "%u", (unsigned)letztes);
+  for (uint8_t runde = 0; runde < 2; runde++) {
+    for (char* z = ziffern; *z; z++) {
+      char eine[2] = {*z, 0};
+      matrixZahl(eine);
+      delay(600);
+    }
+    matrix.beginDraw(); matrix.clear(); matrix.endDraw();
+    delay(250);
   }
+}
+
+static uint8_t matrixBild = 0xFF;      // Signatur des zuletzt gezeichneten Bildes
+
+static void matrixSpiegeln() {
+  uint8_t sig = 0;
+  for (uint8_t i = 0; i < ANZAHL; i++) if (istAn[i]) sig |= (uint8_t)(1 << i);
+  if (sig == matrixBild) return;       // nur zeichnen, wenn sich etwas aendert
+  matrixBild = sig;
+
+  static const uint8_t ZEILE[STUFEN] = {7, 5, 3, 1};   // Stufe 1 unten
+  matrix.beginDraw();
+  matrix.clear();
+  matrix.noStroke();
+  matrix.fill(0xFFFFFF);
+  for (uint8_t s = 0; s < STUFEN; s++)
+    if (istAn[s]) matrix.rect(3, ZEILE[s], 6, 1);
+  if (istAn[IDX_WARN]) {
+    matrix.rect(0, 0, 1, 8);
+    matrix.rect(11, 0, 1, 8);
+  }
+  matrix.endDraw();
+}
+
+// Ein Takt fuer die Schleife: Alarmkopplung und Matrix. Die Leuchten selbst
+// stellt der Zeitgeber unten, nicht die Schleife.
+static void takten() {
+  alarmWarnPflegen();
+  matrixSpiegeln();
+}
+
+// --------------------------------------------------------- Taktgeber (GPT)
+//
+// Das Blinken darf nicht davon abhaengen, was das Netz gerade tut. Beim
+// UNO R4 WiFi laeuft jede Socket-Operation ueber eine Uebertragung an den
+// ESP32-S3, der das WLAN macht - eine einzelne Anfrage haelt die Schleife
+// dadurch leicht 200 ms auf, und genau so sah das Blinken auch aus.
+// Darum stellt ein Hardware-Zeitgeber die Ausgaenge hundert Mal je Sekunde,
+// voellig unabhaengig von loop(). In der Unterbrechung wird nur geschaltet:
+// keine Strings, keine Matrix, kein Netz.
+
+FspTimer taktgeber;
+
+// Abstand zweier Takte: soll 10 000 us sein. Der groesste Abstand seit der
+// letzten Abfrage sagt, ob das Licht wirklich unabhaengig vom Netz laeuft.
+static volatile uint32_t taktLetzter = 0;
+static volatile uint32_t taktMaxUs = 0;
+static volatile uint32_t taktZaehler = 0;
+
+static void taktISR(timer_callback_args_t*) {
+  uint32_t jetzt = micros();
+  if (taktLetzter) {
+    uint32_t ab = jetzt - taktLetzter;
+    if (ab > taktMaxUs) taktMaxUs = ab;
+  }
+  taktLetzter = jetzt;
+  taktZaehler++;
+
+  if (phase != PH_BETRIEB) return;     // Startablauf stellt selbst
+  if (diagLaeuft()) return;            // die Diagnose auch
+  lampenStellen();
+}
+
+static bool taktgeberStarten() {
+  uint8_t typ;
+  int8_t kanal = FspTimer::get_available_timer(typ);
+  if (kanal < 0) {
+    FspTimer::force_use_of_pwm_reserved_timer();
+    kanal = FspTimer::get_available_timer(typ, true);
+  }
+  if (kanal < 0) return false;
+  if (!taktgeber.begin(TIMER_MODE_PERIODIC, typ, (uint8_t)kanal, 100.0f, 0.0f, taktISR, nullptr))
+    return false;
+  if (!taktgeber.setup_overflow_irq()) return false;
+  if (!taktgeber.open()) return false;
+  return taktgeber.start();
 }
 
 // ------------------------------------------------------- Gedaechtnis (Flash)
@@ -503,7 +557,6 @@ static void gedaechtnisLaden() {
 // wieder aus. Danach zeigt die Matrix Version und Adresse, und die Saeule
 // nimmt den Status wieder auf, der vor dem Stromausfall stand.
 
-static Phase phase = PH_START;
 static unsigned long startSeit = 0;
 
 static const unsigned long ST_AUF_MS   = 300;                 // je Stufe dazu
@@ -607,6 +660,11 @@ static String stateJson() {
   s += ",\"uptime_s\":" + String(millis() / 1000);
   s += ",\"events_port\":" + String(SSE_PORT);
   s += ",\"ram_frei\":" + String(freierRam());
+  s += ",\"schleife_max_ms\":" + String(schleifeMax);
+  s += ",\"takt_max_us\":" + String(taktMaxUs);
+  s += ",\"takte\":" + String(taktZaehler);
+  schleifeMax = 0;                      // nach dem Ablesen neu messen
+  taktMaxUs = 0;
   s += ",\"phase\":\"" + String(phase == PH_BETRIEB ? "betrieb" : "start") + "\"";
   s += ",\"modus\":\"" + String(autoModus ? "auto" : "manuell") + "\"";
   s += ",\"status\":\"" + String(STATUS_ID[status]) + "\"";
@@ -692,7 +750,7 @@ static String liveJson() {
 static const uint8_t SSE_MAX = 3;
 static WiFiClient sseKlienten[SSE_MAX];
 static unsigned long sseLeben = 0;
-static String letzteSignatur;
+static uint32_t letzteSignatur = 0xFFFFFFFFu;
 
 static void sseSenden() {
   String daten = "data: " + stateJson() + "\n\n";
@@ -703,35 +761,42 @@ static void sseSenden() {
 }
 
 // Nur der logische Zustand loest einen Push aus - das Blinken selbst nicht,
-// sonst flattert Home Assistant im Sekundentakt.
-static String signatur() {
-  String s;
-  s += autoModus ? "A" : "M";
-  s += String((int)status);
-  s += warnAn ? "W" : "-";
-  s += warnVomAlarm ? "A" : "-";
-  s += testAn ? "T" : "-";
-  s += diagLaeuft() ? "D" : (diagFertig ? "F" : "-");
-  s += phase == PH_BETRIEB ? "B" : "S";
-  for (uint8_t i = 0; i < ANZAHL; i++) s += sollAn(i) ? "1" : "0";
+// sonst flattert Home Assistant im Sekundentakt. Als Zahl, nicht als String:
+// die Signatur wird in jedem Schleifendurchlauf gebildet, und ein String waere
+// dafuer hundert Mal in der Sekunde eine Speicheranforderung.
+static uint32_t signatur() {
+  uint32_t s = 0;
+  s = (s << 1) | (autoModus ? 1u : 0u);
+  s = (s << 3) | (uint32_t)status;
+  s = (s << 1) | (warnAn ? 1u : 0u);
+  s = (s << 1) | (warnVomAlarm ? 1u : 0u);
+  s = (s << 1) | (testAn ? 1u : 0u);
+  s = (s << 1) | (diagLaeuft() ? 1u : 0u);
+  s = (s << 1) | (diagFertig ? 1u : 0u);
+  s = (s << 1) | (phase == PH_BETRIEB ? 1u : 0u);
+  for (uint8_t i = 0; i < ANZAHL; i++) s = (s << 1) | (sollAn(i) ? 1u : 0u);
   return s;
 }
 
 static void sseAnnehmen() {
   WiFiClient neu = sseServer.available();
   if (!neu) return;
+  neu.setTimeout(40);
   while (neu.available()) {
     String zeile = neu.readStringUntil('\n');
     if (zeile.length() <= 1) break;          // Ende der Kopfzeilen
   }
-  neu.println("HTTP/1.1 200 OK");
-  neu.println("Content-Type: text/event-stream");
-  neu.println("Cache-Control: no-store");
-  neu.println("Access-Control-Allow-Origin: *");
-  neu.println("Connection: keep-alive");
-  neu.println("retry: 3000");
-  neu.println();
-  neu.print("data: " + stateJson() + "\n\n");
+  String antwort =
+      "HTTP/1.1 200 OK\r\n"
+      "Content-Type: text/event-stream\r\n"
+      "Cache-Control: no-store\r\n"
+      "Access-Control-Allow-Origin: *\r\n"
+      "Connection: keep-alive\r\n\r\n"
+      "retry: 3000\n\n"
+      "data: ";
+  antwort += stateJson();
+  antwort += "\n\n";
+  neu.write((const uint8_t*)antwort.c_str(), antwort.length());
 
   for (uint8_t i = 0; i < SSE_MAX; i++) {
     if (!sseKlienten[i] || !sseKlienten[i].connected()) {
@@ -744,8 +809,14 @@ static void sseAnnehmen() {
 }
 
 static void ssePflegen() {
-  sseAnnehmen();
-  String jetzt = signatur();
+  // Nicht in jedem Durchlauf nach neuen Klienten fragen: auch das ist jedes
+  // Mal eine Uebertragung an den WLAN-Baustein.
+  static uint32_t letzteAnnahme = 0;
+  if (millis() - letzteAnnahme > 250) {
+    letzteAnnahme = millis();
+    sseAnnehmen();
+  }
+  uint32_t jetzt = signatur();
   if (jetzt != letzteSignatur) {
     letzteSignatur = jetzt;
     sseSenden();
@@ -775,35 +846,44 @@ static bool wahr(const String& v) {
   return v == "1" || v.equalsIgnoreCase("true") || v.equalsIgnoreCase("on") || v.equalsIgnoreCase("an");
 }
 
-static void sendeKopf(WiFiClient& c, int code, const char* typ, long laenge) {
-  c.print("HTTP/1.1 ");
-  c.print(code);
-  c.println(code == 200 ? " OK" : (code == 404 ? " Not Found" : " Bad Request"));
-  c.print("Content-Type: ");
-  c.println(typ);
+// Jede einzelne Schreiboperation auf einen WiFiClient ist beim UNO R4 eine
+// eigene Uebertragung an den WLAN-Baustein. Sechs println fuer den Kopf haben
+// die Schleife rund 150 ms gekostet und das Blinken sichtbar stolpern lassen.
+// Darum wird alles vorher zusammengebaut und in einem Stueck geschrieben.
+static String kopfBauen(int code, const char* typ, long laenge) {
+  String k;
+  k.reserve(180);
+  k += "HTTP/1.1 ";
+  k += code;
+  k += (code == 200 ? " OK" : (code == 404 ? " Not Found" : " Bad Request"));
+  k += "\r\nContent-Type: ";
+  k += typ;
   if (laenge >= 0) {
-    c.print("Content-Length: ");
-    c.println(laenge);
+    k += "\r\nContent-Length: ";
+    k += laenge;
   }
-  c.println("Cache-Control: no-store");
-  c.println("Access-Control-Allow-Origin: *");
-  c.println("Connection: close");
-  c.println();
+  k += "\r\nCache-Control: no-store";
+  k += "\r\nAccess-Control-Allow-Origin: *";
+  k += "\r\nConnection: close\r\n\r\n";
+  return k;
 }
 
 static void sendeJson(WiFiClient& c, int code, const String& body) {
-  sendeKopf(c, code, "application/json; charset=utf-8", body.length());
-  c.print(body);
+  String alles = kopfBauen(code, "application/json; charset=utf-8", body.length());
+  alles += body;
+  c.write((const uint8_t*)alles.c_str(), alles.length());
 }
 
 static void sendeSeite(WiFiClient& c) {
   size_t laenge = strlen(SEITE);
-  sendeKopf(c, 200, "text/html; charset=utf-8", (long)laenge);
-  const size_t HAPPEN = 512;
+  String kopf = kopfBauen(200, "text/html; charset=utf-8", (long)laenge);
+  c.write((const uint8_t*)kopf.c_str(), kopf.length());
+  const size_t HAPPEN = 1460;        // eine TCP-Nutzlast je Schreibvorgang
   for (size_t p = 0; p < laenge; p += HAPPEN) {
     size_t n = laenge - p;
     if (n > HAPPEN) n = HAPPEN;
     c.write((const uint8_t*)(SEITE + p), n);
+    takten();          // zwoelf Kilobyte dauern - das Blinken laeuft weiter
   }
 }
 
@@ -811,11 +891,17 @@ static void httpBedienen() {
   WiFiClient c = server.available();
   if (!c) return;
 
+  // Kurze Frist: ohne sie wartet readStringUntil bis zu einer vollen Sekunde
+  // auf einen Klienten, der nichts mehr schickt - und so lange stuende das
+  // Blinken still.
+  c.setTimeout(40);
   String zeile1 = c.readStringUntil('\n');
+  takten();
   while (c.available()) {                      // Kopfzeilen verwerfen
     String z = c.readStringUntil('\n');
     if (z.length() <= 1) break;
   }
+  takten();
   zeile1.trim();
   int l1 = zeile1.indexOf(' ');
   int l2 = zeile1.indexOf(' ', l1 + 1);
@@ -941,6 +1027,8 @@ void setup() {
   matrix.begin();
   gedaechtnisLaden();            // Status von vor dem Stromausfall
 
+  if (!taktgeberStarten()) Serial.println("Taktgeber laesst sich nicht starten");
+
   phase = PH_START;
   startSeit = millis();
   statusSeit = millis();
@@ -948,6 +1036,8 @@ void setup() {
 }
 
 void loop() {
+  schleifeBegann = millis();
+
   if (phase == PH_START) {
     startStellen();
     if (millis() - startSeit >= ST_ENDE) {
@@ -960,16 +1050,11 @@ void loop() {
   if (phase == PH_WLAN) {
     wlanVerbinden();
     // Startbild: das letzte Glied der Adresse, damit man sie am Geraet sieht
-    if (WiFi.status() == WL_CONNECTED) {
-      matrixZahl(String(WiFi.localIP()[3]).c_str());
-    } else {
-      matrixZahl("--");
-    }
-    delay(2000);
+    if (WiFi.status() == WL_CONNECTED) matrixAdresse(WiFi.localIP()[3]);
+    else                               matrixZahl("--");
     // Jetzt den Status wieder aufnehmen, der vor dem Stromausfall stand
     phase = PH_BETRIEB;
-    bildSteht = false;
-    pfeilSteht = false;
+    matrixBild = 0xFF;
     statusSetzen(status, true);
     merkenJetzt();
     return;
@@ -988,18 +1073,15 @@ void loop() {
 
   if (diagLaeuft()) {
     diagnoseSchritt();
+    matrixSpiegeln();
   } else {
-    if (imWechsel()) {
-      if (!pfeilSteht) { pfeilZeichnen(pfeilHoch); pfeilSteht = true; }
-    } else if (!bildSteht) {
-      zustandsbildZeichnen();
-      bildSteht = true;
-    }
     if (wechselAktiv && wechselZeit() >= wechselDauer() + RUHE_MS) wechselAktiv = false;
+    takten();           // Alarmkopplung und Matrix; die Leuchten macht der Zeitgeber
   }
 
-  alarmWarnPflegen();
-  lampenStellen();
-
   if (merkenFaellig && millis() >= merkenFaellig) merkenJetzt();
+
+  // laengster Durchlauf seit der letzten Abfrage - zeigt, ob etwas bremst
+  uint32_t dauer = millis() - schleifeBegann;
+  if (dauer > schleifeMax) schleifeMax = (uint16_t)dauer;
 }

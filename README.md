@@ -489,19 +489,35 @@ den Stand, den sie vorher von Hand hatte; wer sie waehrend des Alarms selbst
 schaltet, nimmt sie dem Alarm ab. In `/api/state` sagt `warn_vom_alarm`, wer
 sie gerade in der Hand hat.
 
+**Das Licht haengt nicht an der Schleife.** Beim UNO R4 WiFi laeuft jede
+Socket-Operation ueber eine Uebertragung an den ESP32-S3, der das WLAN macht.
+Eine einzelne Anfrage haelt `loop()` dadurch leicht 200 ms auf, das Ausliefern
+der ganzen Seite ueber eine Sekunde - und genau so sah das Blinken auch aus:
+Wackler, Aussetzer, mal zu langsam. Darum stellt ein **Hardware-Zeitgeber**
+(GPT, 100 Hz) die Ausgaenge, voellig unabhaengig von `loop()`. In der
+Unterbrechung wird nur geschaltet: keine Strings, keine Matrix, kein Netz.
+Gemessen auf dem Geraet: der Taktabstand bleibt bei 10 003 us (Soll 10 000),
+auch waehrend die Schleife 1,5 s mit einer Seite beschaeftigt ist.
+
+**Die LED-Matrix zeigt die Saeule im Kleinen**: vier Balken von unten nach
+oben, genau die, die gerade brennen, und bei eingeschalteter Blitzleuchte zwei
+Striche an den Seiten. Das Blinken laeuft mit. Buchstaben waren auf zwoelf mal
+acht Punkten nicht zu entziffern, ein Abbild schon - und es sagt mehr.
+
 **Nach dem Einschalten** laeuft die Saeule einmal sichtbar durch (von unten
 nach oben dazu, alle zusammen mit einem Blitz, von oben nach unten wieder aus,
-etwa 2,7 Sekunden), zeigt dann das letzte Glied ihrer IP-Adresse auf der
-LED-Matrix und nimmt danach genau den Status wieder auf, der vor dem
-Stromausfall stand. Status, Betriebsart und Warnleuchte liegen dafuer im
+etwa 2,7 Sekunden), zeigt dann das letzte Glied ihrer IP-Adresse Ziffer fuer
+Ziffer auf der LED-Matrix und nimmt danach genau den Status wieder auf, der vor
+dem Stromausfall stand. Status, Betriebsart und Warnleuchte liegen dafuer im
 Daten-Flash des RA4M1 (`Preferences`); geschrieben wird verzoegert und nur bei
 echter Aenderung.
 
 **Dashboard.** Unter `http://<adresse>/` liefert die Saeule ihre eigene Seite:
 eine gezeichnete Signalsaeule, die live mitleuchtet (auch das Blinken),
-Umschalter Auto/Manuell, das Status-Auswahlfeld, Schalter fuer jede Leuchte und
-die Warnleuchte, Testmodus, Selbstdiagnose mit Ergebnisliste und die Werte des
-Geraets. Die Seite liegt im Flash des Arduino, es braucht keinen Server.
+Umschalter Auto/Manuell, Testmodus, Selbstdiagnose mit Ergebnisliste und die
+Werte des Geraets. Was gerade nichts tut, wird ausgeblendet: in **Auto** steht
+das Status-Auswahlfeld da und die Einzelschalter sind weg, in **Manuell**
+umgekehrt. Die Blitz-Warnleuchte hat ihren Schalter in beiden Betriebsarten. Die Seite liegt im Flash des Arduino, es braucht keinen Server.
 
 **Selbstdiagnose.** Sie prueft, was der Arduino selbst wissen kann: WLAN
 (Verbindung, Feldstaerke, Adresse), Geraet und Firmware, ob `digitalRead` einem

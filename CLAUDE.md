@@ -47,6 +47,17 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   gerichtet wird das in der Tabelle `LEUCHTEN`, nie am Draht.
   Die Nummern in `/api/state` (1-4 Stufen, 5 Warnleuchte) nie umsortieren, die
   HA-Entitaeten haengen daran. Stromlaufplan: `SIG-R4-E`.
+- **Saeule: die Ausgaenge stellt der Zeitgeber, nicht `loop()`.** Ein GPT
+  laeuft mit 100 Hz und ruft `lampenStellen()` aus der Unterbrechung. Grund:
+  jede Socket-Operation geht beim R4 WiFi ueber den ESP32-S3, eine Anfrage
+  haelt `loop()` ~200 ms auf, eine ganze Seite ueber eine Sekunde - das war
+  das Ruckeln. In der Unterbrechung nie Strings, Matrix oder Netz anfassen;
+  `alarmWarnPflegen()` und `matrixSpiegeln()` bleiben in der Schleife.
+  `takt_max_us` in `/api/state` misst das nach (Soll 10 000).
+- **Saeule: Antworten in einem Stueck schreiben.** Jedes einzelne `print` auf
+  einen WiFiClient ist eine eigene Uebertragung an den ESP32-S3. Kopf und
+  Rumpf werden darum erst zusammengebaut und mit einem `write` geschickt, die
+  Seite in Happen von 1460 Byte.
 - **Saeule: `an` und `live` sind zwei Dinge.** `an` ist der logische Zustand
   (bleibt stehen, waehrend die Leuchte blinkt), `live` der Pegel im Augenblick.
   HA nimmt `an`, das Dashboard `live`. Der Ereignisstrom pusht nur bei

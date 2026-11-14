@@ -110,7 +110,7 @@ td.z{width:18px} td.n{width:34%}
         <button id="mman" onclick="modus('manuell')">Manuell</button>
       </div>
       <div id="band" class="band"></div>
-      <div style="margin-top:12px">
+      <div id="statusblock" style="margin-top:12px">
         <h2>Status</h2>
         <select id="status" onchange="statusWahl(this.value)"></select>
         <div class="hinweis" id="statushinweis">Ein Status wird angesagt und bleibt dann stehen.</div>
@@ -118,15 +118,16 @@ td.z{width:18px} td.n{width:34%}
     </div>
 
     <div class="karte">
-      <h2>Leuchten einzeln</h2>
+      <h2 id="leuchtenkopf">Leuchten einzeln</h2>
       <div class="schalter" id="lampen"></div>
-      <div class="warn schalter" style="margin-top:8px" id="warnschalter"></div>
-      <div class="hinweis">Eine Stufe von Hand zu schalten stellt auf Manuell. Die
-        Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten;
-        im Status Alarm geht sie von selbst an, sobald Rot und Hinweis im
-        Wechsel blinken, und beim Verlassen wieder auf ihren Stand von vorher.
-        Rechts steht der zurückgelesene Pin: so sieht man auch ohne
-        angeschlossenes Modul, ob der Arduino wirklich geschaltet hat.</div>
+      <div class="hinweis" id="lampenhinweis">Rechts steht der zurückgelesene Pin:
+        so sieht man auch ohne angeschlossenes Modul, ob der Arduino wirklich
+        geschaltet hat.</div>
+      <div class="warn schalter" style="margin-top:10px" id="warnschalter"></div>
+      <div class="hinweis">Die Warnleuchte hat ihren eigenen Schalter und gilt in
+        beiden Betriebsarten. Im Status Alarm geht sie von selbst an, sobald Rot
+        und Hinweis im Wechsel blinken, und beim Verlassen wieder auf ihren
+        Stand von vorher.</div>
     </div>
 
     <div class="karte">
@@ -227,10 +228,14 @@ function anwenden(l) {
   E('mman').classList.toggle('aktiv', !auto);
   const w = E('status');
   if (document.activeElement !== w && l.status) w.value = l.status;
-  w.disabled = false;
-  E('statushinweis').textContent = auto
-    ? (l.wechsel ? 'Wechsel läuft – die Säule sagt den neuen Status an.' : 'Status steht.')
-    : 'In Manuell gilt der Status nicht. Ein Status schaltet zurück auf Auto.';
+  // In Auto gilt der Status, in Manuell die Einzelschalter - jeweils das
+  // andere wird ausgeblendet, damit nichts dasteht, was gerade nichts tut.
+  E('statusblock').style.display = auto ? '' : 'none';
+  E('lampen').style.display = auto ? 'none' : '';
+  E('lampenhinweis').style.display = auto ? 'none' : '';
+  E('leuchtenkopf').textContent = auto ? 'Warnleuchte' : 'Leuchten einzeln';
+  E('statushinweis').textContent =
+    l.wechsel ? 'Wechsel läuft – die Säule sagt den neuen Status an.' : 'Status steht.';
   const band = E('band');
   if (l.phase !== 'betrieb') { band.style.display = 'block'; band.textContent = 'Startablauf läuft …'; }
   else if (l.diag) { band.style.display = 'block'; band.textContent = 'Selbstdiagnose läuft …'; }
