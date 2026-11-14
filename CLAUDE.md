@@ -96,6 +96,14 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   genau dann an, wenn die App "ringing" auf false setzt - nicht nach Uhrzeit.
   Der Probelauf simuliert das Beenden nach 30 s, sonst liefe die zweite
   Haelfte nie an.
+- **Das Ablauffeld im Optionsdialog nie mit dem Standardablauf
+  vorausfuellen.** Genau das war am 14.11. die Ursache, warum der Nachlauf bei
+  Max nicht lief: er hatte den Dialog geoeffnet und gespeichert, damit lag der
+  damalige Standard fest in den Optionen und spaetere Verbesserungen kamen nie
+  an. Leeres Feld heisst "nimm den aktuellen Standard".
+- **Beim Schlummern aufraeumen.** Die Schritte des Weckrufs sind durch, der
+  Nachlauf gilt noch nicht - ohne `_schlummern()` bliebe die Saeule im Alarm
+  und das Licht an, bis es wieder klingelt.
 - **Jeder Lauf braucht ein Ende.** Nach dem letzten Schritt setzt `_fertig()`
   `laeuft` und `probelauf` zurueck und plant gleich den naechsten Vorlauf.
   Ohne das blieb `laeuft` stehen: kein Vorlauf mehr, und waehrend `probelauf`

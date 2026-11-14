@@ -330,9 +330,13 @@ class Weckablauf:
             # Es klingelt wirklich: ab hier zaehlt die Zeit, alles ab 0 kommt neu
             self._starten(dt_util.utcnow(), AB_WECKRUF, nur_ab_null=True)
         elif flanke_aus and schlummert:
+            # Geschlummert: die Schritte des Weckrufs sind durch, aber der
+            # Nachlauf gilt noch nicht. Ohne Aufraeumen bliebe die Saeule im
+            # Alarm stehen und das Licht an, bis es wieder klingelt.
             self._timer_weg()
-            self._notiz("Schlummern", "Ablauf angehalten", "ok")
+            self._notiz("Schlummern", "Ablauf angehalten, Saeule zurueck", "ok")
             self.laeuft = False
+            self.hass.async_create_task(self._schlummern())
         elif flanke_aus:
             # Weckruf beendet: der Nachlauf haengt an diesem Moment
             self.beendet_um = dt_util.utcnow()
@@ -461,6 +465,12 @@ class Weckablauf:
         self.beendet_um = dt_util.utcnow()
         self._notiz("Probelauf", "Weckruf beendet", "ok")
         self._starten(self.beendet_um, AB_ENDE)
+        self._melden()
+
+    async def _schlummern(self) -> None:
+        """Beim Schlummern zurueck in den Ruhestand, aber den Wecker nicht vergessen."""
+        await self._saeule({"status": STATUS_STANDARD})
+        await self._licht({"aus": True})
         self._melden()
 
     async def async_abbrechen(self) -> None:

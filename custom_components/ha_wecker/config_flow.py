@@ -6,8 +6,6 @@ die Weckerlampe haengt seitdem am Wecker, siehe ablauf.py.
 """
 from __future__ import annotations
 
-import json
-
 from typing import Any
 
 import voluptuous as vol
@@ -23,7 +21,7 @@ from homeassistant.const import CONF_NAME, CONF_WEBHOOK_ID
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
-from .ablauf import STANDARD_ABLAUF, ablauf_lesen
+from .ablauf import ablauf_lesen
 from .const import (
     CONF_ABLAUF,
     CONF_HAUPTLICHT,
@@ -157,9 +155,11 @@ class WeckerOptionsFlow(OptionsFlow):
         except Exception:  # noqa: BLE001 - nur Anzeige
             pass
 
-        vorgabe = opt.get(CONF_ABLAUF) or json.dumps(
-            STANDARD_ABLAUF, indent=2, ensure_ascii=False
-        )
+        # Bewusst NICHT mit dem Standardablauf vorausfuellen: wer das Feld
+        # einmal so speichert, friert den damaligen Stand ein und bekommt
+        # spaetere Verbesserungen nie. Leer heisst "nimm den aktuellen
+        # Standard"; wer einen eigenen Ablauf hat, sieht hier seinen.
+        vorgabe = opt.get(CONF_ABLAUF) or ""
         felder: dict[Any, Any] = {}
         felder[vol.Optional(CONF_HAUPTLICHT, description={"suggested_value": opt.get(CONF_HAUPTLICHT)})] = (
             selector.EntitySelector(selector.EntitySelectorConfig(domain="light"))

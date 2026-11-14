@@ -547,6 +547,11 @@ eine Minute danach steht sie auf Gruen und nimmt wieder Befehle an.
   fuer die Blitz-Warnleuchte.
 - Unsinn in der Datei wird beim Speichern abgelehnt, mit Angabe von Block und
   Schritt. Bis dahin gilt der Standardablauf.
+- **Leeres Feld heisst: der eingebaute Standardablauf gilt** - und waechst mit
+  jeder neuen Fassung mit. Wer einen eigenen Ablauf eintraegt, bleibt dabei,
+  bis er ihn wieder loescht.
+- Wird **geschlummert**, raeumt der Ablauf auf (Saeule auf Ruhe, Licht aus) und
+  wartet; klingelt es wieder, geht es von vorn los.
 
 **Die Weckzeit rechnet die Integration selbst** aus Stunde, Minute und
 Wochentagsmaske, die die App mitschickt, inklusive „naechsten ueberspringen".
