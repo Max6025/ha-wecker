@@ -455,15 +455,12 @@ Der komplette Aufbau steht im Stromlaufplan `SIG-R4-E`.
 | Ausgang | Modul    | Betriebsmittel        | Ader    |
 |---------|----------|-----------------------|---------|
 | D2      | K1 : IN  | H5 Blitz-Warnleuchte  | weiss   |
-| D3      | K2 : IN3 | H3 rot, Stufe 3       | gelb    |
+| D3      | K2 : IN1 | H1 gruen, Stufe 1     | gelb    |
 | D4      | K2 : IN2 | H2 orange, Stufe 2    | weiss   |
-| D5      | K2 : IN1 | H1 gruen, Stufe 1     | gelb    |
+| D5      | K2 : IN3 | H3 rot, Stufe 3       | gelb    |
 | D6      | K2 : IN4 | H4 Hinweis, Stufe 4   | rot     |
 
-**D3 und D5 sind gegenueber dem Stromlaufplan vertauscht.** Beim Anklemmen am
-14.11. sind die beiden gelben Adern verwechselt worden; gerichtet wird das in
-der Tabelle `LEUCHTEN` in der Firmware, nicht am Draht. Der Plan `SIG-R4-E`
-zeigt noch die urspruengliche Zuordnung - im Zweifel gilt die Firmware.
+Die Zuordnung stimmt mit dem Stromlaufplan `SIG-R4-E` ueberein.
 
 Die Nummern in `/api/state` (1 gruen bis 4 Hinweis, 5 Warnleuchte) bleiben
 stabil - die Entitaeten in Home Assistant haengen daran.
