@@ -33,7 +33,6 @@ async def async_setup_entry(
             [
                 SaeuleStatusSensor(obj),
                 SaeuleDiagnoseSensor(obj),
-                SaeuleUsbSensor(obj),
                 RelaisRssiSensor(obj),
                 RelaisUptimeSensor(obj),
             ]
@@ -289,27 +288,3 @@ class SaeuleDiagnoseSensor(SaeuleEntity, SensorEntity):
                 if isinstance(p, dict)
             ],
         }
-
-
-class SaeuleUsbSensor(SaeuleEntity, SensorEntity):
-    """Haengt ein Rechner am USB-C, oder laeuft die Saeule am Netzteil?"""
-
-    _attr_name = "USB"
-    _attr_icon = "mdi:usb-port"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator: SaeuleCoordinator) -> None:
-        super().__init__(coordinator, "usb")
-
-    @property
-    def native_value(self) -> str:
-        u = self.coordinator.usb
-        if not u.get("spannung"):
-            return "kein USB"
-        if not u.get("rechner"):
-            return "nur Spannung"
-        return "Rechner, Port offen" if u.get("monitor") else "Rechner angesteckt"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        return dict(self.coordinator.usb)

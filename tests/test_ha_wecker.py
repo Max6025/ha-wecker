@@ -739,7 +739,6 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
         "status_name": {"ruhe": "Ruhe", "hinweis": "Hinweis", "achtung": "Achtung",
                         "stoerung": "Störung", "alarm": "Alarm"}[status],
         "wechsel": False, "warn": warn, "test": test,
-        "usb": {"spannung": True, "rechner": False, "monitor": False},
         "status_liste": [
             {"id": "ruhe", "name": "Ruhe"}, {"id": "hinweis", "name": "Hinweis"},
             {"id": "achtung", "name": "Achtung"}, {"id": "stoerung", "name": "Störung"},
@@ -779,7 +778,6 @@ async def test_saeule_entities(hass: HomeAssistant, aioclient_mock) -> None:
     assert hass.states.get("button.signalsaeule_selbstdiagnose") is not None
     assert hass.states.get("button.signalsaeule_alles_aus") is not None
     assert hass.states.get("sensor.signalsaeule_anzeige").state == "Ruhe"
-    assert hass.states.get("sensor.signalsaeule_usb").state == "nur Spannung"
     assert hass.states.get("binary_sensor.signalsaeule_wechsel_laeuft").state == "off"
     # Die Relaisbox-Entitaeten duerfen nicht mitkommen
     assert hass.states.get("switch.signalsaeule_weckerlampe") is None
@@ -839,7 +837,7 @@ async def test_saeule_diagnose_und_test(hass: HomeAssistant, aioclient_mock) -> 
         "laeuft": False, "fertig": True, "ok": False, "vor_s": 3,
         "punkte": [
             {"name": "WLAN", "ok": 1, "text": "SAS00, -58 dBm"},
-            {"name": "USB", "ok": -1, "text": "nur Spannung, kein Rechner"},
+            {"name": "Geraet", "ok": 1, "text": "signalsaeule, Firmware 1.0.0"},
             {"name": "Rot", "ok": 0, "text": "Pin D5 liest 0"},
         ],
     }

@@ -37,6 +37,8 @@ button{font:inherit;color:var(--text);background:#1f2733;border:1px solid var(--
 button:hover{border-color:#3a4555}
 button:active{transform:translateY(1px)}
 button .led{width:12px;height:12px;border-radius:50%;background:#2c3542;flex:0 0 auto}
+button .pin{margin-left:auto;font-size:12px;color:var(--matt);font-variant-numeric:tabular-nums}
+button.an .pin{color:var(--matt)}
 button.an{background:#223042;border-color:#3e5f86}
 button.an .led{background:currentColor}
 .l1.an{color:var(--gruen)} .l2.an{color:var(--orange)} .l3.an{color:var(--rot)}
@@ -120,7 +122,9 @@ td.z{width:18px} td.n{width:34%}
       <div class="schalter" id="lampen"></div>
       <div class="warn schalter" style="margin-top:8px" id="warnschalter"></div>
       <div class="hinweis">Eine Stufe von Hand zu schalten stellt auf Manuell. Die
-        Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten.</div>
+        Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten.
+        Rechts steht der zurückgelesene Pin: so sieht man auch ohne
+        angeschlossenes Modul, ob der Arduino wirklich geschaltet hat.</div>
     </div>
 
     <div class="karte">
@@ -131,7 +135,7 @@ td.z{width:18px} td.n{width:34%}
       </div>
       <table id="diagtab" style="margin-top:10px"></table>
       <div class="hinweis">Die Diagnose prüft, was der Arduino selbst wissen kann:
-        WLAN, USB, Speicher und ob jeder Ausgang seinen Pegel annimmt. Ob eine
+        WLAN, Speicher und ob jeder Ausgang seinen Pegel annimmt. Ob eine
         Leuchte wirklich brennt, sieht er nicht. Die Blitzleuchte blitzt dabei kurz.</div>
     </div>
 
@@ -174,7 +178,8 @@ function bauen() {
   (z.relais || []).filter(r => r.rolle !== 'warn').forEach((r, i) => {
     const b = document.createElement('button');
     b.className = 'l' + r.nr; b.id = 'sw' + r.nr;
-    b.innerHTML = '<span class="led"></span>' + (NAMEN[i] || r.name);
+    b.innerHTML = '<span class="led"></span>' + (NAMEN[i] || r.name) +
+                  '<span class="pin"></span>';
     b.onclick = () => schalte(r.nr, !b.classList.contains('an'));
     lampen.appendChild(b);
   });
@@ -182,7 +187,7 @@ function bauen() {
   (z.relais || []).filter(r => r.rolle === 'warn').forEach(r => {
     const b = document.createElement('button');
     b.className = 'l' + r.nr; b.id = 'sw' + r.nr;
-    b.innerHTML = '<span class="led"></span>Blitz-Warnleuchte';
+    b.innerHTML = '<span class="led"></span>Blitz-Warnleuchte<span class="pin"></span>';
     b.onclick = () => schalte(r.nr, !b.classList.contains('an'));
     ws.appendChild(b);
   });
@@ -201,13 +206,10 @@ function voll() {
     return '<tr><td class="z ' + kl + '">' + zeichen + '</td><td class="n">' + p.name +
            '</td><td class="matt">' + p.text + '</td></tr>';
   }).join('');
-  const u = z.usb || {};
-  const usbtext = !u.spannung ? 'kein USB' : (!u.rechner ? 'nur Spannung'
-    : (u.monitor ? 'Rechner, Port offen' : 'Rechner angesteckt'));
   E('werte').innerHTML =
     feld('WLAN', z.rssi + ' dBm') + feld('Adresse', z.ip) +
     feld('Laufzeit', dauer(z.uptime_s)) + feld('Speicher', (z.ram_frei || 0) + ' B frei') +
-    feld('USB', usbtext) + feld('Version', z.version);
+    feld('Status', z.status_name || '') + feld('Version', z.version);
   anwenden(z);
 }
 function feld(n, w) { return '<div><span>' + n + '</span>' + w + '</div>'; }
@@ -241,7 +243,13 @@ function anwenden(l) {
     const g = E('lampe' + r.nr), b = E('sw' + r.nr);
     if (g) { g.classList.toggle('an', !!live[i]); g.classList.toggle('aus', !live[i]);
              g.style.filter = live[i] ? 'drop-shadow(0 0 14px ' + farbe(r.nr) + ')' : 'none'; }
-    if (b) b.classList.toggle('an', !!soll[i]);
+    if (b) {
+      b.classList.toggle('an', !!soll[i]);
+      // gemessener Pin - so sieht man auch ohne Modul, ob er geschaltet hat
+      const pg = l.pegel ? l.pegel[i] : r.pegel;
+      const stift = b.querySelector('.pin');
+      if (stift) stift.textContent = 'D' + r.gpio + ' · ' + (pg ? 'high' : 'low');
+    }
   });
   E('saeuleinfo').textContent =
     l.test ? 'Testmodus' : (auto ? (z.status_name || '') : 'Manuell');

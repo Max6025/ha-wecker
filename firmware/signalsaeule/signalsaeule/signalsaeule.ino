@@ -206,11 +206,12 @@ static int freierRam() {
   return &oben - reinterpret_cast<char*>(sbrk(0));
 }
 
-// USB: liegt Spannung am Stecker an, und redet ein Rechner mit uns?
-static bool usbSpannung() { return R_USB_FS0->INTSTS0_b.VBSTS; }
-static uint8_t usbZustand() { return R_USB_FS0->INTSTS0_b.DVSQ; }   // 0 nur Strom, >=2 enumeriert
-static bool usbRechner()  { return usbZustand() >= 2; }
-static bool usbMonitor()  { return (bool)Serial; }
+// USB-Erkennung gibt es hier bewusst nicht. Am 14.11. gemessen: INTSTS0 des
+// RA4M1 liest aus dem Sketch durchweg 0 (VBSTS und DVSQ also auch), und das
+// gilt auch, nachdem man VDCEN selbst setzt - der Core laesst die
+// VBUS-Erkennung aus, aber das allein ist es nicht. tud_cdc_connected() hinter
+// (bool)Serial bleibt umgekehrt dauerhaft true, auch ohne offenen Port. Damit
+// laesst sich weder "Spannung da" noch "Rechner dran" ehrlich anzeigen.
 
 // Zustand vor der Diagnose, um ihn danach wiederherzustellen
 static bool diagVorherAuto = true;
@@ -241,11 +242,8 @@ static void diagnoseSchritt() {
     return;
   }
   if (diagSchritt == 1) {
-    if (!usbSpannung())      strncpy(zeile, "kein USB - laeuft am Netzteil", sizeof(zeile));
-    else if (!usbRechner())  strncpy(zeile, "nur Spannung, kein Rechner", sizeof(zeile));
-    else if (!usbMonitor())  strncpy(zeile, "Rechner angesteckt, Port zu", sizeof(zeile));
-    else                     strncpy(zeile, "Rechner angesteckt, Port offen", sizeof(zeile));
-    diagEintrag("USB", -1, zeile);
+    snprintf(zeile, sizeof(zeile), "%s, Firmware %s", HOSTNAME, VERSION);
+    diagEintrag("Geraet", 1, zeile);
     diagSchritt = 2;
     return;
   }
@@ -581,9 +579,6 @@ static String stateJson() {
   s += ",\"wechsel\":" + String(imWechsel() || inRuhephase() ? "true" : "false");
   s += ",\"warn\":" + String(warnAn ? "true" : "false");
   s += ",\"test\":" + String(testAn ? "true" : "false");
-  s += ",\"usb\":{\"spannung\":" + String(usbSpannung() ? "true" : "false");
-  s += ",\"rechner\":" + String(usbRechner() ? "true" : "false");
-  s += ",\"monitor\":" + String(usbMonitor() ? "true" : "false") + "}";
 
   s += ",\"status_liste\":[";
   for (uint8_t i = 0; i < STATUS_ANZAHL; i++) {
@@ -643,6 +638,13 @@ static String liveJson() {
   for (uint8_t i = 0; i < ANZAHL; i++) {
     if (i) s += ",";
     s += sollAn(i) ? "1" : "0";
+  }
+  // zurueckgelesener Pin: zeigt auch ohne angeschlossenes Modul, ob der
+  // Arduino wirklich geschaltet hat
+  s += "],\"pegel\":[";
+  for (uint8_t i = 0; i < ANZAHL; i++) {
+    if (i) s += ",";
+    s += String(digitalRead(LEUCHTEN[i].pin));
   }
   s += "]}";
   return s;

@@ -490,12 +490,25 @@ die Warnleuchte, Testmodus, Selbstdiagnose mit Ergebnisliste und die Werte des
 Geraets. Die Seite liegt im Flash des Arduino, es braucht keinen Server.
 
 **Selbstdiagnose.** Sie prueft, was der Arduino selbst wissen kann: WLAN
-(Verbindung, Feldstaerke, Adresse), USB (liegt nur Spannung an oder haengt ein
-Rechner dran - `VBSTS` und `DVSQ` im USB-Register des RA4M1), ob `digitalRead`
-einem Ausgang ueberhaupt folgt, dann jeden Ausgang einzeln fuer 400 ms, und
-zuletzt freien Speicher und Laufzeit. Ob eine Leuchte wirklich brennt, sieht er
-nicht - dafuer fehlt eine Rueckmeldung aus der Saeule. Die Blitzleuchte blitzt
-dabei kurz.
+(Verbindung, Feldstaerke, Adresse), Geraet und Firmware, ob `digitalRead` einem
+Ausgang ueberhaupt folgt, dann jeden Ausgang einzeln fuer 400 ms, und zuletzt
+freien Speicher und Laufzeit. Ob eine Leuchte wirklich brennt, sieht er nicht -
+dafuer fehlt eine Rueckmeldung aus der Saeule. Die Blitzleuchte blitzt dabei
+kurz.
+
+**Keine USB-Erkennung.** Am 14.11. gemessen und wieder ausgebaut: `INTSTS0` des
+RA4M1 liest aus dem Sketch durchweg 0, `VBSTS` und `DVSQ` damit auch - auch
+dann, wenn man `VDCEN` selbst setzt (der Core laesst die VBUS-Erkennung hinter
+`VUSB_LDO_ENABLE` aus). Umgekehrt bleibt `(bool)Serial` alias
+`tud_cdc_connected()` dauerhaft **true**, auch ohne offenen Port. Weder
+"Spannung da" noch "Rechner dran" laesst sich damit ehrlich anzeigen, darum
+gibt es die Anzeige nicht.
+
+**Ohne Leistungsstufe.** Solange ein Modul noch fehlt, steht rechts neben jeder
+Leuchte der zurueckgelesene Pin (`D3 · high`). So sieht man am Dashboard, dass
+der Arduino wirklich schaltet, obwohl nichts leuchtet. Derselbe Wert steht in
+`/api/state` als `pegel` und in Home Assistant im Attribut `pegel` des
+Schalters.
 
 **HTTP-Schnittstelle** (Vertrag zwischen Firmware und `saeule.py`)
 
@@ -532,7 +545,7 @@ arduino-cli upload -b arduino:renesas_uno:unor4wifi -p /dev/ttyACM0 signalsaeule
 Wecker -> *Signalsäule (Arduino UNO R4 WiFi)*, dann die Adresse eintragen. Es
 entstehen zwei Auswahlfelder (Betriebsart, Status), ein Schalter je Leuchte,
 der Schalter *Warnleuchte*, *Testmodus*, die Knoepfe *Selbstdiagnose* und
-*Alles aus* sowie Sensoren fuer Anzeige, Selbstdiagnose, USB, Feldstaerke und
+*Alles aus* sowie Sensoren fuer Anzeige, Selbstdiagnose, Feldstaerke und
 Laufzeit.
 
 ---

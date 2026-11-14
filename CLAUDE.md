@@ -52,6 +52,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Prototypen vor die erste Funktionsdefinition im .ino. Stehen `enum Status`,
   `struct Leuchte` & Co. weiter unten, bricht der Build mit "'Status' was not
   declared in this scope" ab. Darum stehen alle Typen ganz oben.
+- **Saeule: keine USB-Erkennung, nicht nochmal versuchen.** Am 14.11. auf dem
+  Geraet gemessen: `R_USB_FS0->INTSTS0` liest aus dem Sketch 0 (also auch
+  `VBSTS` und `DVSQ`), selbst nachdem man `USBMC_b.VDCEN = 1` setzt - der Core
+  laesst das hinter `VUSB_LDO_ENABLE` aus, aber das allein ist nicht der Grund.
+  `(bool)Serial` (`tud_cdc_connected()`) bleibt dauerhaft true, auch ohne
+  offenen Port. Darum gibt es in `/api/state` kein `usb` mehr.
 - **Saeule: Gedaechtnis im Daten-Flash.** Status, Betriebsart und Warnleuchte
   liegen in `Preferences` ("saeule"), damit die Saeule nach einem Stromausfall
   ihren Status wieder aufnimmt. Verzoegert geschrieben (3 s) und nur bei echter

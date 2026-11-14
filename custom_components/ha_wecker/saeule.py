@@ -96,11 +96,6 @@ class SaeuleCoordinator(RelaisCoordinator):
         d = (self.data or {}).get("diagnose")
         return d if isinstance(d, dict) else {}
 
-    @property
-    def usb(self) -> dict[str, Any]:
-        u = (self.data or {}).get("usb")
-        return u if isinstance(u, dict) else {}
-
     def leuchten(self, nur_warn: bool | None = None) -> list[dict[str, Any]]:
         """Die Leuchten der Saeule; nur_warn trennt Stufen und Warnleuchte."""
         aus = []
