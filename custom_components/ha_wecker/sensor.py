@@ -19,14 +19,26 @@ from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 
 from . import WeckerData
 from .const import DOMAIN
-from .entity import RelaisEntity, WeckerEntity
+from .entity import RelaisEntity, SaeuleEntity, WeckerEntity
 from .relais import RelaisCoordinator
+from .saeule import SaeuleCoordinator
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     obj = hass.data[DOMAIN][entry.entry_id]
+    if isinstance(obj, SaeuleCoordinator):
+        async_add_entities(
+            [
+                SaeuleStatusSensor(obj),
+                SaeuleDiagnoseSensor(obj),
+                SaeuleUsbSensor(obj),
+                RelaisRssiSensor(obj),
+                RelaisUptimeSensor(obj),
+            ]
+        )
+        return
     if isinstance(obj, RelaisCoordinator):
         async_add_entities([RelaisRssiSensor(obj), RelaisUptimeSensor(obj)])
         return
@@ -201,3 +213,103 @@ class RelaisUptimeSensor(RelaisEntity, SensorEntity):
             "version": self.daten.get("version"),
             "ereignisstrom": "verbunden" if self.coordinator.events_verbunden else "getrennt (Abfrage alle 10 s)",
         }
+
+
+# --- Signalsaeule -----------------------------------------------------------
+
+
+class SaeuleStatusSensor(SaeuleEntity, SensorEntity):
+    """Was die Saeule gerade zeigt - in Klartext, fuer Ansichten und Ansagen."""
+
+    _attr_name = "Anzeige"
+    _attr_icon = "mdi:traffic-light-outline"
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "anzeige")
+
+    @property
+    def native_value(self) -> str | None:
+        if not self.coordinator.auto:
+            return "Manuell"
+        if (self.coordinator.data or {}).get("test"):
+            return "Testmodus"
+        return self.coordinator.status_name(self.coordinator.status)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        daten = self.coordinator.data or {}
+        leuchtet = [
+            str(r.get("name"))
+            for r in self.coordinator.leuchten()
+            if r.get("an")
+        ]
+        return {
+            "betriebsart": self.coordinator.modus,
+            "status": self.coordinator.status,
+            "wechsel_laeuft": bool(daten.get("wechsel")),
+            "warnleuchte": bool(daten.get("warn")),
+            "leuchtet": leuchtet,
+        }
+
+
+class SaeuleDiagnoseSensor(SaeuleEntity, SensorEntity):
+    """Ergebnis der letzten Selbstdiagnose; die Punkte stehen in den Attributen."""
+
+    _attr_name = "Selbstdiagnose"
+    _attr_icon = "mdi:clipboard-pulse-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "diagnose_ergebnis")
+
+    @property
+    def native_value(self) -> str:
+        d = self.coordinator.diagnose
+        if d.get("laeuft"):
+            return "läuft"
+        if not d.get("fertig"):
+            return "nie gelaufen"
+        punkte = d.get("punkte") or []
+        fehler = [p for p in punkte if isinstance(p, dict) and p.get("ok") == 0]
+        return "in Ordnung" if not fehler else f"{len(fehler)} Beanstandung(en)"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        d = self.coordinator.diagnose
+        return {
+            "laeuft": bool(d.get("laeuft")),
+            "vor_s": d.get("vor_s"),
+            "punkte": [
+                {
+                    "name": p.get("name"),
+                    "bewertung": {1: "ok", 0: "Fehler", -1: "Hinweis"}.get(p.get("ok")),
+                    "text": p.get("text"),
+                }
+                for p in (d.get("punkte") or [])
+                if isinstance(p, dict)
+            ],
+        }
+
+
+class SaeuleUsbSensor(SaeuleEntity, SensorEntity):
+    """Haengt ein Rechner am USB-C, oder laeuft die Saeule am Netzteil?"""
+
+    _attr_name = "USB"
+    _attr_icon = "mdi:usb-port"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "usb")
+
+    @property
+    def native_value(self) -> str:
+        u = self.coordinator.usb
+        if not u.get("spannung"):
+            return "kein USB"
+        if not u.get("rechner"):
+            return "nur Spannung"
+        return "Rechner, Port offen" if u.get("monitor") else "Rechner angesteckt"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return dict(self.coordinator.usb)

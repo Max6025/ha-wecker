@@ -11,6 +11,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from . import WeckerData
 from .const import DOMAIN, SIGNAL_UPDATE
 from .relais import RelaisCoordinator
+from .saeule import SaeuleCoordinator
 
 
 class WeckerEntity(Entity):
@@ -71,3 +72,21 @@ class RelaisEntity(CoordinatorEntity[RelaisCoordinator]):
     @property
     def daten(self) -> dict[str, Any]:
         return self.coordinator.data or {}
+
+
+class SaeuleEntity(RelaisEntity):
+    """Entitaet des Geraets "Signalsaeule" (Arduino UNO R4 WiFi)."""
+
+    coordinator: SaeuleCoordinator
+
+    def __init__(self, coordinator: SaeuleCoordinator, key: str) -> None:
+        super().__init__(coordinator, key)
+        daten = coordinator.data or {}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.mac)},
+            name=coordinator.entry.title or "Signalsäule",
+            manufacturer="Maximilian Starnberg",
+            model="Signalsäule (Arduino UNO R4 WiFi)",
+            sw_version=str(daten.get("version", "")),
+            configuration_url=coordinator.url or None,
+        )

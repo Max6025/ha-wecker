@@ -15,6 +15,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -22,8 +23,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import WeckerData
 from .const import DOMAIN, SIGNAL_UPDATE
-from .entity import RelaisEntity, WeckerEntity
+from .entity import RelaisEntity, SaeuleEntity, WeckerEntity
 from .relais import RelaisCoordinator
+from .saeule import SaeuleCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +47,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     obj = hass.data[DOMAIN][entry.entry_id]
+    if isinstance(obj, SaeuleCoordinator):
+        async_add_entities([SaeuleWechselBinarySensor(obj), SaeuleDiagnoseOkBinarySensor(obj)])
+        return
     if isinstance(obj, RelaisCoordinator):
         entities: list[BinarySensorEntity] = [RelaisAlarmBinarySensor(obj)]
         if isinstance((obj.data or {}).get("eingang"), dict):
@@ -321,3 +326,38 @@ class RelaisEingangBinarySensor(RelaisEntity, BinarySensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         e = self._eingang
         return {"gpio": e.get("gpio"), "seit_s": e.get("seit_s"), "zaehler": e.get("zaehler")}
+
+
+class SaeuleWechselBinarySensor(SaeuleEntity, BinarySensorEntity):
+    """An, solange die Saeule einen Statuswechsel ansagt."""
+
+    _attr_name = "Wechsel laeuft"
+    _attr_icon = "mdi:transfer-up"
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "wechsel")
+
+    @property
+    def is_on(self) -> bool:
+        return bool((self.coordinator.data or {}).get("wechsel"))
+
+
+class SaeuleDiagnoseOkBinarySensor(SaeuleEntity, BinarySensorEntity):
+    """Problem, wenn die letzte Selbstdiagnose etwas beanstandet hat."""
+
+    _attr_name = "Beanstandung"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "diagnose_problem")
+
+    @property
+    def available(self) -> bool:
+        return super().available and bool(self.coordinator.diagnose.get("fertig"))
+
+    @property
+    def is_on(self) -> bool:
+        punkte = self.coordinator.diagnose.get("punkte") or []
+        return any(isinstance(p, dict) and p.get("ok") == 0 for p in punkte)

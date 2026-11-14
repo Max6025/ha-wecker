@@ -1,6 +1,6 @@
 # HA Wecker
 
-Zwei Geraete fuer Home Assistant in einer Integration, kein MQTT:
+Drei Geraete fuer Home Assistant in einer Integration, kein MQTT:
 
 1. **Wecker** - eine eigene Android-Wecker-App (wie die Samsung-Uhr), die ihre
    **komplette Weckerliste** - auch die ausgeschalteten Wecker - per Webhook an
@@ -12,6 +12,14 @@ Zwei Geraete fuer Home Assistant in einer Integration, kein MQTT:
    starten` laesst ein Relais ein Muster laufen (Doppelblitz, Blinken, SOS ...),
    `Alarm stoppen` beendet es. Ein Blueprint verbindet beides: solange der
    Wecker klingelt, blinkt das Relais.
+3. **Signalsaeule** - ein Arduino UNO R4 WiFi an einer Rittal-Signalsaeule mit
+   vier Leuchtelementen und einer Blitz-Warnleuchte. Oben ein Umschalter
+   **Auto / Manuell**: in Auto treibt ein **Status** die Saeule (Ruhe, Hinweis,
+   Achtung, Stoerung, Alarm), jeder Wechsel wird angesagt und bleibt dann
+   stehen; in Manuell schaltet man die Leuchten einzeln. Die Blitz-Warnleuchte
+   hat ihren eigenen Schalter. Die Saeule bringt ein **eigenes Web-Dashboard**
+   mit (Live-Bild, Testmodus, Selbstdiagnose) und merkt sich ihren Status ueber
+   einen Stromausfall hinweg.
 
 ```
 ha-wecker/
@@ -19,6 +27,7 @@ ha-wecker/
 ├── blueprints/automation/         Blueprint "Relais blinkt, solange Wecker klingelt"
 ├── app/                           Android-App (Kotlin, nur androidx.core)
 ├── firmware/relaisbox/            PlatformIO-Firmware fuer den ESP32-S3
+├── firmware/signalsaeule/         Arduino-Sketch fuer den UNO R4 WiFi
 ├── homeassistant/                 YAML-Alternative ohne Integration, Lovelace-Karte
 └── tests/                         pytest mit pytest-homeassistant-custom-component
 ```
@@ -435,7 +444,100 @@ ankommt.
 
 ---
 
-## 7. Warum nicht die Companion App
+## 7. Signalsaeule (Arduino UNO R4 WiFi)
+
+Hardware: Rittal Signalsaeule SZ 2372.02.0 mit vier Leuchtelementen, dazu eine
+Blitz-Warnleuchte. Geschaltet wird ueber MOSFET-Leistungsstufen (F5305S,
+P-Kanal, also im Pluspfad) - eine mit einem Kanal fuer die Warnleuchte, eine
+mit vier Kanaelen fuer die Saeule. Die Module ziehen bei **HIGH** durch.
+Der komplette Aufbau steht im Stromlaufplan `SIG-R4-E`.
+
+| Ausgang | Modul    | Betriebsmittel        | Ader    |
+|---------|----------|-----------------------|---------|
+| D2      | K1 : IN  | H5 Blitz-Warnleuchte  | weiss   |
+| D3      | K2 : IN1 | H1 gruen, Stufe 1     | gelb    |
+| D4      | K2 : IN2 | H2 orange, Stufe 2    | weiss   |
+| D5      | K2 : IN3 | H3 rot, Stufe 3       | gelb    |
+| D6      | K2 : IN4 | H4 Hinweis, Stufe 4   | rot     |
+
+Die Nummern in `/api/state` (1 gruen bis 4 Hinweis, 5 Warnleuchte) bleiben
+stabil - die Entitaeten in Home Assistant haengen daran.
+
+**Betriebsarten.** In **Auto** treibt der Status die Saeule. Ein Wechsel wird
+immer gleich angesagt: alle vier Stufen laufen von unten nach oben dazu (bei
+einem Wechsel nach unten umgekehrt), dann raeumt die Saeule von oben nach unten
+wieder ab und laesst nur die Lampe des neuen Status stehen, die erst eine
+Weile ruhig dasteht, bevor die Hinweisleuchte zu blinken beginnt. Danach steht
+das Bild des Status: Ruhe gruen, Hinweis gruen mit ruhigem Blinken, Achtung
+orange, Stoerung rot mit schnellem Blinken, Alarm rot und Hinweis im Wechsel.
+In **Manuell** gilt der Status nicht, stattdessen schaltet man jede Leuchte
+einzeln. Eine Stufe von Hand zu schalten stellt selbst auf Manuell um, und
+einen Status zu waehlen stellt selbst auf Auto zurueck. Die **Blitz-Warnleuchte**
+haengt an keiner Choreografie: eigener Schalter, gilt in beiden Betriebsarten.
+
+**Nach dem Einschalten** laeuft die Saeule einmal sichtbar durch (von unten
+nach oben dazu, alle zusammen mit einem Blitz, von oben nach unten wieder aus,
+etwa 2,7 Sekunden), zeigt dann das letzte Glied ihrer IP-Adresse auf der
+LED-Matrix und nimmt danach genau den Status wieder auf, der vor dem
+Stromausfall stand. Status, Betriebsart und Warnleuchte liegen dafuer im
+Daten-Flash des RA4M1 (`Preferences`); geschrieben wird verzoegert und nur bei
+echter Aenderung.
+
+**Dashboard.** Unter `http://<adresse>/` liefert die Saeule ihre eigene Seite:
+eine gezeichnete Signalsaeule, die live mitleuchtet (auch das Blinken),
+Umschalter Auto/Manuell, das Status-Auswahlfeld, Schalter fuer jede Leuchte und
+die Warnleuchte, Testmodus, Selbstdiagnose mit Ergebnisliste und die Werte des
+Geraets. Die Seite liegt im Flash des Arduino, es braucht keinen Server.
+
+**Selbstdiagnose.** Sie prueft, was der Arduino selbst wissen kann: WLAN
+(Verbindung, Feldstaerke, Adresse), USB (liegt nur Spannung an oder haengt ein
+Rechner dran - `VBSTS` und `DVSQ` im USB-Register des RA4M1), ob `digitalRead`
+einem Ausgang ueberhaupt folgt, dann jeden Ausgang einzeln fuer 400 ms, und
+zuletzt freien Speicher und Laufzeit. Ob eine Leuchte wirklich brennt, sieht er
+nicht - dafuer fehlt eine Rueckmeldung aus der Saeule. Die Blitzleuchte blitzt
+dabei kurz.
+
+**HTTP-Schnittstelle** (Vertrag zwischen Firmware und `saeule.py`)
+
+```
+GET  /                          Dashboard
+GET  /api/state                 kompletter Zustand als JSON
+GET  /api/live                  Kurzfassung fuer das Dashboard
+GET  /api/ping                  {"ok":true,"typ":"saeule"}
+GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
+POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
+POST /api/modus?modus=auto|manuell
+POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
+POST /api/test?an=1|0           Testmodus
+POST /api/diagnose              Selbstdiagnose starten
+POST /api/alarm/stop            alles aus, Betriebsart Manuell
+```
+
+In `/api/state` ist `an` der **logische** Zustand einer Leuchte - er bleibt
+stehen, waehrend sie blinkt - und `live` der Pegel in diesem Augenblick. Home
+Assistant nimmt `an`, das Dashboard `live`; sonst wuerden die Schalter in HA im
+Sekundentakt flattern.
+
+**Flashen**
+
+```bash
+cp firmware/signalsaeule/signalsaeule/arduino_secrets.h.beispiel \
+   firmware/signalsaeule/signalsaeule/arduino_secrets.h   # WLAN eintragen
+cd firmware/signalsaeule
+arduino-cli compile -b arduino:renesas_uno:unor4wifi signalsaeule
+arduino-cli upload -b arduino:renesas_uno:unor4wifi -p /dev/ttyACM0 signalsaeule
+```
+
+**In Home Assistant hinzufuegen:** Einstellungen -> Geraete & Dienste -> HA
+Wecker -> *Signalsäule (Arduino UNO R4 WiFi)*, dann die Adresse eintragen. Es
+entstehen zwei Auswahlfelder (Betriebsart, Status), ein Schalter je Leuchte,
+der Schalter *Warnleuchte*, *Testmodus*, die Knoepfe *Selbstdiagnose* und
+*Alles aus* sowie Sensoren fuer Anzeige, Selbstdiagnose, USB, Feldstaerke und
+Laufzeit.
+
+---
+
+## 8. Warum nicht die Companion App
 
 Die Home Assistant Companion App liest ueber den Sensor "Next Alarm" nur das
 `AlarmClockInfo` des Systems. Android gibt dort ausschliesslich den naechsten

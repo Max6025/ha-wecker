@@ -701,3 +701,174 @@ async def test_led_nachtruhe(hass: HomeAssistant, aioclient_mock) -> None:
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=22))
         await hass.async_block_till_done()
     assert not _posts(aioclient_mock)
+
+
+# --------------------------------------------------------------------------
+# Signalsaeule (Arduino UNO R4 WiFi)
+
+SAEULE_URL = "http://192.168.1.70"
+
+
+def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=None):
+    stufen = {
+        "ruhe":     [True,  False, False, False],
+        "hinweis":  [True,  False, False, True],
+        "achtung":  [False, True,  False, True],
+        "stoerung": [False, False, True,  True],
+        "alarm":    [False, False, True,  True],
+    }[status]
+    if modus != "auto":
+        stufen = [False, False, False, False]
+    namen = ["Gruen", "Orange", "Rot", "Hinweis"]
+    relais = [
+        {"nr": i + 1, "gpio": 3 + i, "name": namen[i], "rolle": "stufe", "defekt": False,
+         "an": stufen[i], "live": stufen[i], "pegel": int(stufen[i]),
+         "muster": "dauer" if stufen[i] else "aus", "rest_s": -1}
+        for i in range(4)
+    ]
+    relais.append(
+        {"nr": 5, "gpio": 2, "name": "Warnleuchte", "rolle": "warn", "defekt": False,
+         "an": warn, "live": warn, "pegel": int(warn),
+         "muster": "dauer" if warn else "aus", "rest_s": -1}
+    )
+    return {
+        "name": "Signalsäule", "typ": "saeule", "version": "1.0.0",
+        "mac": "34:85:18:aa:bb:cc", "ip": "192.168.1.70", "rssi": -58,
+        "uptime_s": 300, "events_port": 8081, "ram_frei": 21000,
+        "phase": "betrieb", "modus": modus, "status": status,
+        "status_name": {"ruhe": "Ruhe", "hinweis": "Hinweis", "achtung": "Achtung",
+                        "stoerung": "Störung", "alarm": "Alarm"}[status],
+        "wechsel": False, "warn": warn, "test": test,
+        "usb": {"spannung": True, "rechner": False, "monitor": False},
+        "status_liste": [
+            {"id": "ruhe", "name": "Ruhe"}, {"id": "hinweis", "name": "Hinweis"},
+            {"id": "achtung", "name": "Achtung"}, {"id": "stoerung", "name": "Störung"},
+            {"id": "alarm", "name": "Alarm"},
+        ],
+        "diagnose": diagnose or {"laeuft": False, "fertig": False, "ok": False,
+                                 "vor_s": 0, "punkte": []},
+        "relais": relais,
+    }
+
+
+async def _setup_saeule(hass: HomeAssistant, aioclient_mock, state=None) -> MockConfigEntry:
+    aioclient_mock.get(f"{SAEULE_URL}/api/state", json=state or saeule_state())
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Signalsaeule", unique_id="34:85:18:aa:bb:cc",
+        data={"typ": "saeule", "name": "Signalsaeule", "host": "192.168.1.70"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_saeule_entities(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup_saeule(hass, aioclient_mock)
+
+    assert hass.states.get("select.signalsaeule_betriebsart").state == "Auto"
+    status = hass.states.get("select.signalsaeule_status")
+    assert status.state == "Ruhe"
+    assert status.attributes["options"] == ["Ruhe", "Hinweis", "Achtung", "Störung", "Alarm"]
+
+    # In Ruhe brennt nur die gruene Stufe, die Warnleuchte ist aus
+    assert hass.states.get("switch.signalsaeule_gruen").state == "on"
+    assert hass.states.get("switch.signalsaeule_orange").state == "off"
+    assert hass.states.get("switch.signalsaeule_warnleuchte").state == "off"
+    assert hass.states.get("switch.signalsaeule_testmodus").state == "off"
+    assert hass.states.get("button.signalsaeule_selbstdiagnose") is not None
+    assert hass.states.get("button.signalsaeule_alles_aus") is not None
+    assert hass.states.get("sensor.signalsaeule_anzeige").state == "Ruhe"
+    assert hass.states.get("sensor.signalsaeule_usb").state == "nur Spannung"
+    assert hass.states.get("binary_sensor.signalsaeule_wechsel_laeuft").state == "off"
+    # Die Relaisbox-Entitaeten duerfen nicht mitkommen
+    assert hass.states.get("switch.signalsaeule_weckerlampe") is None
+
+
+async def test_saeule_status_waehlen(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="stoerung"))
+
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.signalsaeule_status", "option": "Störung"},
+        blocking=True,
+    )
+    assert "status=stoerung" in str(_letzter_aufruf(aioclient_mock))
+    assert hass.states.get("select.signalsaeule_status").state == "Störung"
+    assert hass.states.get("switch.signalsaeule_rot").state == "on"
+    assert hass.states.get("switch.signalsaeule_gruen").state == "off"
+
+
+async def test_saeule_manuell_und_warnleuchte(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup_saeule(hass, aioclient_mock)
+
+    aioclient_mock.post(f"{SAEULE_URL}/api/modus", json=saeule_state(modus="manuell"))
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.signalsaeule_betriebsart", "option": "Manuell"},
+        blocking=True,
+    )
+    assert "modus=manuell" in str(_letzter_aufruf(aioclient_mock))
+    assert hass.states.get("sensor.signalsaeule_anzeige").state == "Manuell"
+    assert hass.states.get("switch.signalsaeule_gruen").state == "off"
+
+    # Einzelne Leuchte in Manuell
+    aioclient_mock.post(f"{SAEULE_URL}/api/relais/2", json=saeule_state(modus="manuell"))
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_orange"}, blocking=True
+    )
+    assert "an=1" in str(_letzter_aufruf(aioclient_mock))
+
+    # Die Warnleuchte laeuft ueber ihren eigenen Schalter
+    aioclient_mock.post(f"{SAEULE_URL}/api/relais/5", json=saeule_state(modus="manuell", warn=True))
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_warnleuchte"}, blocking=True
+    )
+    url = str(_letzter_aufruf(aioclient_mock))
+    assert "/api/relais/5" in url and "an=1" in url
+    assert hass.states.get("switch.signalsaeule_warnleuchte").state == "on"
+
+
+async def test_saeule_diagnose_und_test(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup_saeule(hass, aioclient_mock)
+    assert hass.states.get("sensor.signalsaeule_selbstdiagnose").state == "nie gelaufen"
+    assert hass.states.get("binary_sensor.signalsaeule_beanstandung").state == "unavailable"
+
+    fertig = {
+        "laeuft": False, "fertig": True, "ok": False, "vor_s": 3,
+        "punkte": [
+            {"name": "WLAN", "ok": 1, "text": "SAS00, -58 dBm"},
+            {"name": "USB", "ok": -1, "text": "nur Spannung, kein Rechner"},
+            {"name": "Rot", "ok": 0, "text": "Pin D5 liest 0"},
+        ],
+    }
+    aioclient_mock.post(f"{SAEULE_URL}/api/diagnose", json=saeule_state(diagnose=fertig))
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.signalsaeule_selbstdiagnose"}, blocking=True
+    )
+    assert hass.states.get("sensor.signalsaeule_selbstdiagnose").state == "1 Beanstandung(en)"
+    assert hass.states.get("binary_sensor.signalsaeule_beanstandung").state == "on"
+
+    aioclient_mock.post(f"{SAEULE_URL}/api/test", json=saeule_state(test=True))
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_testmodus"}, blocking=True
+    )
+    assert "an=1" in str(_letzter_aufruf(aioclient_mock))
+    assert hass.states.get("switch.signalsaeule_testmodus").state == "on"
+    assert hass.states.get("sensor.signalsaeule_anzeige").state == "Testmodus"
+
+
+async def test_saeule_config_flow(hass: HomeAssistant, aioclient_mock) -> None:
+    aioclient_mock.get(f"{SAEULE_URL}/api/state", json=saeule_state())
+    ergebnis = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    ergebnis = await hass.config_entries.flow.async_configure(
+        ergebnis["flow_id"], {"next_step_id": "saeule"}
+    )
+    assert ergebnis["step_id"] == "saeule"
+    ergebnis = await hass.config_entries.flow.async_configure(
+        ergebnis["flow_id"], {"name": "Signalsaeule", "host": "192.168.1.70"}
+    )
+    assert ergebnis["type"] == "create_entry"
+    assert ergebnis["data"]["typ"] == "saeule"
+    assert ergebnis["result"].unique_id == "34:85:18:aa:bb:cc"

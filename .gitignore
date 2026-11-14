@@ -12,3 +12,4 @@ app/.kotlin/
 __pycache__/
 .pytest_cache/
 .venv/
+firmware/*/*/arduino_secrets.h

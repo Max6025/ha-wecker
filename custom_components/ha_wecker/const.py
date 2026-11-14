@@ -6,10 +6,21 @@ DOMAIN = "ha_wecker"
 CONF_TYP = "typ"
 TYP_WECKER = "wecker"
 TYP_RELAIS = "relais"
+TYP_SAEULE = "saeule"
 
 # Relaisbox (ESP32)
 CONF_HOST = "host"
 RELAIS_ABFRAGE_S = 10
+
+# Signalsaeule (Arduino UNO R4 WiFi). Die Saeule schiebt jede Aenderung ueber
+# den Ereignisstrom, die Abfrage ist nur die Rueckfallebene.
+SAEULE_ABFRAGE_S = 15
+MODUS_AUTO = "auto"
+MODUS_MANUELL = "manuell"
+STATUS_STANDARD = "ruhe"
+# Rolle einer Leuchte in /api/state: "stufe" gehoert zur Saeule und folgt dem
+# Status, "warn" ist die Blitz-Warnleuchte mit eigenem Schalter.
+ROLLE_WARN = "warn"
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 SIGNAL_WECKER_ALLE = DOMAIN + "_wecker_alle"     # irgendein Wecker hat sich gemeldet

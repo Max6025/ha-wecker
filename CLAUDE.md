@@ -1,7 +1,8 @@
 # HA Wecker – Hinweise fuer die Arbeit am Repo
 
-Drei Teile, eine Integration: `custom_components/ha_wecker` (Home Assistant),
-`app/` (Android-Wecker-App), `firmware/relaisbox/` (ESP32-S3 mit Relais).
+Vier Teile, eine Integration: `custom_components/ha_wecker` (Home Assistant),
+`app/` (Android-Wecker-App), `firmware/relaisbox/` (ESP32-S3 mit Relais),
+`firmware/signalsaeule/` (Arduino UNO R4 WiFi an einer Rittal-Signalsaeule).
 Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 
 ## Regeln
@@ -39,6 +40,22 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Seiten und im README. Der Ereignisstrom laeuft auf einem eigenen Port, weil
   der Arduino-WebServer keine Verbindung offen halten kann.
 
+- **Signalsaeule-Pins:** MOSFET-Module, aktiv **HIGH**. D2 = H5 Blitz-Warnleuchte
+  (1-Kanal-Modul K1), D3-D6 = H1 gruen, H2 orange, H3 rot, H4 Hinweis (K2 IN1-IN4).
+  Die Nummern in `/api/state` (1-4 Stufen, 5 Warnleuchte) nie umsortieren, die
+  HA-Entitaeten haengen daran. Stromlaufplan: `SIG-R4-E`.
+- **Saeule: `an` und `live` sind zwei Dinge.** `an` ist der logische Zustand
+  (bleibt stehen, waehrend die Leuchte blinkt), `live` der Pegel im Augenblick.
+  HA nimmt `an`, das Dashboard `live`. Der Ereignisstrom pusht nur bei
+  Aenderung der logischen Lage - sonst flattert HA im Sekundentakt.
+- **Saeule: Typen vor die erste Funktion.** `arduino-cli` setzt seine erzeugten
+  Prototypen vor die erste Funktionsdefinition im .ino. Stehen `enum Status`,
+  `struct Leuchte` & Co. weiter unten, bricht der Build mit "'Status' was not
+  declared in this scope" ab. Darum stehen alle Typen ganz oben.
+- **Saeule: Gedaechtnis im Daten-Flash.** Status, Betriebsart und Warnleuchte
+  liegen in `Preferences` ("saeule"), damit die Saeule nach einem Stromausfall
+  ihren Status wieder aufnimmt. Verzoegert geschrieben (3 s) und nur bei echter
+  Aenderung - der Daten-Flash haelt keine beliebige Zahl von Zyklen aus.
 - **Weckruf:** Im Empfaenger nur PARTIAL_WAKE_LOCK. Schaltet man den Bildschirm
   vorher selbst ein, zeigt Android (ohne Sperre) statt der Weckruf-Seite nur den
   Hinweis oben. Bei eingeschaltetem, entsperrtem Handy kommt die Seite nur ueber
@@ -60,8 +77,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 python -m venv .venv && .venv/bin/pip install pytest-homeassistant-custom-component
 .venv/bin/pytest tests/
 
-# Firmware
+# Firmware Relaisbox
 cd firmware/relaisbox && pio run -e esp32s3            # -t upload zum Flashen
+
+# Firmware Signalsaeule
+cd firmware/signalsaeule && arduino-cli compile -b arduino:renesas_uno:unor4wifi signalsaeule
+arduino-cli upload -b arduino:renesas_uno:unor4wifi -p /dev/ttyACM0 signalsaeule
 
 # App (Gradle 8.11.x, nicht 9; AGP 8.9.3, compileSdk 36)
 cd app && echo "sdk.dir=$HOME/Android/Sdk" > local.properties && gradle assembleRelease
@@ -69,3 +90,7 @@ cd app && echo "sdk.dir=$HOME/Android/Sdk" > local.properties && gradle assemble
 
 Beim Flashen oeffnet jedes Oeffnen des seriellen Ports einen Reset der Box;
 mitlesen mit 115200 Baud. Grund 15 beim WLAN heisst falsches Kennwort.
+
+`/dev/ttyACM0` des Arduino gehoert nach jedem Anstecken `root:uucp`, und max ist
+nicht in `uucp`. Vor dem Upload darum einmal
+`sudo chgrp wheel /dev/ttyACM0 && sudo chmod g+rw /dev/ttyACM0`.

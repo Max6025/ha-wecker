@@ -1,6 +1,7 @@
 """Einrichtung der HA-Wecker-Integration ueber die Oberflaeche.
 
-Erster Schritt ist ein Menue: Wecker (Android-App) oder Relaisbox (ESP32).
+Erster Schritt ist ein Menue: Wecker (Android-App), Relaisbox (ESP32) oder
+Signalsaeule (Arduino UNO R4 WiFi).
 """
 from __future__ import annotations
 
@@ -31,12 +32,15 @@ from .const import (
     HAUPTLICHT_BIS_STANDARD,
     HAUPTLICHT_VON_STANDARD,
     TYP_RELAIS,
+    TYP_SAEULE,
     TYP_WECKER,
 )
 from .relais import host_zu_url, relaisbox_abfragen
+from .saeule import saeule_abfragen
 
 DEFAULT_NAME_WECKER = "HA Wecker"
 DEFAULT_NAME_RELAIS = "Relaisbox"
+DEFAULT_NAME_SAEULE = "Signalsäule"
 
 
 
@@ -55,7 +59,9 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="user", menu_options=["wecker", "relais"])
+        return self.async_show_menu(
+            step_id="user", menu_options=["wecker", "relais", "saeule"]
+        )
 
     # --- Wecker (Android-App) -------------------------------------------
 
@@ -111,6 +117,43 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="relais", data_schema=schema, errors=errors)
 
+    # --- Signalsaeule (Arduino UNO R4 WiFi) ------------------------------
+
+    async def async_step_saeule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            host = (user_input.get(CONF_HOST) or "").strip()
+            daten = None
+            if host:
+                try:
+                    daten = await saeule_abfragen(self.hass, host)
+                except Exception:  # noqa: BLE001 - jede Art von Nichterreichbarkeit
+                    daten = None
+            if not host:
+                errors[CONF_HOST] = "host_fehlt"
+            elif daten is None:
+                errors[CONF_HOST] = "keine_saeule"
+            else:
+                mac = str(daten.get("mac") or host).lower()
+                await self.async_set_unique_id(mac)
+                self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+                name = (user_input.get(CONF_NAME) or DEFAULT_NAME_SAEULE).strip() or DEFAULT_NAME_SAEULE
+                return self.async_create_entry(
+                    title=name,
+                    data={CONF_TYP: TYP_SAEULE, CONF_NAME: name, CONF_HOST: host},
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_NAME, default=DEFAULT_NAME_SAEULE): str,
+                vol.Required(CONF_HOST, default="signalsaeule.local"): str,
+            }
+        )
+        return self.async_show_form(step_id="saeule", data_schema=schema, errors=errors)
+
     # --- Relaisbox per mDNS gefunden -------------------------------------
 
     async def async_step_zeroconf(
@@ -152,7 +195,10 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        if config_entry.data.get(CONF_TYP, TYP_WECKER) == TYP_RELAIS:
+        typ = config_entry.data.get(CONF_TYP, TYP_WECKER)
+        if typ == TYP_SAEULE:
+            return SaeuleOptionsFlow(config_entry)
+        if typ == TYP_RELAIS:
             return RelaisOptionsFlow(config_entry)
         return WeckerOptionsFlow(config_entry)
 
@@ -231,6 +277,45 @@ class RelaisOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="relais",
             data_schema=vol.Schema(felder),
+            errors=errors,
+            description_placeholders={"url": host_zu_url(current)},
+        )
+
+
+class SaeuleOptionsFlow(OptionsFlow):
+    """Adresse der Signalsaeule. Alles Weitere steht auf ihrem eigenen Dashboard."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        self._entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        # Eigener Schritt-Name, damit der Text nicht mit dem des Weckers kollidiert
+        return await self.async_step_saeule(user_input)
+
+    async def async_step_saeule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        opt = self._entry.options
+        current = opt.get(CONF_HOST, self._entry.data.get(CONF_HOST, ""))
+
+        if user_input is not None:
+            host = (user_input.get(CONF_HOST) or "").strip()
+            if not host:
+                errors[CONF_HOST] = "host_fehlt"
+            else:
+                try:
+                    await saeule_abfragen(self.hass, host)
+                except Exception:  # noqa: BLE001
+                    errors[CONF_HOST] = "keine_saeule"
+                else:
+                    return self.async_create_entry(title="", data={CONF_HOST: host})
+
+        return self.async_show_form(
+            step_id="saeule",
+            data_schema=vol.Schema({vol.Required(CONF_HOST, default=current): str}),
             errors=errors,
             description_placeholders={"url": host_zu_url(current)},
         )

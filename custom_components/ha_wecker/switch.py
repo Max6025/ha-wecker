@@ -11,15 +11,24 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, SIGNAL_LAMPE, TEST_LICHTBILD
-from .entity import RelaisEntity
+from .const import DOMAIN, ROLLE_WARN, SIGNAL_LAMPE, TEST_LICHTBILD
+from .entity import RelaisEntity, SaeuleEntity
 from .relais import RelaisCoordinator
+from .saeule import SaeuleCoordinator
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     obj = hass.data[DOMAIN][entry.entry_id]
+    if isinstance(obj, SaeuleCoordinator):
+        saeule: list[SwitchEntity] = [
+            LeuchteSwitch(obj, r["nr"]) for r in obj.leuchten(nur_warn=False)
+        ]
+        saeule += [WarnleuchteSwitch(obj, r["nr"]) for r in obj.leuchten(nur_warn=True)]
+        saeule.append(SaeuleTestSwitch(obj))
+        async_add_entities(saeule)
+        return
     if not isinstance(obj, RelaisCoordinator):
         return
     entities: list[SwitchEntity] = [RelaisSwitch(obj, r["nr"]) for r in obj.brauchbare_relais()]
@@ -175,3 +184,109 @@ class TestSwitch(RelaisEntity, SwitchEntity):
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(str(err)) from err
         self.async_write_ha_state()
+
+
+# --- Signalsaeule -----------------------------------------------------------
+
+
+class _SaeuleLeuchte(SaeuleEntity, SwitchEntity):
+    """Grundlage der Leuchtenschalter: Zustand kommt aus /api/state."""
+
+    _attr_device_class = SwitchDeviceClass.SWITCH
+
+    def __init__(self, coordinator: SaeuleCoordinator, nr: int, schluessel: str) -> None:
+        super().__init__(coordinator, f"{schluessel}_{nr}")
+        self.nr = nr
+
+    @property
+    def _leuchte(self) -> dict[str, Any] | None:
+        return self.coordinator.relais(self.nr)
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._leuchte is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        r = self._leuchte
+        # "an" ist der logische Zustand: er bleibt stehen, waehrend die Leuchte
+        # blinkt. "live" ist der Pegel in diesem Augenblick - nur ein Attribut,
+        # sonst wuerde Home Assistant im Sekundentakt flattern.
+        return bool(r.get("an")) if r else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        r = self._leuchte or {}
+        return {
+            "nr": self.nr,
+            "pin": r.get("gpio"),
+            "leuchtet_jetzt": bool(r.get("live")),
+            "pegel": r.get("pegel"),
+        }
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._schalten(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._schalten(False)
+
+    async def _schalten(self, an: bool) -> None:
+        try:
+            await self.coordinator.async_schalten(self.nr, an)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+
+
+class LeuchteSwitch(_SaeuleLeuchte):
+    """Eine Stufe der Saeule. Von Hand zu schalten stellt auf Manuell um."""
+
+    def __init__(self, coordinator: SaeuleCoordinator, nr: int) -> None:
+        super().__init__(coordinator, nr, "leuchte")
+        r = coordinator.relais(nr) or {}
+        self._attr_name = str(r.get("name") or f"Leuchte {nr}")
+
+    @property
+    def icon(self) -> str:
+        r = self._leuchte or {}
+        if not r.get("an"):
+            return "mdi:lightbulb-outline"
+        return "mdi:lightbulb-on" if r.get("live") else "mdi:lightbulb-on-outline"
+
+
+class WarnleuchteSwitch(_SaeuleLeuchte):
+    """Die Blitz-Warnleuchte. Eigener Schalter, gilt in beiden Betriebsarten."""
+
+    _attr_name = "Warnleuchte"
+
+    def __init__(self, coordinator: SaeuleCoordinator, nr: int) -> None:
+        super().__init__(coordinator, nr, "warnleuchte")
+
+    @property
+    def icon(self) -> str:
+        return "mdi:alarm-light" if self.is_on else "mdi:alarm-light-off-outline"
+
+
+class SaeuleTestSwitch(SaeuleEntity, SwitchEntity):
+    """Testmodus: Lauflicht ueber alle Stufen, die Warnleuchte blitzt in Schueben."""
+
+    _attr_name = "Testmodus"
+    _attr_icon = "mdi:test-tube"
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "testmodus")
+
+    @property
+    def is_on(self) -> bool:
+        return bool((self.coordinator.data or {}).get("test"))
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        await self._setzen(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        await self._setzen(False)
+
+    async def _setzen(self, an: bool) -> None:
+        try:
+            await self.coordinator.async_test(an)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err

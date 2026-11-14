@@ -8,14 +8,18 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .entity import RelaisEntity
+from .entity import RelaisEntity, SaeuleEntity
 from .relais import RelaisCoordinator
+from .saeule import SaeuleCoordinator
 
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     obj = hass.data[DOMAIN][entry.entry_id]
+    if isinstance(obj, SaeuleCoordinator):
+        async_add_entities([DiagnoseButton(obj), AllesAusButton(obj)])
+        return
     if isinstance(obj, RelaisCoordinator):
         async_add_entities([AlarmStopButton(obj)])
         return
@@ -36,5 +40,37 @@ class AlarmStopButton(RelaisEntity, ButtonEntity):
     async def async_press(self) -> None:
         try:
             await self.coordinator.async_alarm_stoppen(None)
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+
+
+class DiagnoseButton(SaeuleEntity, ButtonEntity):
+    """Startet die Selbstdiagnose der Saeule. Das Ergebnis steht im Sensor."""
+
+    _attr_name = "Selbstdiagnose"
+    _attr_icon = "mdi:stethoscope"
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "diagnose")
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_diagnose()
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+
+
+class AllesAusButton(SaeuleEntity, ButtonEntity):
+    """Alle Leuchten aus, Warnleuchte aus, Betriebsart Manuell."""
+
+    _attr_name = "Alles aus"
+    _attr_icon = "mdi:lightbulb-off"
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "alles_aus")
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_alles_aus()
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(str(err)) from err

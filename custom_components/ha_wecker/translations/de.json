@@ -5,7 +5,8 @@
         "title": "HA Wecker – was soll hinzugefügt werden?",
         "menu_options": {
           "wecker": "Wecker (Android-App)",
-          "relais": "Relaisbox (ESP32)"
+          "relais": "Relaisbox (ESP32)",
+          "saeule": "Signalsäule (Arduino UNO R4 WiFi)"
         }
       },
       "wecker": {
@@ -29,16 +30,26 @@
         "data": {
           "name": "Name"
         }
+      },
+      "saeule": {
+        "title": "Signalsäule einrichten",
+        "description": "Adresse der Signalsäule im Netz, z. B. 192.168.1.70. Die Säule zeigt das letzte Glied ihrer Adresse beim Start auf der LED-Matrix und hat unter dieser Adresse auch ihr eigenes Dashboard.",
+        "data": {
+          "name": "Name",
+          "host": "Adresse"
+        }
       }
     },
     "error": {
       "host_fehlt": "Bitte eine Adresse eingeben.",
-      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox."
+      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox.",
+      "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule."
     },
     "abort": {
       "already_configured": "Dieses Gerät ist bereits eingerichtet.",
       "nicht_relaisbox": "Gefundenes Gerät ist keine Relaisbox.",
-      "nicht_erreichbar": "Die gefundene Relaisbox antwortet nicht."
+      "nicht_erreichbar": "Die gefundene Relaisbox antwortet nicht.",
+      "keine_saeule": "Die gefundene Signalsäule antwortet nicht."
     },
     "flow_title": "{name}"
   },
@@ -58,11 +69,19 @@
           "hauptlicht_von": "Hauptlicht mitnehmen ab",
           "hauptlicht_bis": "Hauptlicht mitnehmen bis"
         }
+      },
+      "saeule": {
+        "title": "Signalsäule",
+        "description": "Derzeit: {url}\n\nBetriebsart „Auto“: der Status treibt die Säule, jeder Wechsel wird angesagt und bleibt dann stehen. „Manuell“: die Leuchten werden einzeln geschaltet. Die Blitz-Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten.\n\nAlles Weitere – Testmodus, Selbstdiagnose, Live-Bild der Säule – steht auch auf dem Dashboard der Säule selbst.",
+        "data": {
+          "host": "Adresse der Signalsäule"
+        }
       }
     },
     "error": {
       "host_fehlt": "Bitte eine Adresse eingeben.",
-      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox."
+      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox.",
+      "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule."
     }
   },
   "entity": {

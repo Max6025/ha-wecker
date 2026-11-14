@@ -4,6 +4,8 @@ Zwei Geraetetypen in einer Integration:
 - Wecker:    die App meldet ihren Stand per Webhook (kein Dienst im Hintergrund,
              kein lokaler Server, nichts zum Abfragen)
 - Relaisbox: ESP32 im WLAN, Relais schalten und Alarmmuster laufen lassen
+- Saeule:    Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell,
+             Status mit Ansage, einzelne Leuchten, Selbstdiagnose
 """
 from __future__ import annotations
 
@@ -29,16 +31,25 @@ from .const import (
     SIGNAL_WECKER_ALLE,
     STORAGE_VERSION,
     TYP_RELAIS,
+    TYP_SAEULE,
     TYP_WECKER,
 )
 from .lampe import WeckerLampe
 from .relais import RelaisCoordinator
+from .saeule import SaeuleCoordinator
 from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS_WECKER: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
 PLATFORMS_RELAIS: list[Platform] = [
+    Platform.SWITCH,
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+]
+PLATFORMS_SAEULE: list[Platform] = [
+    Platform.SELECT,
     Platform.SWITCH,
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
@@ -52,7 +63,10 @@ def entry_typ(entry: ConfigEntry) -> str:
 
 
 def platforms_fuer(entry: ConfigEntry) -> list[Platform]:
-    return PLATFORMS_RELAIS if entry_typ(entry) == TYP_RELAIS else PLATFORMS_WECKER
+    typ = entry_typ(entry)
+    if typ == TYP_SAEULE:
+        return PLATFORMS_SAEULE
+    return PLATFORMS_RELAIS if typ == TYP_RELAIS else PLATFORMS_WECKER
 
 
 class WeckerData:
@@ -157,10 +171,22 @@ async def _setup_relais(hass: HomeAssistant, entry: ConfigEntry) -> None:
     coordinator.async_start_events()
 
 
+async def _setup_saeule(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    coordinator = SaeuleCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_SAEULE)
+    # Jede Aenderung kommt sofort ueber den Ereignisstrom
+    coordinator.async_start_events()
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Eintrag einrichten."""
     hass.data.setdefault(DOMAIN, {})
-    if entry_typ(entry) == TYP_RELAIS:
+    typ = entry_typ(entry)
+    if typ == TYP_SAEULE:
+        await _setup_saeule(hass, entry)
+    elif typ == TYP_RELAIS:
         await _setup_relais(hass, entry)
     else:
         await _setup_wecker(hass, entry)

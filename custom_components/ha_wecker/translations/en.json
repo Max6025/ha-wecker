@@ -5,7 +5,8 @@
         "title": "HA Wecker – what do you want to add?",
         "menu_options": {
           "wecker": "Alarm clock (Android app)",
-          "relais": "Relay box (ESP32)"
+          "relais": "Relay box (ESP32)",
+          "saeule": "Signal tower (Arduino UNO R4 WiFi)"
         }
       },
       "wecker": {
@@ -29,16 +30,26 @@
         "data": {
           "name": "Name"
         }
+      },
+      "saeule": {
+        "title": "Set up signal tower",
+        "description": "Address of the signal tower on the network, e.g. 192.168.1.70. The tower shows the last part of its address on the LED matrix at start-up and serves its own dashboard there.",
+        "data": {
+          "name": "Name",
+          "host": "Address"
+        }
       }
     },
     "error": {
       "host_fehlt": "Please enter an address.",
-      "nicht_erreichbar": "No relay box answers at this address."
+      "nicht_erreichbar": "No relay box answers at this address.",
+      "keine_saeule": "No signal tower answers at this address."
     },
     "abort": {
       "already_configured": "This device is already configured.",
       "nicht_relaisbox": "The discovered device is not a relay box.",
-      "nicht_erreichbar": "The discovered relay box does not answer."
+      "nicht_erreichbar": "The discovered relay box does not answer.",
+      "keine_saeule": "The signal tower found does not answer."
     },
     "flow_title": "{name}"
   },
@@ -58,11 +69,19 @@
           "hauptlicht_von": "Main light from",
           "hauptlicht_bis": "Main light until"
         }
+      },
+      "saeule": {
+        "title": "Signal tower",
+        "description": "Currently: {url}\n\nMode \"Auto\": the status drives the tower, every change is announced and then holds. \"Manual\": the lamps are switched one by one. The flashing beacon has its own switch and applies in both modes.",
+        "data": {
+          "host": "Address of the signal tower"
+        }
       }
     },
     "error": {
       "host_fehlt": "Please enter an address.",
-      "nicht_erreichbar": "No relay box answers at this address."
+      "nicht_erreichbar": "No relay box answers at this address.",
+      "keine_saeule": "No signal tower answers at this address."
     }
   },
   "entity": {
