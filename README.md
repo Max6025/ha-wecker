@@ -497,7 +497,8 @@ anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
 | Entity | Inhalt |
 |---|---|
 | `switch.ha_wecker_weckablauf` | an = der Ablauf laeuft mit. Attribute: Block, naechster Wecker, Nullpunkt, Fehler der Ablaufdatei und das **Protokoll** jedes Schritts mit Ergebnis |
-| `button.ha_wecker_probelauf` | spielt den Ablauf sofort durch: eine Minute Vorlauf, dann „klingelt" es |
+| `button.ha_wecker_probelauf` | spielt den Ablauf sofort durch: eine Minute Vorlauf, dann „klingelt" es, 30 s später gilt der Weckruf als beendet |
+| `button.ha_wecker_ablauf_abbrechen` | stoppt einen laufenden Ablauf und räumt auf: Licht aus, Säule auf Ruhe |
 
 **Ablaufdatei**
 
@@ -512,19 +513,32 @@ anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
       "bis": "10:00",
       "schritte": [
         { "zeit": -60, "saeule": { "status": "hinweis" } },
-        { "zeit": -60, "licht":  { "prozent": 3, "dauer": 60 } },
+        { "zeit": -60, "licht":  { "prozent": 5, "dauer": 60 } },
         { "zeit":   0, "saeule": { "status": "alarm" } },
-        { "zeit":   0, "licht":  { "prozent": 90, "dauer": 20 } },
-        { "zeit": 540, "licht":  { "prozent": 5, "dauer": 30 } },
-        { "zeit": 840, "licht":  { "aus": true } },
-        { "zeit": 840, "saeule": { "status": "ruhe" } }
+
+        { "zeit":   0, "ab": "ende", "saeule": { "status": "kreuz" } },
+        { "zeit":   0, "ab": "ende", "licht":  { "prozent": 70, "dauer": 10 } },
+        { "zeit": 420, "ab": "ende", "licht":  { "aus": true, "dauer": 30 } },
+        { "zeit": 420, "ab": "ende", "saeule": { "status": "alarm" } },
+        { "zeit": 480, "ab": "ende", "saeule": { "status": "ruhe" } }
       ]
     }
   ]
 }
 ```
 
-- `zeit` zaehlt in **Sekunden ab dem Klingeln**, negativ heisst vorher.
+Das ist zugleich der **Standardablauf**, wenn das Feld leer bleibt: In der
+letzten Minute vor dem Weckruf steigt das Licht auf 5 %, die Saeule zeigt
+Hinweis. Beim Klingeln geht sie in den Alarm und nimmt ihre Blitz-Warnleuchte
+mit. Sobald du den Weckruf **beendest**, faellt die Warnleuchte mit dem Alarm
+weg, die Saeule geht in den Kreuzwechsel und das Licht auf 70 %. Sieben
+Minuten spaeter dimmt das Licht aus und die Saeule schlaegt noch einmal Alarm,
+eine Minute danach steht sie auf Gruen und nimmt wieder Befehle an.
+
+- `zeit` zaehlt in **Sekunden**, `ab` sagt wovon: `weckruf` (Vorgabe) rechnet
+  ab dem Klingeln, negativ heisst vorher; `ende` rechnet ab dem Moment, in dem
+  du den Weckruf beendest. Der Nachlauf haengt also an dir, nicht an der Uhr.
+  Wird geschlummert, bleibt der Ablauf stehen, bis es wieder klingelt.
 - Es gilt der **erste Block**, dessen Wochentag und Zeitfenster zur Weckzeit
   passen. `von` gleich `bis` heisst: immer.
 - `licht`: `prozent` (0-100), `dauer` in Sekunden fuer den Uebergang, `aus`.

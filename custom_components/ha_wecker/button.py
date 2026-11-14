@@ -17,7 +17,7 @@ async def async_setup_entry(
 ) -> None:
     obj = hass.data[DOMAIN][entry.entry_id]
     if getattr(obj, "ablauf", None) is not None:
-        async_add_entities([ProbelaufButton(obj)])
+        async_add_entities([ProbelaufButton(obj), AbbrechenButton(obj)])
         return
     if isinstance(obj, SaeuleCoordinator):
         async_add_entities([DiagnoseButton(obj), AllesAusButton(obj)])
@@ -79,3 +79,20 @@ class ProbelaufButton(WeckerEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self._data.ablauf.async_probelauf(PROBELAUF_VORLAUF_S)
+
+
+class AbbrechenButton(WeckerEntity, ButtonEntity):
+    """Stoppt einen laufenden Ablauf und raeumt auf: Licht aus, Saeule auf Ruhe."""
+
+    _attr_name = "Ablauf abbrechen"
+    _attr_icon = "mdi:stop-circle-outline"
+
+    def __init__(self, data) -> None:
+        super().__init__(data, "ablauf_abbrechen")
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_press(self) -> None:
+        await self._data.ablauf.async_abbrechen()

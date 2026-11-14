@@ -90,6 +90,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Relaisbox lief gar nichts, und die Hauptlicht-Option steckte in deren
   Optionsdialog. Der Ablauf greift ueber `hass.data[DOMAIN]` auf Geraete aus
   anderen Eintraegen zu (die Saeule), das ist Absicht.
+- **Ein Schritt haengt entweder am Weckruf oder am Beenden** (`ab`:
+  "weckruf" oder "ende"). Beide Haelften werden getrennt geplant; ein neuer
+  Lauf raeumt nur die Timer seiner eigenen Haelfte ab. Der Nachlauf faengt
+  genau dann an, wenn die App "ringing" auf false setzt - nicht nach Uhrzeit.
+  Der Probelauf simuliert das Beenden nach 30 s, sonst liefe die zweite
+  Haelfte nie an.
 - **Die naechste Weckzeit wird selbst gerechnet**, aus `hour`, `minute`,
   `days_mask` und `skip_next` der App-Nutzlast (`_termin_rechnen`).
   `next_trigger` ist nur Rueckfallebene: die App meldet sich nur bei

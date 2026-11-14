@@ -110,9 +110,9 @@ async def test_webhook_fills_entities(
     assert "hawecker_test123" in wh.attributes["adresse_fuer_die_app"]
     # Der Wecker hat den Probelauf-Knopf und den Schalter fuer den Weckablauf;
     # abzufragen gibt es bei ihm nichts, der Rest kommt ueber den Webhook.
-    assert [st.entity_id for st in hass.states.async_all("button") if "wecker" in st.entity_id] == [
-        "button.ha_wecker_probelauf"
-    ]
+    assert sorted(
+        st.entity_id for st in hass.states.async_all("button") if "wecker" in st.entity_id
+    ) == ["button.ha_wecker_ablauf_abbrechen", "button.ha_wecker_probelauf"]
     assert hass.states.get("switch.ha_wecker_weckablauf").state == "on"
 
     client = await hass_client_no_auth()
@@ -449,8 +449,8 @@ def _lichtrufe(calls):
     return [(c.service, c.data.get("brightness_pct"), c.data.get("transition")) for c in calls]
 
 
-async def test_probelauf_schaltet_das_hauptlicht(hass: HomeAssistant) -> None:
-    """Der Probelauf faehrt den Standardablauf und schaltet dabei wirklich das Licht."""
+async def test_probelauf_faehrt_vorlauf_und_nachlauf(hass: HomeAssistant) -> None:
+    """Der Probelauf spielt beide Haelften: ab dem Weckruf und ab dem Beenden."""
     from datetime import timedelta
 
     from homeassistant.util import dt as dt_util
@@ -472,28 +472,52 @@ async def test_probelauf_schaltet_das_hauptlicht(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
 
-    # Vorlauf: sofort 3 %, der Uebergang auf 60 s
-    assert _lichtrufe(an) == [("turn_on", 3, 60)]
+    # Vorlauf: sofort auf 5 %, der Uebergang ueber die ganze Minute
+    assert _lichtrufe(an) == [("turn_on", 5, 60)]
     zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
     assert zustand["laeuft"] is True and zustand["probelauf"] is True
     assert zustand["block"] == "Immer"
 
-    # Eine Minute spaeter "klingelt" es: 90 %
+    # Eine Minute spaeter klingelt es - am Licht aendert das nichts
     async_fire_time_changed(hass, start + timedelta(seconds=61))
     await hass.async_block_till_done()
-    assert _lichtrufe(an)[-1] == ("turn_on", 90, 20)
+    assert _lichtrufe(an) == [("turn_on", 5, 60)]
 
-    # Nach neun Minuten herunter, nach vierzehn aus
-    async_fire_time_changed(hass, start + timedelta(seconds=601))
+    # Nach weiteren 30 s gilt der Weckruf als beendet: Licht auf 70 %
+    async_fire_time_changed(hass, start + timedelta(seconds=91))
     await hass.async_block_till_done()
-    assert _lichtrufe(an)[-1] == ("turn_on", 5, 30)
-    async_fire_time_changed(hass, start + timedelta(seconds=901))
+    assert _lichtrufe(an)[-1] == ("turn_on", 70, 10)
+    assert hass.states.get("switch.ha_wecker_weckablauf").attributes["beendet_um"]
+
+    # Sieben Minuten nach dem Beenden geht das Licht aus
+    async_fire_time_changed(hass, start + timedelta(seconds=91 + 421))
     await hass.async_block_till_done()
     assert len(aus) == 1
 
-    # Jeder Schritt steht im Protokoll, und zwar als gelungen
     eintraege = hass.states.get("switch.ha_wecker_weckablauf").attributes["protokoll"]
-    assert [e["ergebnis"] for e in eintraege if e["was"].startswith("Hauptlicht")] == ["ok"] * 4
+    assert [e["ergebnis"] for e in eintraege if e["was"].startswith("Hauptlicht")] == ["ok"] * 3
+
+
+async def test_abbrechen_raeumt_auf(hass: HomeAssistant) -> None:
+    """Der Abbruch stoppt die Timer und schaltet das Licht aus."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    async_mock_service(hass, "light", "turn_on")
+    aus = async_mock_service(hass, "light", "turn_off")
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.ha_wecker_probelauf"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.ha_wecker_weckablauf").attributes["laeuft"] is True
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.ha_wecker_ablauf_abbrechen"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert zustand["laeuft"] is False and zustand["probelauf"] is False
+    assert len(aus) == 1
 
 
 async def test_ablauf_ohne_hauptlicht_meldet_den_fehler(hass: HomeAssistant) -> None:
@@ -569,3 +593,41 @@ async def test_ablauf_steuert_die_saeule(hass: HomeAssistant, aioclient_mock) ->
     eintraege = hass.states.get("switch.ha_wecker_weckablauf").attributes["protokoll"]
     saeulenschritte = [e for e in eintraege if e["was"] == "Signalsaeule"]
     assert saeulenschritte and saeulenschritte[0]["ergebnis"] == "ok"
+
+
+async def test_beenden_des_weckrufs_startet_den_nachlauf(
+    hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
+) -> None:
+    """Der echte Fall: die App meldet klingeln, dann beendet - und erst dann laeuft der Nachlauf."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    an = async_mock_service(hass, "light", "turn_on")
+    await _setup_saeule(hass, aioclient_mock)
+    for pfad in ("/api/status", "/api/relais/5"):
+        aioclient_mock.post(f"{SAEULE_URL}{pfad}", json=saeule_state(status="alarm", warn=True))
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+
+    client = await hass_client_no_auth()
+
+    async def melden(**aenderung):
+        p = copy.deepcopy(PAYLOAD)
+        p.update(aenderung.pop("root", {}))
+        p["alarms"][0].update(aenderung)
+        resp = await client.post("/api/webhook/hawecker_test123", json=p)
+        assert resp.status == 200
+        await hass.async_block_till_done()
+
+    # Es klingelt: die Saeule geht in den Alarm
+    await melden(ringing=True, root={"ringing": True})
+    assert _letzter_aufruf(aioclient_mock).query["status"] == "alarm"
+    assert hass.states.get("switch.ha_wecker_weckablauf").attributes["beendet_um"] is None
+
+    # Beendet: Kreuzwechsel und Licht auf 70 %
+    vorher = len(an)
+    await melden(ringing=False, root={"ringing": False})
+    assert _letzter_aufruf(aioclient_mock).query["status"] == "kreuz"
+    assert _lichtrufe(an[vorher:]) == [("turn_on", 70, 10)]
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert zustand["beendet_um"] is not None
+    geplant = [e for e in zustand["protokoll"] if e["was"] == "Geplant"]
+    assert "ab dem Beenden" in geplant[0]["text"]
