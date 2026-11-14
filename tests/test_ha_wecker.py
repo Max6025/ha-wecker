@@ -709,7 +709,8 @@ async def test_led_nachtruhe(hass: HomeAssistant, aioclient_mock) -> None:
 SAEULE_URL = "http://192.168.1.70"
 
 
-def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=None):
+def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=None,
+                 warn_vom_alarm=False):
     stufen = {
         "ruhe":     [True,  False, False, False],
         "hinweis":  [True,  False, False, True],
@@ -738,7 +739,7 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
         "phase": "betrieb", "modus": modus, "status": status,
         "status_name": {"ruhe": "Ruhe", "hinweis": "Hinweis", "achtung": "Achtung",
                         "stoerung": "Störung", "alarm": "Alarm"}[status],
-        "wechsel": False, "warn": warn, "test": test,
+        "wechsel": False, "warn": warn, "warn_vom_alarm": warn_vom_alarm, "test": test,
         "status_liste": [
             {"id": "ruhe", "name": "Ruhe"}, {"id": "hinweis", "name": "Hinweis"},
             {"id": "achtung", "name": "Achtung"}, {"id": "stoerung", "name": "Störung"},
@@ -825,7 +826,26 @@ async def test_saeule_manuell_und_warnleuchte(hass: HomeAssistant, aioclient_moc
     )
     url = str(_letzter_aufruf(aioclient_mock))
     assert "/api/relais/5" in url and "an=1" in url
-    assert hass.states.get("switch.signalsaeule_warnleuchte").state == "on"
+    warnleuchte = hass.states.get("switch.signalsaeule_warnleuchte")
+    assert warnleuchte.state == "on"
+    assert warnleuchte.attributes["vom_alarm"] is False
+
+
+async def test_saeule_warnleuchte_im_alarm(hass: HomeAssistant, aioclient_mock) -> None:
+    """Im Alarm schaltet die Saeule die Warnleuchte selbst ein."""
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(
+        f"{SAEULE_URL}/api/status",
+        json=saeule_state(status="alarm", warn=True, warn_vom_alarm=True),
+    )
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.signalsaeule_status", "option": "Alarm"},
+        blocking=True,
+    )
+    warnleuchte = hass.states.get("switch.signalsaeule_warnleuchte")
+    assert warnleuchte.state == "on"
+    assert warnleuchte.attributes["vom_alarm"] is True
 
 
 async def test_saeule_diagnose_und_test(hass: HomeAssistant, aioclient_mock) -> None:

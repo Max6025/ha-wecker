@@ -254,12 +254,22 @@ class LeuchteSwitch(_SaeuleLeuchte):
 
 
 class WarnleuchteSwitch(_SaeuleLeuchte):
-    """Die Blitz-Warnleuchte. Eigener Schalter, gilt in beiden Betriebsarten."""
+    """Die Blitz-Warnleuchte. Eigener Schalter, gilt in beiden Betriebsarten.
+
+    Im Status Alarm schaltet die Saeule sie selbst ein, sobald das Alarmbild
+    laeuft; beim Verlassen bekommt sie wieder ihren Stand von vorher.
+    """
 
     _attr_name = "Warnleuchte"
 
     def __init__(self, coordinator: SaeuleCoordinator, nr: int) -> None:
         super().__init__(coordinator, nr, "warnleuchte")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        werte = super().extra_state_attributes
+        werte["vom_alarm"] = bool((self.coordinator.data or {}).get("warn_vom_alarm"))
+        return werte
 
     @property
     def icon(self) -> str:

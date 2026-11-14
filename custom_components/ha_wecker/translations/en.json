@@ -72,7 +72,7 @@
       },
       "saeule": {
         "title": "Signal tower",
-        "description": "Currently: {url}\n\nMode \"Auto\": the status drives the tower, every change is announced and then holds. \"Manual\": the lamps are switched one by one. The flashing beacon has its own switch and applies in both modes.",
+        "description": "Currently: {url}\n\nMode \"Auto\": the status drives the tower, every change is announced and then holds. \"Manual\": the lamps are switched one by one.\n\nThe flashing beacon has its own switch and applies in both modes. In status Alarm it turns itself on once red and the hint lamp start alternating - not during the announcement - and goes back to its previous state when the alarm ends.",
         "data": {
           "host": "Address of the signal tower"
         }

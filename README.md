@@ -472,8 +472,17 @@ das Bild des Status: Ruhe gruen, Hinweis gruen mit ruhigem Blinken, Achtung
 orange, Stoerung rot mit schnellem Blinken, Alarm rot und Hinweis im Wechsel.
 In **Manuell** gilt der Status nicht, stattdessen schaltet man jede Leuchte
 einzeln. Eine Stufe von Hand zu schalten stellt selbst auf Manuell um, und
-einen Status zu waehlen stellt selbst auf Auto zurueck. Die **Blitz-Warnleuchte**
-haengt an keiner Choreografie: eigener Schalter, gilt in beiden Betriebsarten.
+einen Status zu waehlen stellt selbst auf Auto zurueck.
+
+Die **Blitz-Warnleuchte** haengt an keiner Choreografie: eigener Schalter, gilt
+in beiden Betriebsarten. Mitgenommen wird sie von zweierlei. Im **Testmodus**
+blitzt sie in Schueben. Und im Status **Alarm** geht sie von selbst an - aber
+erst, wenn das Alarmbild wirklich laeuft, also wenn Rot und Hinweisleuchte im
+Wechsel zu blinken anfangen, nicht schon waehrend der Ansage. Dann bleibt sie
+dauerhaft an. Verlaesst die Saeule den Alarm, bekommt die Warnleuchte wieder
+den Stand, den sie vorher von Hand hatte; wer sie waehrend des Alarms selbst
+schaltet, nimmt sie dem Alarm ab. In `/api/state` sagt `warn_vom_alarm`, wer
+sie gerade in der Hand hat.
 
 **Nach dem Einschalten** laeuft die Saeule einmal sichtbar durch (von unten
 nach oben dazu, alle zusammen mit einem Blitz, von oben nach unten wieder aus,

@@ -72,7 +72,7 @@
       },
       "saeule": {
         "title": "Signalsäule",
-        "description": "Derzeit: {url}\n\nBetriebsart „Auto“: der Status treibt die Säule, jeder Wechsel wird angesagt und bleibt dann stehen. „Manuell“: die Leuchten werden einzeln geschaltet. Die Blitz-Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten.\n\nAlles Weitere – Testmodus, Selbstdiagnose, Live-Bild der Säule – steht auch auf dem Dashboard der Säule selbst.",
+        "description": "Derzeit: {url}\n\nBetriebsart „Auto“: der Status treibt die Säule, jeder Wechsel wird angesagt und bleibt dann stehen. „Manuell“: die Leuchten werden einzeln geschaltet.\n\nDie Blitz-Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten. Im Status Alarm geht sie von selbst an, sobald Rot und Hinweis im Wechsel blinken – nicht schon während der Ansage –, und beim Verlassen wieder auf ihren Stand von vorher.\n\nAlles Weitere – Testmodus, Selbstdiagnose, Live-Bild der Säule – steht auch auf dem Dashboard der Säule selbst.",
         "data": {
           "host": "Adresse der Signalsäule"
         }

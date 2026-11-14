@@ -26,7 +26,11 @@
     manuell  jede Leuchte wird einzeln geschaltet und bleibt so stehen.
 
   Die Warnleuchte haengt an keiner Choreografie: sie hat einen eigenen
-  Schalter und gilt in beiden Betriebsarten. Nur der Testmodus nimmt sie mit.
+  Schalter und gilt in beiden Betriebsarten. Mitgenommen wird sie von zweierlei:
+  vom Testmodus und vom Status Alarm. Beim Alarm geht sie erst an, wenn das
+  Alarmbild wirklich laeuft - also wenn Rot und Hinweisleuchte im Wechsel
+  blinken, nicht schon waehrend der Ansage - und bleibt dann dauerhaft an.
+  Verlaesst die Saeule den Alarm, bekommt sie wieder den Stand von vorher.
 
   HTTP (Port 80)
     GET  /                          Dashboard
@@ -124,6 +128,11 @@ static const unsigned long RUHE_MS   = 1400;   // Moduslampe steht still
 static Status status = RUHE;
 static bool autoModus = true;
 static bool warnAn = false;
+// Der Alarm nimmt die Warnleuchte mit - aber erst, wenn das Alarmbild wirklich
+// laeuft, nicht schon waehrend der Ansage. Beim Verlassen des Alarms bekommt
+// sie wieder den Stand, den sie vorher von Hand hatte.
+static bool warnVomAlarm = false;
+static bool warnVorAlarm = false;
 static bool testAn = false;
 
 static unsigned long statusSeit = 0;
@@ -293,6 +302,7 @@ static void diagnoseSchritt() {
   diagEnde = millis();
   autoModus = diagVorherAuto;
   warnAn = diagVorherWarn;
+  warnVomAlarm = false;       // der Alarm darf sie gleich wieder uebernehmen
   statusSetzen(diagVorherStatus, false);
   sseSenden();
 }
@@ -305,6 +315,21 @@ static bool diagAllesOk() {
 }
 
 // ------------------------------------------------------------- Leuchtbild
+
+// Alarm und Warnleuchte zusammenbringen. Eingerastet heisst: die Ansage ist
+// durch und die Ruhephase auch - genau der Augenblick, in dem Rot und
+// Hinweisleuchte im Wechsel zu blinken anfangen.
+static void alarmWarnPflegen() {
+  bool soll = autoModus && !testAn && status == ALARM && !wechselAktiv;
+  if (soll && !warnVomAlarm) {
+    warnVorAlarm = warnAn;
+    warnAn = true;
+    warnVomAlarm = true;
+  } else if (!soll && warnVomAlarm) {
+    warnAn = warnVorAlarm;
+    warnVomAlarm = false;
+  }
+}
 
 static void lampenStellen() {
   if (diagLaeuft()) return;            // die Diagnose stellt selbst
@@ -442,7 +467,9 @@ static void merkenBald() { merkenFaellig = millis() + MERKEN_VERZUG_MS; }
 
 static void merkenJetzt() {
   merkenFaellig = 0;
-  uint8_t s = (uint8_t)status, m = autoModus ? 1 : 0, w = warnAn ? 1 : 0;
+  uint8_t s = (uint8_t)status, m = autoModus ? 1 : 0;
+  // den Stand von Hand merken, nicht den vom Alarm erzwungenen
+  uint8_t w = (warnVomAlarm ? warnVorAlarm : warnAn) ? 1 : 0;
   if (s == gemerktStatus && m == gemerktModus && w == gemerktWarn) return;
   merker.putUChar("status", s);
   merker.putUChar("modus", m);
@@ -578,6 +605,7 @@ static String stateJson() {
   s += ",\"status_name\":" + jsonText(STATUS_NAME[status]);
   s += ",\"wechsel\":" + String(imWechsel() || inRuhephase() ? "true" : "false");
   s += ",\"warn\":" + String(warnAn ? "true" : "false");
+  s += ",\"warn_vom_alarm\":" + String(warnVomAlarm ? "true" : "false");
   s += ",\"test\":" + String(testAn ? "true" : "false");
 
   s += ",\"status_liste\":[";
@@ -626,6 +654,7 @@ static String liveJson() {
   s += ",\"status\":\"" + String(STATUS_ID[status]) + "\"";
   s += ",\"wechsel\":" + String(imWechsel() || inRuhephase() ? "true" : "false");
   s += ",\"warn\":" + String(warnAn ? "true" : "false");
+  s += ",\"warn_vom_alarm\":" + String(warnVomAlarm ? "true" : "false");
   s += ",\"test\":" + String(testAn ? "true" : "false");
   s += ",\"phase\":\"" + String(phase == PH_BETRIEB ? "betrieb" : "start") + "\"";
   s += ",\"diag\":" + String(diagLaeuft() ? "true" : "false");
@@ -672,6 +701,7 @@ static String signatur() {
   s += autoModus ? "A" : "M";
   s += String((int)status);
   s += warnAn ? "W" : "-";
+  s += warnVomAlarm ? "A" : "-";
   s += testAn ? "T" : "-";
   s += diagLaeuft() ? "D" : (diagFertig ? "F" : "-");
   s += phase == PH_BETRIEB ? "B" : "S";
@@ -841,7 +871,10 @@ static void httpBedienen() {
     } else {
       bool an = wahr(argWert(ziel, "an"));
       if (LEUCHTEN[i].warn) {
-        warnAn = an;                      // Warnleuchte gilt in beiden Betriebsarten
+        // Warnleuchte gilt in beiden Betriebsarten. Von Hand geschaltet gilt
+        // das auch waehrend eines Alarms - der Alarm hat sie dann abgegeben.
+        warnAn = an;
+        warnVomAlarm = false;
       } else {
         if (autoModus) {                  // von Hand schalten heisst manuell
           for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
@@ -868,6 +901,7 @@ static void httpBedienen() {
   } else if (pfad == "/api/alarm/stop") {
     testAn = false;
     warnAn = false;
+    warnVomAlarm = false;
     autoModus = false;
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
     geaendert = true;
@@ -956,6 +990,7 @@ void loop() {
     if (wechselAktiv && wechselZeit() >= wechselDauer() + RUHE_MS) wechselAktiv = false;
   }
 
+  alarmWarnPflegen();
   lampenStellen();
 
   if (merkenFaellig && millis() >= merkenFaellig) merkenJetzt();

@@ -122,7 +122,9 @@ td.z{width:18px} td.n{width:34%}
       <div class="schalter" id="lampen"></div>
       <div class="warn schalter" style="margin-top:8px" id="warnschalter"></div>
       <div class="hinweis">Eine Stufe von Hand zu schalten stellt auf Manuell. Die
-        Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten.
+        Warnleuchte hat ihren eigenen Schalter und gilt in beiden Betriebsarten;
+        im Status Alarm geht sie von selbst an, sobald Rot und Hinweis im
+        Wechsel blinken, und beim Verlassen wieder auf ihren Stand von vorher.
         Rechts steht der zurückgelesene Pin: so sieht man auch ohne
         angeschlossenes Modul, ob der Arduino wirklich geschaltet hat.</div>
     </div>
@@ -248,7 +250,8 @@ function anwenden(l) {
       // gemessener Pin - so sieht man auch ohne Modul, ob er geschaltet hat
       const pg = l.pegel ? l.pegel[i] : r.pegel;
       const stift = b.querySelector('.pin');
-      if (stift) stift.textContent = 'D' + r.gpio + ' · ' + (pg ? 'high' : 'low');
+      if (stift) stift.textContent = 'D' + r.gpio + ' · ' + (pg ? 'high' : 'low') +
+                 (r.rolle === 'warn' && l.warn_vom_alarm ? ' · vom Alarm' : '');
     }
   });
   E('saeuleinfo').textContent =
