@@ -10,10 +10,14 @@
   Ausgaenge (Stromlaufplan SIG-R4-E, Blatt 9)
 
     D2  K1 : IN       H5  Blitz-Warnleuchte   Ader weiss   braucht Dauerspannung
-    D3  K2 : IN1      H1  gruen   Stufe 1     Ader gelb
+    D3  K2 : IN3      H3  rot     Stufe 3     Ader gelb
     D4  K2 : IN2      H2  orange  Stufe 2     Ader weiss
-    D5  K2 : IN3      H3  rot     Stufe 3     Ader gelb
+    D5  K2 : IN1      H1  gruen   Stufe 1     Ader gelb
     D6  K2 : IN4      H4  Hinweis Stufe 4     Ader rot
+
+  D3 und D5 sind gegenueber dem Stromlaufplan vertauscht: die beiden gelben
+  Adern sind beim Anklemmen verwechselt worden und bleiben so. Die Tabelle
+  LEUCHTEN weiter unten dreht das wieder gerade.
                       Reserve (Ader schwarz) bleibt ungeschaltet
 
   Die Module ziehen bei HIGH durch (F5305S, P-Kanal, schaltet im Pluspfad).
@@ -85,10 +89,14 @@ WiFiServer sseServer(SSE_PORT);
 
 // --------------------------------------------------------------- Leuchten
 
+// Gruen und Rot haengen vertauscht an der Leistungsstufe: beim Anklemmen sind
+// am 14.11. die beiden gelben Adern verwechselt worden. Gerichtet wird das
+// hier, nicht am Draht - Gruen liegt an D5, Rot an D3. Die Nummern 1 bis 5
+// bleiben dabei unberuehrt, die Entitaeten in Home Assistant haengen daran.
 static Leuchte LEUCHTEN[] = {
-  {1, 3, "Gruen",       false},
+  {1, 5, "Gruen",       false},
   {2, 4, "Orange",      false},
-  {3, 5, "Rot",         false},
+  {3, 3, "Rot",         false},
   {4, 6, "Hinweis",     false},
   {5, 2, "Warnleuchte", true },
 };

@@ -41,7 +41,10 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   der Arduino-WebServer keine Verbindung offen halten kann.
 
 - **Signalsaeule-Pins:** MOSFET-Module, aktiv **HIGH**. D2 = H5 Blitz-Warnleuchte
-  (1-Kanal-Modul K1), D3-D6 = H1 gruen, H2 orange, H3 rot, H4 Hinweis (K2 IN1-IN4).
+  (1-Kanal-Modul K1). An K2: D5 = H1 gruen, D4 = H2 orange, D3 = H3 rot,
+  D6 = H4 Hinweis. **D3 und D5 sind gegenueber dem Stromlaufplan vertauscht**
+  (die beiden gelben Adern wurden beim Anklemmen verwechselt und bleiben so);
+  gerichtet wird das in der Tabelle `LEUCHTEN`, nie am Draht.
   Die Nummern in `/api/state` (1-4 Stufen, 5 Warnleuchte) nie umsortieren, die
   HA-Entitaeten haengen daran. Stromlaufplan: `SIG-R4-E`.
 - **Saeule: `an` und `live` sind zwei Dinge.** `an` ist der logische Zustand
