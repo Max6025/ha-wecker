@@ -12,7 +12,7 @@ static const char SEITE[] = R"HTML(<!doctype html>
 *{box-sizing:border-box}
 :root{
   --bg:#0e1116; --karte:#171c24; --rand:#242c38; --text:#e7edf3; --matt:#8b98a8;
-  --gruen:#35d07f; --orange:#ff9f1c; --rot:#ff4d4d; --hinweis:#dbe6ef; --blitz:#ffe066;
+  --gruen:#35d07f; --orange:#ff9f1c; --rot:#ff4d4d; --hinweis:#ffb340; --blitz:#ffe066;
 }
 body{margin:0;background:var(--bg);color:var(--text);
   font:15px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;padding:16px}
@@ -84,7 +84,7 @@ td.z{width:18px} td.n{width:34%}
         </g>
         <rect x="32" y="70" width="56" height="7" rx="2" fill="#2b333f"/>
         <!-- Stufen von oben nach unten: Hinweis, rot, orange, gruen -->
-        <g id="lampe4"><rect x="30" y="79" width="60" height="44" rx="5" fill="#dbe6ef"/>
+        <g id="lampe4"><rect x="30" y="79" width="60" height="44" rx="5" fill="#ffb340"/>
           <rect x="30" y="79" width="60" height="44" rx="5" fill="url(#g)"/></g>
         <rect x="28" y="123" width="64" height="6" rx="2" fill="#2b333f"/>
         <g id="lampe3"><rect x="30" y="129" width="60" height="44" rx="5" fill="#ff4d4d"/>
@@ -151,7 +151,7 @@ td.z{width:18px} td.n{width:34%}
 
 <script>
 const E = id => document.getElementById(id);
-const NAMEN = ["Grün (Stufe 1)","Orange (Stufe 2)","Rot (Stufe 3)","Hinweis (Stufe 4)"];
+const NAMEN = ["Grün (Stufe 1)","Orange (Stufe 2)","Rot (Stufe 3)","Hinweis, orange (Stufe 4)"];
 let z = {}, bereit = false;
 
 async function hol(p, m) {
@@ -263,7 +263,7 @@ function anwenden(l) {
     l.test ? 'Testmodus' : (auto ? (z.status_name || '') : 'Manuell');
 }
 function farbe(nr) {
-  return {1:'#35d07f',2:'#ff9f1c',3:'#ff4d4d',4:'#dbe6ef',5:'#ffe066'}[nr] || '#fff';
+  return {1:'#35d07f',2:'#ff9f1c',3:'#ff4d4d',4:'#ffb340',5:'#ffe066'}[nr] || '#fff';
 }
 
 async function live() {

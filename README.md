@@ -458,7 +458,7 @@ Der komplette Aufbau steht im Stromlaufplan `SIG-R4-E`.
 | D3      | K2 : IN1 | H1 gruen, Stufe 1     | gelb    |
 | D4      | K2 : IN2 | H2 orange, Stufe 2    | weiss   |
 | D5      | K2 : IN3 | H3 rot, Stufe 3       | gelb    |
-| D6      | K2 : IN4 | H4 Hinweis, Stufe 4   | rot     |
+| D6      | K2 : IN4 | H4 Hinweis (orange), Stufe 4 | rot |
 
 Die Zuordnung stimmt mit dem Stromlaufplan `SIG-R4-E` ueberein.
 
@@ -470,8 +470,25 @@ immer gleich angesagt: alle vier Stufen laufen von unten nach oben dazu (bei
 einem Wechsel nach unten umgekehrt), dann raeumt die Saeule von oben nach unten
 wieder ab und laesst nur die Lampe des neuen Status stehen, die erst eine
 Weile ruhig dasteht, bevor die Hinweisleuchte zu blinken beginnt. Danach steht
-das Bild des Status: Ruhe gruen, Hinweis gruen mit ruhigem Blinken, Achtung
-orange, Stoerung rot mit schnellem Blinken, Alarm rot und Hinweis im Wechsel.
+das Bild des Status:
+
+| Status        | Stehendes Bild                                         |
+|---------------|--------------------------------------------------------|
+| Ruhe          | gruen                                                   |
+| Hinweis       | gruen, Hinweis blinkt ruhig (1 s)                       |
+| Achtung       | orange, Hinweis blinkt (0,4 s)                          |
+| Stoerung      | rot, Hinweis blinkt schnell (0,2 s)                     |
+| Alarm         | rot und Hinweis im Wechsel (0,25 s), Warnleuchte dauernd |
+| Kreuzwechsel  | orange+Hinweis und gruen+rot ueber Kreuz (0,3 s), ohne Warnleuchte |
+| Blinker       | alle vier zusammen, schnell (0,15 s)                    |
+
+Die Stufe 4 ("Hinweis") ist ebenfalls **orange**, nicht klar.
+
+Beim **Blinker** bleiben alle vier stehen, darum gibt es nach dem Aufbau nichts
+abzuraeumen: Stufe 1, 2, 3, 4 kommen nacheinander dazu und dann blinkt alles.
+Und wer den Blinker verlaesst, bekommt keinen zweiten Aufbau - es steht ja
+schon alles. Dann heisst es: alle kurz halten, dann Stufe 4 aus, 3 aus, 2 aus,
+1 aus, wobei die Lampe des neuen Status uebersprungen wird und stehen bleibt.
 In **Manuell** gilt der Status nicht, stattdessen schaltet man jede Leuchte
 einzeln. Eine Stufe von Hand zu schalten stellt selbst auf Manuell um, und
 einen Status zu waehlen stellt selbst auf Auto zurueck.

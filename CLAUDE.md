@@ -58,6 +58,15 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   einen WiFiClient ist eine eigene Uebertragung an den ESP32-S3. Kopf und
   Rumpf werden darum erst zusammengebaut und mit einem `write` geschickt, die
   Seite in Happen von 1460 Byte.
+- **Saeule: das Bild eines Status ist eine Maske, keine einzelne Lampe.**
+  `ruheMaske()` sagt, was in der Ruhephase steht (Blinker: alle vier,
+  Kreuzwechsel: orange+Hinweis), `sollMaske()` was Home Assistant als "an"
+  sieht. Der Abbau raeumt nur, was nicht in `ruheMaske` steht - beim Blinker
+  also nichts. Steht beim Wechsel schon die ganze Saeule (`ruheMaske` des
+  alten Status ist 0b1111), faellt der Aufbau weg und es wird nur kurz
+  gehalten (`mitAufbau`), sonst sieht es aus wie ein Stolperer.
+- **Saeule: Stufe 4 ("Hinweis") ist orange**, nicht klar - im Dashboard
+  entsprechend gezeichnet.
 - **Saeule: der Blinktakt zaehlt ab dem Einrasten**, nicht ab `millis()` null
   (`blinkAb`, in `statusSetzen` gesetzt). Sonst ist der erste Impuls
   angeschnitten und beim Alarm faellt Rot im Einrastmoment aus, statt aus der

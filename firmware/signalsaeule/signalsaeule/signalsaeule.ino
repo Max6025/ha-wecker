@@ -60,10 +60,12 @@ static const uint16_t SSE_PORT = 8081;
 // Alle Typen stehen vor der ersten Funktion: arduino-cli setzt seine erzeugten
 // Prototypen vor die erste Funktionsdefinition, und die muessen Status,
 // Leuchte, DiagPunkt und Phase schon kennen.
-enum Status { RUHE = 0, HINWEIS, ACHTUNG, STOERUNG, ALARM, STATUS_ANZAHL };
+enum Status { RUHE = 0, HINWEIS, ACHTUNG, STOERUNG, ALARM, KREUZ, BLINKER, STATUS_ANZAHL };
 
-static const char* STATUS_ID[]   = {"ruhe", "hinweis", "achtung", "stoerung", "alarm"};
-static const char* STATUS_NAME[] = {"Ruhe", "Hinweis", "Achtung", "St\xc3\xb6rung", "Alarm"};
+static const char* STATUS_ID[]   = {"ruhe", "hinweis", "achtung", "stoerung", "alarm",
+                                    "kreuz", "blinker"};
+static const char* STATUS_NAME[] = {"Ruhe", "Hinweis", "Achtung", "St\xc3\xb6rung", "Alarm",
+                                    "Kreuzwechsel", "Blinker"};
 
 struct Leuchte {
   uint8_t nr;            // Nummer bleibt stabil, HA haengt daran
@@ -122,12 +124,32 @@ static void setzen(uint8_t i, bool an) {
 // --------------------------------------------------------------- Zustaende
 
 // Auf welcher Stufe steht die Moduslampe? (0 gruen, 1 orange, 2 rot)
-static uint8_t modusStufe(Status s) {
+// Welche Stufen gehoeren zum stehenden Bild eines Status? Als Maske, Bit 0 ist
+// Stufe 1 (gruen). Frueher war das eine einzelne "Moduslampe" - der Blinker
+// laesst aber alle vier stehen und der Kreuzwechsel zwei.
+static uint8_t ruheMaske(Status s) {
   switch (s) {
-    case ACHTUNG:  return 1;
-    case STOERUNG: return 2;
-    case ALARM:    return 2;
-    default:       return 0;
+    case ACHTUNG:  return 0b0010;            // orange
+    case STOERUNG:
+    case ALARM:    return 0b0100;            // rot
+    case KREUZ:    return 0b1010;            // orange und Hinweis - das erste Paar
+    case BLINKER:  return 0b1111;            // alle vier
+    default:       return 0b0001;            // gruen
+  }
+}
+
+// Welche Stufen gehoeren zum Status, auch wenn sie blinken? Das ist der
+// logische Zustand, den Home Assistant sieht.
+static uint8_t sollMaske(Status s) {
+  switch (s) {
+    case RUHE:     return 0b0001;
+    case HINWEIS:  return 0b1001;
+    case ACHTUNG:  return 0b1010;
+    case STOERUNG:
+    case ALARM:    return 0b1100;
+    case KREUZ:
+    case BLINKER:  return 0b1111;
+    default:       return 0b0001;
   }
 }
 
@@ -149,18 +171,25 @@ static unsigned long statusSeit = 0;
 static bool wechselAktiv = false;
 static bool pfeilHoch = true;
 static unsigned long blinkAb = 0;   // ab wann der Blinktakt zaehlt
+// Steht ohnehin schon die ganze Saeule (aus dem Blinker heraus), waere ein
+// Aufbau nur ein Stolperer: dann alle kurz halten und gleich abraeumen.
+static bool mitAufbau = true;
+static const unsigned long HALT_MS = 300;
 
 static uint8_t abbauFolge[STUFEN];
 static uint8_t abbauSchritte = 0;
 
-static void abbauFolgeBauen(uint8_t modus) {
+// Abgeraeumt wird immer von oben nach unten, und nur was nicht zum Bild des
+// neuen Status gehoert. Beim Blinker bleibt dadurch alles stehen und es gibt
+// gar keinen Abbau.
+static void abbauFolgeBauen(uint8_t maske) {
   abbauSchritte = 0;
   for (int s = STUFEN - 1; s >= 0; s--)
-    if ((uint8_t)s != modus) abbauFolge[abbauSchritte++] = (uint8_t)s;
+    if (!(maske & (1 << s))) abbauFolge[abbauSchritte++] = (uint8_t)s;
 }
 
 static unsigned long wechselZeit()  { return millis() - statusSeit; }
-static unsigned long aufbauDauer()  { return STUFEN * AUFBAU_MS; }
+static unsigned long aufbauDauer()  { return mitAufbau ? STUFEN * AUFBAU_MS : HALT_MS; }
 static unsigned long wechselDauer() { return aufbauDauer() + abbauSchritte * ABBAU_MS; }
 // Alle drei Phasen haengen allein an der Zeit. Frueher endete die Ruhephase
 // erst, wenn die Schleife "wechselAktiv" loeschte - und die kann beim
@@ -182,14 +211,15 @@ static void statusSetzen(Status neu, bool ansage = true, bool erzwingen = false)
   // und darf keinen halb umgestellten Zustand zu sehen bekommen.
   noInterrupts();
   pfeilHoch = (neu >= status);
-  abbauFolgeBauen(modusStufe(neu));
+  mitAufbau = (ruheMaske(status) != 0b1111);   // kam die Saeule komplett an?
+  abbauFolgeBauen(ruheMaske(neu));
   status = neu;
   statusSeit = millis();
   wechselAktiv = ansage;
   // Der Blinktakt zaehlt ab dem Einrasten, nicht ab dem Einschalten des
   // Geraets. Sonst ist der erste Impuls angeschnitten, und beim Alarm faellt
   // Rot im Einrastmoment aus, statt aus der Ruhephase weiterzuleuchten.
-  blinkAb = statusSeit + (ansage ? (aufbauDauer() + abbauSchritte * ABBAU_MS) + RUHE_MS : 0);
+  blinkAb = statusSeit + (ansage ? aufbauDauer() + abbauSchritte * ABBAU_MS + RUHE_MS : 0);
   interrupts();
 }
 
@@ -372,25 +402,30 @@ static void lampenStellen() {
     return;
   }
 
-  uint8_t modus = modusStufe(status);
+  uint8_t maske = ruheMaske(status);
 
   if (imWechsel()) {
     if (imAufbau()) {
-      uint8_t i = (uint8_t)(wechselZeit() / AUFBAU_MS);
-      for (uint8_t s = 0; s < STUFEN; s++)
-        setzen(s, pfeilHoch ? (s <= i) : (s >= STUFEN - 1 - i));
+      if (!mitAufbau) {
+        for (uint8_t s = 0; s < STUFEN; s++) setzen(s, true);   // alle halten
+      } else {
+        uint8_t i = (uint8_t)(wechselZeit() / AUFBAU_MS);
+        for (uint8_t s = 0; s < STUFEN; s++)
+          setzen(s, pfeilHoch ? (s <= i) : (s >= STUFEN - 1 - i));
+      }
     } else {
       uint8_t j = (uint8_t)((wechselZeit() - aufbauDauer()) / ABBAU_MS);
       if (abbauSchritte && j >= abbauSchritte) j = abbauSchritte - 1;
       uint8_t aus = 0;
       for (uint8_t k = 0; k <= j && k < abbauSchritte; k++) aus |= (uint8_t)(1 << abbauFolge[k]);
-      for (uint8_t s = 0; s < STUFEN; s++) setzen(s, s == modus || !(aus & (1 << s)));
+      for (uint8_t s = 0; s < STUFEN; s++)
+        setzen(s, (maske & (1 << s)) || !(aus & (1 << s)));
     }
     return;
   }
 
   if (inRuhephase()) {
-    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, s == modus);
+    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, (maske >> s) & 1);
     return;
   }
 
@@ -410,6 +445,25 @@ static void lampenStellen() {
     case ALARM:
       setzen(0, false); setzen(1, false); setzen(2, takt(500)); setzen(3, !takt(500));
       break;
+
+    case KREUZ: {
+      // Zwei Paare ueber Kreuz: oben orange mit Stufe 2, dann gruen mit rot.
+      // Nie beide Paare zugleich, nie alles dunkel. Ohne Warnleuchte.
+      bool paarOben = takt(600);
+      setzen(0, !paarOben);   // gruen
+      setzen(1, paarOben);    // orange
+      setzen(2, !paarOben);   // rot
+      setzen(3, paarOben);    // Hinweis, oben
+      break;
+    }
+
+    case BLINKER: {
+      // Alle vier zusammen, schnell
+      bool an = takt(300);
+      for (uint8_t s = 0; s < STUFEN; s++) setzen(s, an);
+      break;
+    }
+
     default: break;
   }
 }
@@ -685,10 +739,7 @@ static bool sollAn(uint8_t i) {
   if (testAn) return true;
   if (i == IDX_WARN) return warnAn;
   if (!autoModus) return manuell[i];
-  uint8_t m = modusStufe(status);
-  if (i == m) return true;
-  if (i == 3) return status != RUHE;      // Hinweisleuchte blinkt ausser in Ruhe
-  return false;
+  return (sollMaske(status) >> i) & 1;
 }
 
 static String stateJson() {

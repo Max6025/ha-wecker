@@ -717,6 +717,8 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
         "achtung":  [False, True,  False, True],
         "stoerung": [False, False, True,  True],
         "alarm":    [False, False, True,  True],
+        "kreuz":    [True,  True,  True,  True],
+        "blinker":  [True,  True,  True,  True],
     }[status]
     if modus != "auto":
         stufen = [False, False, False, False]
@@ -738,12 +740,14 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
         "uptime_s": 300, "events_port": 8081, "ram_frei": 21000,
         "phase": "betrieb", "modus": modus, "status": status,
         "status_name": {"ruhe": "Ruhe", "hinweis": "Hinweis", "achtung": "Achtung",
-                        "stoerung": "Störung", "alarm": "Alarm"}[status],
+                        "stoerung": "Störung", "alarm": "Alarm",
+                        "kreuz": "Kreuzwechsel", "blinker": "Blinker"}[status],
         "wechsel": False, "warn": warn, "warn_vom_alarm": warn_vom_alarm, "test": test,
         "status_liste": [
             {"id": "ruhe", "name": "Ruhe"}, {"id": "hinweis", "name": "Hinweis"},
             {"id": "achtung", "name": "Achtung"}, {"id": "stoerung", "name": "Störung"},
-            {"id": "alarm", "name": "Alarm"},
+            {"id": "alarm", "name": "Alarm"}, {"id": "kreuz", "name": "Kreuzwechsel"},
+            {"id": "blinker", "name": "Blinker"},
         ],
         "diagnose": diagnose or {"laeuft": False, "fertig": False, "ok": False,
                                  "vor_s": 0, "punkte": []},
@@ -769,7 +773,9 @@ async def test_saeule_entities(hass: HomeAssistant, aioclient_mock) -> None:
     assert hass.states.get("select.signalsaeule_betriebsart").state == "Auto"
     status = hass.states.get("select.signalsaeule_status")
     assert status.state == "Ruhe"
-    assert status.attributes["options"] == ["Ruhe", "Hinweis", "Achtung", "Störung", "Alarm"]
+    assert status.attributes["options"] == [
+        "Ruhe", "Hinweis", "Achtung", "Störung", "Alarm", "Kreuzwechsel", "Blinker",
+    ]
 
     # In Ruhe brennt nur die gruene Stufe, die Warnleuchte ist aus
     assert hass.states.get("switch.signalsaeule_gruen").state == "on"
@@ -890,3 +896,20 @@ async def test_saeule_config_flow(hass: HomeAssistant, aioclient_mock) -> None:
     assert ergebnis["type"] == "create_entry"
     assert ergebnis["data"]["typ"] == "saeule"
     assert ergebnis["result"].unique_id == "34:85:18:aa:bb:cc"
+
+
+async def test_saeule_neue_status(hass: HomeAssistant, aioclient_mock) -> None:
+    """Kreuzwechsel und Blinker lassen alle vier Stufen als "an" gelten."""
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="kreuz"))
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.signalsaeule_status", "option": "Kreuzwechsel"},
+        blocking=True,
+    )
+    assert "status=kreuz" in str(_letzter_aufruf(aioclient_mock))
+    assert hass.states.get("select.signalsaeule_status").state == "Kreuzwechsel"
+    for name in ("gruen", "orange", "rot", "hinweis"):
+        assert hass.states.get(f"switch.signalsaeule_{name}").state == "on"
+    # Die Warnleuchte bleibt dabei aussen vor
+    assert hass.states.get("switch.signalsaeule_warnleuchte").state == "off"
