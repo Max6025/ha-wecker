@@ -19,8 +19,7 @@ from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 
 from . import WeckerData
 from .const import DOMAIN
-from .entity import RelaisEntity, SaeuleEntity, WeckerEntity
-from .relais import RelaisCoordinator
+from .entity import SaeuleEntity, WeckerEntity
 from .saeule import SaeuleCoordinator
 
 
@@ -33,13 +32,10 @@ async def async_setup_entry(
             [
                 SaeuleStatusSensor(obj),
                 SaeuleDiagnoseSensor(obj),
-                RelaisRssiSensor(obj),
-                RelaisUptimeSensor(obj),
+                RssiSensor(obj),
+                UptimeSensor(obj),
             ]
         )
-        return
-    if isinstance(obj, RelaisCoordinator):
-        async_add_entities([RelaisRssiSensor(obj), RelaisUptimeSensor(obj)])
         return
     data: WeckerData = obj
     async_add_entities(
@@ -169,8 +165,8 @@ class WebhookSensor(WeckerEntity, SensorEntity):
         }
 
 
-class RelaisRssiSensor(RelaisEntity, SensorEntity):
-    """WLAN-Empfang der Relaisbox."""
+class RssiSensor(SaeuleEntity, SensorEntity):
+    """WLAN-Empfang der Signalsaeule."""
 
     _attr_name = "WLAN-Signal"
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
@@ -179,7 +175,7 @@ class RelaisRssiSensor(RelaisEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: RelaisCoordinator) -> None:
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
         super().__init__(coordinator, "rssi")
 
     @property
@@ -188,8 +184,8 @@ class RelaisRssiSensor(RelaisEntity, SensorEntity):
         return int(v) if isinstance(v, (int, float)) else None
 
 
-class RelaisUptimeSensor(RelaisEntity, SensorEntity):
-    """Laufzeit der Relaisbox seit dem letzten Start."""
+class UptimeSensor(SaeuleEntity, SensorEntity):
+    """Laufzeit der Saeule seit dem letzten Start."""
 
     _attr_name = "Laufzeit"
     _attr_device_class = SensorDeviceClass.DURATION
@@ -197,7 +193,7 @@ class RelaisUptimeSensor(RelaisEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
-    def __init__(self, coordinator: RelaisCoordinator) -> None:
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
         super().__init__(coordinator, "uptime")
 
     @property

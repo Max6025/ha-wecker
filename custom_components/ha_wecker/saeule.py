@@ -1,12 +1,18 @@
 """Verbindung zur Signalsaeule (Arduino UNO R4 WiFi).
 
-Die Saeule spricht dieselbe HTTP-Schnittstelle wie die Relaisbox - /api/state
-mit einer Liste "relais", /api/relais/<nr>, Ereignisstrom auf Port 8081 - und
-hat drei Wege mehr: Betriebsart, Status und Selbstdiagnose. Darum erbt der
-Coordinator von dem der Relaisbox und ergaenzt nur diese Befehle.
+Die Saeule meldet unter /api/state eine Liste "relais" (vier Stufen und die
+Blitz-Warnleuchte), nimmt Befehle als POST entgegen und haelt auf einem
+eigenen Port eine Verbindung offen, ueber die sie jede Aenderung sofort
+schickt. Die Abfrage alle paar Sekunden ist nur die Rueckfallebene.
+
+Bis November 2026 stand hier eine Relaisbox (ESP32) daneben und dieser
+Coordinator erbte von ihrem. Die Box gibt es nicht mehr; was von ihr gebraucht
+wurde - Abfrage, Ereignisstrom, POST - steht jetzt hier.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from datetime import timedelta
 from typing import Any
@@ -16,17 +22,31 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_HOST,
+    DOMAIN,
     MODUS_AUTO,
     MODUS_MANUELL,
     SAEULE_ABFRAGE_S,
     STATUS_STANDARD,
 )
-from .relais import ZEIT, RelaisCoordinator, host_zu_url
 
 _LOGGER = logging.getLogger(__name__)
+
+ZEIT = aiohttp.ClientTimeout(total=8)
+# Ereignisstrom: keine Gesamtdauer, aber die Saeule schickt alle 15 s ein
+# Lebenszeichen - bleibt das 60 s aus, gilt die Verbindung als tot.
+ZEIT_EVENTS = aiohttp.ClientTimeout(total=None, sock_connect=8, sock_read=60)
+EVENTS_PORT_STANDARD = 8081
+
+
+def host_zu_url(host: str) -> str:
+    host = (host or "").strip().rstrip("/")
+    if host and "://" not in host:
+        host = "http://" + host
+    return host
 
 
 async def saeule_abfragen(hass: HomeAssistant, host: str) -> dict[str, Any]:
@@ -42,14 +62,34 @@ async def saeule_abfragen(hass: HomeAssistant, host: str) -> dict[str, Any]:
     return data
 
 
-class SaeuleCoordinator(RelaisCoordinator):
+class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Fragt die Signalsaeule ab und schickt ihre Befehle."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        super().__init__(hass, entry)
-        self.name = "ha_wecker Signalsaeule"
-        self.update_interval = timedelta(seconds=SAEULE_ABFRAGE_S)
-        self.lampe = None            # die Saeule hat keine Weckerlampe
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN} Signalsaeule",
+            update_interval=timedelta(seconds=SAEULE_ABFRAGE_S),
+        )
+        self.entry = entry
+        self._events_task: asyncio.Task | None = None
+        self.events_verbunden = False
+        self.test_aktiv = False      # Schalter "Testmodus"
+
+    # --- Adresse ------------------------------------------------------
+
+    @property
+    def host(self) -> str:
+        return self.entry.options.get(CONF_HOST, self.entry.data.get(CONF_HOST, ""))
+
+    @property
+    def url(self) -> str:
+        return host_zu_url(self.host)
+
+    @property
+    def mac(self) -> str:
+        return (self.data or {}).get("mac") or self.entry.unique_id or self.entry.entry_id
 
     # --- Lesen --------------------------------------------------------
 
@@ -58,6 +98,12 @@ class SaeuleCoordinator(RelaisCoordinator):
             return await saeule_abfragen(self.hass, self.host)
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise UpdateFailed(f"Signalsaeule {self.host} nicht erreichbar: {err}") from err
+
+    def relais(self, nr: int) -> dict[str, Any] | None:
+        for r in (self.data or {}).get("relais", []) or []:
+            if r.get("nr") == nr:
+                return r
+        return None
 
     @property
     def modus(self) -> str:
@@ -125,3 +171,79 @@ class SaeuleCoordinator(RelaisCoordinator):
 
     async def async_alles_aus(self) -> None:
         await self._post("/api/alarm/stop", {})
+
+    # --- Ereignisstrom -----------------------------------------------
+
+    @property
+    def events_url(self) -> str:
+        port = (self.data or {}).get("events_port") or EVENTS_PORT_STANDARD
+        schema, _, rest = self.url.partition("://")
+        erster = rest.split("/", 1)[0]
+        hostteil = erster.rsplit(":", 1)[0] if ":" in erster else erster
+        return f"{schema}://{hostteil}:{port}/api/events"
+
+    def async_start_events(self) -> None:
+        if self._events_task is None or self._events_task.done():
+            self._events_task = self.entry.async_create_background_task(
+                self.hass, self._events_loop(), f"{DOMAIN}_events_{self.entry.entry_id}"
+            )
+
+    async def async_stop_events(self) -> None:
+        task, self._events_task = self._events_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+
+    async def _events_loop(self) -> None:
+        session = async_get_clientsession(self.hass)
+        pause = 3
+        while True:
+            try:
+                async with session.get(self.events_url, timeout=ZEIT_EVENTS) as resp:
+                    if resp.status != 200:
+                        raise UpdateFailed(f"Ereignisstrom antwortete {resp.status}")
+                    self.events_verbunden = True
+                    pause = 3
+                    _LOGGER.debug("Ereignisstrom %s verbunden", self.events_url)
+                    async for raw in resp.content:
+                        line = raw.decode("utf-8", "replace").strip()
+                        if not line.startswith("data:"):
+                            continue  # Lebenszeichen, retry:, Leerzeile
+                        try:
+                            data = json.loads(line[5:].strip())
+                        except ValueError:
+                            continue
+                        if isinstance(data, dict) and "relais" in data:
+                            self.async_set_updated_data(data)
+            except asyncio.CancelledError:
+                raise
+            except Exception as err:  # noqa: BLE001 - immer wieder neu versuchen
+                _LOGGER.debug("Ereignisstrom %s: %s", self.events_url, err)
+            self.events_verbunden = False
+            await asyncio.sleep(pause)
+            pause = min(pause * 2, 60)
+
+    # --- Befehle ------------------------------------------------------
+
+    async def _post(self, pfad: str, params: dict[str, Any]) -> None:
+        url = f"{self.url}{pfad}"
+        session = async_get_clientsession(self.hass)
+        try:
+            async with session.post(
+                url, params={k: str(v) for k, v in params.items()}, timeout=ZEIT
+            ) as resp:
+                if resp.status != 200:
+                    text = (await resp.text())[:120]
+                    raise UpdateFailed(f"Signalsaeule antwortete {resp.status}: {text}")
+                data = await resp.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError, ValueError) as err:
+            raise UpdateFailed(f"Signalsaeule {self.host} nicht erreichbar: {err}") from err
+        if isinstance(data, dict) and "relais" in data:
+            # Antwort ist der neue Zustand - direkt uebernehmen, ohne Abfrage
+            self.async_set_updated_data(data)
+
+    async def async_schalten(self, nr: int, an: bool) -> None:
+        await self._post(f"/api/relais/{nr}", {"an": 1 if an else 0})

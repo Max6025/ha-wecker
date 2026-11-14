@@ -23,8 +23,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import WeckerData
 from .const import DOMAIN, SIGNAL_UPDATE
-from .entity import RelaisEntity, SaeuleEntity, WeckerEntity
-from .relais import RelaisCoordinator
+from .entity import SaeuleEntity, WeckerEntity
 from .saeule import SaeuleCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,12 +48,6 @@ async def async_setup_entry(
     obj = hass.data[DOMAIN][entry.entry_id]
     if isinstance(obj, SaeuleCoordinator):
         async_add_entities([SaeuleWechselBinarySensor(obj), SaeuleDiagnoseOkBinarySensor(obj)])
-        return
-    if isinstance(obj, RelaisCoordinator):
-        entities: list[BinarySensorEntity] = [RelaisAlarmBinarySensor(obj)]
-        if isinstance((obj.data or {}).get("eingang"), dict):
-            entities.append(RelaisEingangBinarySensor(obj))
-        async_add_entities(entities)
         return
     data: WeckerData = obj
     async_add_entities([RingingBinarySensor(data), SleepBinarySensor(data)])
@@ -270,62 +263,6 @@ class AlarmBinarySensor(WeckerEntity, BinarySensorEntity):
         else:
             await self.async_remove(force_remove=True)
         _LOGGER.debug("Wecker %s entfernt (%s)", self.alarm_id, entity_id or "ohne Register")
-
-
-class RelaisAlarmBinarySensor(RelaisEntity, BinarySensorEntity):
-    """Laeuft auf der Relaisbox gerade ein Alarmmuster?"""
-
-    _attr_name = "Alarm"
-    _attr_icon = "mdi:alarm-light"
-
-    def __init__(self, coordinator: RelaisCoordinator) -> None:
-        super().__init__(coordinator, "alarm")
-
-    @property
-    def is_on(self) -> bool | None:
-        v = self.daten.get("alarm")
-        return bool(v) if v is not None else None
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        aktiv = [
-            {"nr": r.get("nr"), "muster": r.get("muster"), "rest_s": r.get("rest_s")}
-            for r in self.daten.get("relais", []) or []
-            if isinstance(r, dict) and r.get("muster") not in (None, "aus", "dauer")
-        ]
-        return {"relais": aktiv, "muster_verfuegbar": self.daten.get("muster")}
-
-
-class RelaisEingangBinarySensor(RelaisEntity, BinarySensorEntity):
-    """Digitaler Eingang der Relaisbox: an = Signal liegt an."""
-
-    _attr_name = "Eingang"
-
-    def __init__(self, coordinator: RelaisCoordinator) -> None:
-        super().__init__(coordinator, "eingang")
-
-    @property
-    def _eingang(self) -> dict[str, Any]:
-        e = self.daten.get("eingang")
-        return e if isinstance(e, dict) else {}
-
-    @property
-    def available(self) -> bool:
-        return super().available and bool(self._eingang)
-
-    @property
-    def is_on(self) -> bool | None:
-        v = self._eingang.get("aktiv")
-        return bool(v) if v is not None else None
-
-    @property
-    def icon(self) -> str:
-        return "mdi:electric-switch-closed" if self.is_on else "mdi:electric-switch"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        e = self._eingang
-        return {"gpio": e.get("gpio"), "seit_s": e.get("seit_s"), "zaehler": e.get("zaehler")}
 
 
 class SaeuleWechselBinarySensor(SaeuleEntity, BinarySensorEntity):

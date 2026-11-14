@@ -1,8 +1,9 @@
 # HA Wecker – Hinweise fuer die Arbeit am Repo
 
-Vier Teile, eine Integration: `custom_components/ha_wecker` (Home Assistant),
-`app/` (Android-Wecker-App), `firmware/relaisbox/` (ESP32-S3 mit Relais),
-`firmware/signalsaeule/` (Arduino UNO R4 WiFi an einer Rittal-Signalsaeule).
+Drei Teile, eine Integration: `custom_components/ha_wecker` (Home Assistant),
+`app/` (Android-Wecker-App), `firmware/signalsaeule/` (Arduino UNO R4 WiFi an
+einer Rittal-Signalsaeule). Die Relaisbox (ESP32-S3) ist am 14.11.2026 ganz
+entfernt worden - Integration, Firmware, Blueprint und Tests.
 Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 
 ## Regeln
@@ -16,30 +17,10 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 - **Kein MQTT, kein Hintergrunddienst in der App.** Die App meldet sich per
   Webhook, wenn sich etwas aendert, sonst nichts. Einen lokalen Server gab es
   bis 1.4; er ist bewusst entfernt und kommt nicht zurueck.
-- **Geheimnisse bleiben draussen.** `firmware/relaisbox/secrets.ini` (WLAN) ist
-  in `.gitignore`. Webhook-IDs einer echten HA-Instanz nie in Beispiele
-  schreiben, Platzhalter `DEINE_WEBHOOK_ID` verwenden.
-- **Relaisbox-Pins:** Relaisplatine zieht bei **HIGH** an (`RELAIS_AKTIV_LOW =
-  false`; die Module laufen bei Max an 3,3 V, das nicht anzweifeln). Relais 1-3
-  an GPIO 4/5/6, Eingang GPIO 7 (Taster nach GND, Pullup, `EINGANG_AKTIV_LOW`),
-  GPIO 42 geht beim Start dauerhaft HIGH. Freie Reserve: 15, 16, 17, 18, 1, 2.
-  Bauweise „Lampen" (`-e esp32s3-lampe`, `-DNUR_LAMPE`): MOSFET-Module an
-  GPIO 1 (Relais 1 Lampe + gruene LED), 40 (Relais 3 Rot), 41 (Relais 4
-  Warnleuchte); Nummer 2 bewusst frei, Nummern nie umsortieren (Lampenplan in
-  HA haengt daran), kein Taster; `-e
-  esp32s3-lampe-test` laesst das Lichtbild ab dem Einschalten dauernd laufen.
-  `pegel` in `/api/state` ist der zurueckgelesene Pin: zeigt er den Wechsel
-  und die Lampe bleibt an, liegt es am Modul oder der Verdrahtung.
-- **GPIO 33–37 nie benutzen und PSRAM nie einschalten.** Das N16R8-Modul legt
-  sein Octal-PSRAM auf diese Pins; auch ohne PSRAM-Init sind sie belastet:
-  Relais klicken nur leise, Eingaenge lesen HIGH. Hat am 7./8.11. ein „defektes
-  Relais" vorgetaeuscht.
-- Die HTTP-Schnittstelle der Box (`/api/state`, `/api/relais/<nr>`,
-  `/api/alarm`, `/api/alarm/stop`, `/api/led`, Ereignisstrom `:8081/api/events`) ist der
-  Vertrag zwischen Firmware und `relais.py`. Aenderungen immer auf beiden
-  Seiten und im README. Der Ereignisstrom laeuft auf einem eigenen Port, weil
-  der Arduino-WebServer keine Verbindung offen halten kann.
-
+- **Geheimnisse bleiben draussen.** Die WLAN-Zugangsdaten der Saeule stehen in
+  `firmware/signalsaeule/signalsaeule/arduino_secrets.h` und sind in
+  `.gitignore`. Webhook-IDs einer echten HA-Instanz nie in Beispiele schreiben,
+  Platzhalter `DEINE_WEBHOOK_ID` verwenden.
 - **Signalsaeule-Pins:** MOSFET-Module, aktiv **HIGH**. D2 = H5 Blitz-Warnleuchte
   (1-Kanal-Modul K1), D3-D6 = H1 gruen, H2 orange, H3 rot, H4 Hinweis
   (K2 IN1-IN4), wie im Stromlaufplan SIG-R4-E. Die Nummern 1-4 (Stufen) und 5
@@ -104,6 +85,25 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   liegen in `Preferences` ("saeule"), damit die Saeule nach einem Stromausfall
   ihren Status wieder aufnimmt. Verzoegert geschrieben (3 s) und nur bei echter
   Aenderung - der Daten-Flash haelt keine beliebige Zahl von Zyklen aus.
+- **Weckablauf haengt am Wecker, nicht an einem Leuchtmittel** (`ablauf.py`).
+  Vorher stand er in `lampe.py` und wurde nur in `_setup_relais` angelegt: ohne
+  Relaisbox lief gar nichts, und die Hauptlicht-Option steckte in deren
+  Optionsdialog. Der Ablauf greift ueber `hass.data[DOMAIN]` auf Geraete aus
+  anderen Eintraegen zu (die Saeule), das ist Absicht.
+- **Die naechste Weckzeit wird selbst gerechnet**, aus `hour`, `minute`,
+  `days_mask` und `skip_next` der App-Nutzlast (`_termin_rechnen`).
+  `next_trigger` ist nur Rueckfallebene: die App meldet sich nur bei
+  Aenderungen, der Zeitstempel kann von gestern sein - daran scheiterte der
+  Vorlauf.
+- **Jeder Schritt kommt ins Protokoll**, auch der gescheiterte. Vorher wurden
+  Fehler beim Lichtbefehl gefangen und nur geloggt; von aussen sah es aus, als
+  passiere nichts. Das Protokoll haengt als Attribut am Schalter.
+- **Kein festes Zeitfenster mehr.** Frueher entschied `_hauptlicht_erlaubt()`
+  nach einem Fenster (Vorgabe 3-10 Uhr), ob das Hauptlicht ueberhaupt
+  mitspielt; ausserhalb wurden die Lichtschritte gar nicht erst eingeplant.
+  Jetzt bestimmen die Zeitbloecke der Ablaufdatei, welcher Ablauf gilt.
+- **Kann eine Leuchte kein `transition`**, wird der Dienst ohne wiederholt,
+  statt den Schritt verfallen zu lassen.
 - **Weckruf:** Im Empfaenger nur PARTIAL_WAKE_LOCK. Schaltet man den Bildschirm
   vorher selbst ein, zeigt Android (ohne Sperre) statt der Weckruf-Seite nur den
   Hinweis oben. Bei eingeschaltetem, entsperrtem Handy kommt die Seite nur ueber
@@ -125,9 +125,6 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 python -m venv .venv && .venv/bin/pip install pytest-homeassistant-custom-component
 .venv/bin/pytest tests/
 
-# Firmware Relaisbox
-cd firmware/relaisbox && pio run -e esp32s3            # -t upload zum Flashen
-
 # Firmware Signalsaeule
 cd firmware/signalsaeule && arduino-cli compile -b arduino:renesas_uno:unor4wifi signalsaeule
 arduino-cli upload -b arduino:renesas_uno:unor4wifi -p /dev/ttyACM0 signalsaeule
@@ -136,9 +133,9 @@ arduino-cli upload -b arduino:renesas_uno:unor4wifi -p /dev/ttyACM0 signalsaeule
 cd app && echo "sdk.dir=$HOME/Android/Sdk" > local.properties && gradle assembleRelease
 ```
 
-Beim Flashen oeffnet jedes Oeffnen des seriellen Ports einen Reset der Box;
-mitlesen mit 115200 Baud. Grund 15 beim WLAN heisst falsches Kennwort.
+Beim Flashen oeffnet jedes Oeffnen des seriellen Ports einen Reset; mitlesen
+mit 115200 Baud. Grund 15 beim WLAN heisst falsches Kennwort.
 
-`/dev/ttyACM0` des Arduino gehoert nach jedem Anstecken `root:uucp`, und max ist
-nicht in `uucp`. Vor dem Upload darum einmal
-`sudo chgrp wheel /dev/ttyACM0 && sudo chmod g+rw /dev/ttyACM0`.
+Die Portrechte sind seit dem 14.11.2026 geregelt: `/etc/udev/rules.d/99-arduino.rules`
+gibt alle Boards mit Vendor 2341 an die Gruppe `wheel`, in der max ist. Kein
+`sudo chgrp` mehr vor jedem Upload.

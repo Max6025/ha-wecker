@@ -1,9 +1,12 @@
 """Einrichtung der HA-Wecker-Integration ueber die Oberflaeche.
 
-Erster Schritt ist ein Menue: Wecker (Android-App), Relaisbox (ESP32) oder
-Signalsaeule (Arduino UNO R4 WiFi).
+Erster Schritt ist ein Menue: Wecker (Android-App) oder Signalsaeule
+(Arduino UNO R4 WiFi). Eine Relaisbox gab es bis November 2026 daneben;
+die Weckerlampe haengt seitdem am Wecker, siehe ablauf.py.
 """
 from __future__ import annotations
+
+import json
 
 from typing import Any
 
@@ -18,35 +21,28 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_NAME, CONF_WEBHOOK_ID
 from homeassistant.core import callback
-from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
-
 from homeassistant.helpers import selector
 
+from .ablauf import STANDARD_ABLAUF, ablauf_lesen
 from .const import (
+    CONF_ABLAUF,
     CONF_HAUPTLICHT,
-    CONF_HAUPTLICHT_BIS,
-    CONF_HAUPTLICHT_VON,
     CONF_HOST,
     CONF_TYP,
     DOMAIN,
-    HAUPTLICHT_BIS_STANDARD,
-    HAUPTLICHT_VON_STANDARD,
-    TYP_RELAIS,
     TYP_SAEULE,
     TYP_WECKER,
 )
-from .relais import host_zu_url, relaisbox_abfragen
-from .saeule import saeule_abfragen
+from .saeule import host_zu_url, saeule_abfragen
 
 DEFAULT_NAME_WECKER = "HA Wecker"
-DEFAULT_NAME_RELAIS = "Relaisbox"
 DEFAULT_NAME_SAEULE = "Signalsäule"
 
 
 
 
 class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Menue -> Wecker oder Relaisbox."""
+    """Menue -> Wecker oder Signalsaeule."""
 
     VERSION = 1
 
@@ -59,9 +55,7 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return self.async_show_menu(
-            step_id="user", menu_options=["wecker", "relais", "saeule"]
-        )
+        return self.async_show_menu(step_id="user", menu_options=["wecker", "saeule"])
 
     # --- Wecker (Android-App) -------------------------------------------
 
@@ -78,44 +72,6 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema({vol.Optional(CONF_NAME, default=DEFAULT_NAME_WECKER): str})
         return self.async_show_form(step_id="wecker", data_schema=schema)
-
-    # --- Relaisbox (ESP32) ----------------------------------------------
-
-    async def _relaisbox_pruefen(self, host: str) -> dict[str, Any] | None:
-        try:
-            return await relaisbox_abfragen(self.hass, host)
-        except Exception:  # noqa: BLE001 - jede Art von Nichterreichbarkeit
-            return None
-
-    async def async_step_relais(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            host = (user_input.get(CONF_HOST) or "").strip()
-            daten = await self._relaisbox_pruefen(host) if host else None
-            if not host:
-                errors[CONF_HOST] = "host_fehlt"
-            elif daten is None:
-                errors[CONF_HOST] = "nicht_erreichbar"
-            else:
-                mac = str(daten.get("mac") or host).lower()
-                await self.async_set_unique_id(mac)
-                self._abort_if_unique_id_configured(updates={CONF_HOST: host})
-                name = (user_input.get(CONF_NAME) or DEFAULT_NAME_RELAIS).strip() or DEFAULT_NAME_RELAIS
-                return self.async_create_entry(
-                    title=name,
-                    data={CONF_TYP: TYP_RELAIS, CONF_NAME: name, CONF_HOST: host},
-                )
-
-        schema = vol.Schema(
-            {
-                vol.Optional(CONF_NAME, default=DEFAULT_NAME_RELAIS): str,
-                vol.Required(CONF_HOST, default=self._host or "relaisbox.local"): str,
-            }
-        )
-        return self.async_show_form(step_id="relais", data_schema=schema, errors=errors)
 
     # --- Signalsaeule (Arduino UNO R4 WiFi) ------------------------------
 
@@ -154,57 +110,17 @@ class HaWeckerConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return self.async_show_form(step_id="saeule", data_schema=schema, errors=errors)
 
-    # --- Relaisbox per mDNS gefunden -------------------------------------
-
-    async def async_step_zeroconf(
-        self, discovery_info: ZeroconfServiceInfo
-    ) -> ConfigFlowResult:
-        if (discovery_info.properties or {}).get("typ") != "relaisbox":
-            return self.async_abort(reason="nicht_relaisbox")
-        host = str(discovery_info.host)
-        daten = await self._relaisbox_pruefen(host)
-        if daten is None:
-            return self.async_abort(reason="nicht_erreichbar")
-        mac = str(daten.get("mac") or host).lower()
-        await self.async_set_unique_id(mac)
-        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
-        self._host = host
-        self._gefunden = daten
-        self.context["title_placeholders"] = {"name": f"Relaisbox ({host})"}
-        return await self.async_step_relais_bestaetigen()
-
-    async def async_step_relais_bestaetigen(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        if user_input is not None:
-            name = (user_input.get(CONF_NAME) or DEFAULT_NAME_RELAIS).strip() or DEFAULT_NAME_RELAIS
-            return self.async_create_entry(
-                title=name,
-                data={CONF_TYP: TYP_RELAIS, CONF_NAME: name, CONF_HOST: self._host},
-            )
-        schema = vol.Schema({vol.Optional(CONF_NAME, default=DEFAULT_NAME_RELAIS): str})
-        return self.async_show_form(
-            step_id="relais_bestaetigen",
-            data_schema=schema,
-            description_placeholders={
-                "host": self._host,
-                "version": str((self._gefunden or {}).get("version", "")),
-            },
-        )
-
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         typ = config_entry.data.get(CONF_TYP, TYP_WECKER)
         if typ == TYP_SAEULE:
             return SaeuleOptionsFlow(config_entry)
-        if typ == TYP_RELAIS:
-            return RelaisOptionsFlow(config_entry)
         return WeckerOptionsFlow(config_entry)
 
 
 class WeckerOptionsFlow(OptionsFlow):
-    """Zeigt die Webhook-Adresse fuer die App. Einzustellen gibt es nichts."""
+    """Webhook-Adresse, Hauptlicht und die Ablaufdatei des Weckablaufs."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         # Bewusst eigenes Attribut: self.config_entry wird in neueren
@@ -214,8 +130,24 @@ class WeckerOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        opt = self._entry.options
+
         if user_input is not None:
-            return self.async_create_entry(title="", data=dict(self._entry.options))
+            roh = (user_input.get(CONF_ABLAUF) or "").strip()
+            _, fehler = ablauf_lesen(roh)
+            if fehler:
+                errors[CONF_ABLAUF] = "ablauf_fehler"
+            else:
+                daten = dict(opt)
+                daten[CONF_ABLAUF] = roh
+                # Leere Auswahl heisst: kein Hauptlicht mehr, also wirklich loeschen
+                licht = user_input.get(CONF_HAUPTLICHT)
+                if licht:
+                    daten[CONF_HAUPTLICHT] = str(licht)
+                else:
+                    daten.pop(CONF_HAUPTLICHT, None)
+                return self.async_create_entry(title="", data=daten)
 
         webhook_url = f"/api/webhook/{self._entry.data.get(CONF_WEBHOOK_ID, '')}"
         try:
@@ -225,60 +157,22 @@ class WeckerOptionsFlow(OptionsFlow):
         except Exception:  # noqa: BLE001 - nur Anzeige
             pass
 
+        vorgabe = opt.get(CONF_ABLAUF) or json.dumps(
+            STANDARD_ABLAUF, indent=2, ensure_ascii=False
+        )
+        felder: dict[Any, Any] = {}
+        felder[vol.Optional(CONF_HAUPTLICHT, description={"suggested_value": opt.get(CONF_HAUPTLICHT)})] = (
+            selector.EntitySelector(selector.EntitySelectorConfig(domain="light"))
+        )
+        felder[vol.Optional(CONF_ABLAUF, description={"suggested_value": vorgabe})] = (
+            selector.TextSelector(selector.TextSelectorConfig(multiline=True))
+        )
+        _, fehler = ablauf_lesen(opt.get(CONF_ABLAUF))
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({}),
-            description_placeholders={"webhook_url": webhook_url},
-        )
-
-
-class RelaisOptionsFlow(OptionsFlow):
-    """Adresse der Relaisbox, Hauptlicht der Weckerlampe und dessen Zeitfenster."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self._entry = config_entry
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        return await self.async_step_relais(user_input)
-
-    async def async_step_relais(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        errors: dict[str, str] = {}
-        opt = self._entry.options
-        current = opt.get(CONF_HOST, self._entry.data.get(CONF_HOST, ""))
-
-        if user_input is not None:
-            host = (user_input.get(CONF_HOST) or "").strip()
-            if not host:
-                errors[CONF_HOST] = "host_fehlt"
-            else:
-                try:
-                    await relaisbox_abfragen(self.hass, host)
-                except Exception:  # noqa: BLE001
-                    errors[CONF_HOST] = "nicht_erreichbar"
-                else:
-                    daten = {
-                        CONF_HOST: host,
-                        CONF_HAUPTLICHT_VON: str(user_input.get(CONF_HAUPTLICHT_VON) or HAUPTLICHT_VON_STANDARD),
-                        CONF_HAUPTLICHT_BIS: str(user_input.get(CONF_HAUPTLICHT_BIS) or HAUPTLICHT_BIS_STANDARD),
-                    }
-                    if user_input.get(CONF_HAUPTLICHT):
-                        daten[CONF_HAUPTLICHT] = str(user_input[CONF_HAUPTLICHT])
-                    return self.async_create_entry(title="", data=daten)
-
-        felder: dict[Any, Any] = {vol.Required(CONF_HOST, default=current): str}
-        licht = vol.Optional(CONF_HAUPTLICHT, description={"suggested_value": opt.get(CONF_HAUPTLICHT)})
-        felder[licht] = selector.EntitySelector(selector.EntitySelectorConfig(domain="light"))
-        felder[vol.Required(CONF_HAUPTLICHT_VON, default=opt.get(CONF_HAUPTLICHT_VON, HAUPTLICHT_VON_STANDARD))] = selector.TimeSelector()
-        felder[vol.Required(CONF_HAUPTLICHT_BIS, default=opt.get(CONF_HAUPTLICHT_BIS, HAUPTLICHT_BIS_STANDARD))] = selector.TimeSelector()
-        return self.async_show_form(
-            step_id="relais",
             data_schema=vol.Schema(felder),
             errors=errors,
-            description_placeholders={"url": host_zu_url(current)},
+            description_placeholders={"webhook_url": webhook_url, "fehler": fehler or "-"},
         )
 
 

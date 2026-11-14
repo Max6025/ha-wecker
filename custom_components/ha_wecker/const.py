@@ -5,15 +5,11 @@ DOMAIN = "ha_wecker"
 # Geraetetyp eines Konfigurationseintrags
 CONF_TYP = "typ"
 TYP_WECKER = "wecker"
-TYP_RELAIS = "relais"
 TYP_SAEULE = "saeule"
 
-# Relaisbox (ESP32)
+# Signalsaeule (Arduino UNO R4 WiFi). Sie schiebt jede Aenderung ueber den
+# Ereignisstrom, die Abfrage ist nur die Rueckfallebene.
 CONF_HOST = "host"
-RELAIS_ABFRAGE_S = 10
-
-# Signalsaeule (Arduino UNO R4 WiFi). Die Saeule schiebt jede Aenderung ueber
-# den Ereignisstrom, die Abfrage ist nur die Rueckfallebene.
 SAEULE_ABFRAGE_S = 15
 MODUS_AUTO = "auto"
 MODUS_MANUELL = "manuell"
@@ -24,42 +20,12 @@ ROLLE_WARN = "warn"
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 SIGNAL_WECKER_ALLE = DOMAIN + "_wecker_alle"     # irgendein Wecker hat sich gemeldet
-SIGNAL_LAMPE = DOMAIN + "_lampe_{}"              # Weckerlampe einer Relaisbox
+SIGNAL_ABLAUF = DOMAIN + "_ablauf_{}"            # Weckablauf eines Weckers
 
 STORAGE_VERSION = 1
 
-# Aktionen
-SERVICE_ALARM_STARTEN = "alarm_starten"
-SERVICE_ALARM_STOPPEN = "alarm_stoppen"
-ATTR_MUSTER = "muster"
-ATTR_DAUER = "dauer"
-
-MUSTER_STANDARD = "doppelblitz"
-MUSTER_LISTE = ["dauer", "blinken", "langsam", "schnell", "doppelblitz", "dreifachblitz", "intervall", "takt5", "sos"]
-
-# Weckerlampe: fester Ablauf ueber die Relais der Box und ein dimmbares
-# Hauptlicht (siehe lampe.py). Relais-Nummern wie in der Bauweise "Lampen".
-LAMPE_RELAIS_LAMPE = 1          # Lampe an GPIO 1 (mit gruener LED)
-LAMPE_RELAIS_ROT = 3            # rote Leuchte
-LAMPE_RELAIS_WARN = 4           # Blitz-Warnleuchte, braucht nur Dauer
-CONF_HAUPTLICHT = "hauptlicht"              # light.<...>, dimmbar; leer = kein Hauptlicht
-CONF_HAUPTLICHT_VON = "hauptlicht_von"      # Zeitfenster, in dem das Hauptlicht mitmacht
-CONF_HAUPTLICHT_BIS = "hauptlicht_bis"
-HAUPTLICHT_VON_STANDARD = "03:00:00"
-HAUPTLICHT_BIS_STANDARD = "10:00:00"
-LED_NACHT_VON = "20:00:00"       # RGB-LED der Box in Ruhe aus (Nachtruhe) ...
-LED_NACHT_BIS = "08:00:00"       # ... bis dahin; die Integration setzt /api/led
-TEST_LICHTBILD = {               # Schalter "Testmodus": Relais -> Muster, bis Stopp
-    1: "dreifachblitz",
-    3: "langsam",
-    4: "intervall",
-}
-LAMPE_VORLAUF_S = 60          # so lange vor dem Weckruf geht es los
-LAMPE_NACHLAUF_WARN_S = 5         # Warnleuchte nach dem Beenden
-LAMPE_NACHLAUF_ROT_S = 300        # Rot schnell nach dem Beenden
-LAMPE_NACHLAUF_LAMPE_S = 300      # Lampe blinkt nach dem Beenden
-LAMPE_NACHLAUF_LICHT_S = 600      # Hauptlicht 50 % nach dem Beenden
-LAMPE_NACHLAUF_LICHT_AUS_S = 30   # danach dimmt das Hauptlicht in dieser Zeit auf 0
-LAMPE_NACHLAUF_WARN_NOCHMAL_S = 10  # ist das Hauptlicht aus, blitzt die Warnleuchte noch so lange
-LAMPE_NACHLAUF_S = LAMPE_NACHLAUF_LICHT_S + LAMPE_NACHLAUF_LICHT_AUS_S + LAMPE_NACHLAUF_WARN_NOCHMAL_S   # 640 s
-LAMPE_KLINGELN_MAX_S = 600    # Hoechstdauer, falls die App nichts mehr meldet
+# Weckablauf (siehe ablauf.py): haengt am Wecker, steuert Hauptlicht und Saeule
+CONF_HAUPTLICHT = "hauptlicht"          # dimmbare light-Entitaet; leer = keines
+CONF_ABLAUF = "ablauf"                  # JSON mit Zeitbloecken; leer = Standardablauf
+PROTOKOLL_MAX = 40                      # so viele Schritte bleiben sichtbar
+PROBELAUF_VORLAUF_S = 60                # Probelauf: so lange bis zum "Klingeln"

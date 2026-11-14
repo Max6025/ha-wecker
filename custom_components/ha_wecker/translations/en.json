@@ -5,28 +5,12 @@
         "title": "HA Wecker – what do you want to add?",
         "menu_options": {
           "wecker": "Alarm clock (Android app)",
-          "relais": "Relay box (ESP32)",
           "saeule": "Signal tower (Arduino UNO R4 WiFi)"
         }
       },
       "wecker": {
         "title": "Set up alarm clock",
         "description": "The app reports its alarm list via webhook – it runs no background service and nothing polls it. The webhook address is generated now and shown afterwards in the diagnostic sensor \"Webhook\" and under \"Configure\"; that is the address for the app.",
-        "data": {
-          "name": "Name"
-        }
-      },
-      "relais": {
-        "title": "Set up relay box",
-        "description": "Network address of the relay box, e.g. relaisbox.local or 192.168.1.60.",
-        "data": {
-          "name": "Name",
-          "host": "Address"
-        }
-      },
-      "relais_bestaetigen": {
-        "title": "Relay box found",
-        "description": "Add the relay box at {host} (firmware {version})?",
         "data": {
           "name": "Name"
         }
@@ -47,7 +31,6 @@
     },
     "abort": {
       "already_configured": "This device is already configured.",
-      "nicht_relaisbox": "The discovered device is not a relay box.",
       "nicht_erreichbar": "The discovered relay box does not answer.",
       "keine_saeule": "The signal tower found does not answer."
     },
@@ -57,17 +40,10 @@
     "step": {
       "init": {
         "title": "HA Wecker",
-        "description": "Address for the app:\n{webhook_url}",
-        "data": {}
-      },
-      "relais": {
-        "title": "Relay box",
-        "description": "Currently: {url}\n\nAlarm lamp (switch \"Weckerlampe\"): one minute before the alarm the red lamp is on and the main light goes to 3 % rising to 10 %. While ringing red blinks, the lamp double-flashes, the beacon is on, main light 100 %. Snooze: all off, main light 10 %. After dismissing: beacon 5 s, red fast 5 min, lamp blinks 5 min, main light 50 % for 10 min, then off within 30 s, then the beacon for 10 s more.\n\nThe main light must be dimmable and only joins within the time window; empty = no main light.",
+        "description": "Webhook URL for the app:\n{webhook_url}\n\nWake-up sequence: see the German text.\n\nLast check: {fehler}",
         "data": {
-          "host": "Relay box address",
-          "hauptlicht": "Main light (dimmable)",
-          "hauptlicht_von": "Main light from",
-          "hauptlicht_bis": "Main light until"
+          "hauptlicht": "Main light (dimmable, empty = none)",
+          "ablauf": "Sequence file (JSON)"
         }
       },
       "saeule": {
@@ -81,7 +57,8 @@
     "error": {
       "host_fehlt": "Please enter an address.",
       "nicht_erreichbar": "No relay box answers at this address.",
-      "keine_saeule": "No signal tower answers at this address."
+      "keine_saeule": "No signal tower answers at this address.",
+      "ablauf_fehler": "The sequence file is invalid."
     }
   },
   "entity": {
@@ -101,26 +78,6 @@
         "doppelblitz": "Double flash (fire alarm style)",
         "sos": "SOS"
       }
-    }
-  },
-  "services": {
-    "alarm_starten": {
-      "name": "Start alarm",
-      "description": "Runs a pattern (e.g. double flash) on the selected relays of the relay box until \"Stop alarm\" or until the duration has passed.",
-      "fields": {
-        "muster": {
-          "name": "Pattern",
-          "description": "How the relay should switch."
-        },
-        "dauer": {
-          "name": "Duration",
-          "description": "Seconds after which the pattern ends by itself. 0 = until \"Stop alarm\"."
-        }
-      }
-    },
-    "alarm_stoppen": {
-      "name": "Stop alarm",
-      "description": "Ends the pattern on the selected relays and switches them off."
     }
   }
 }

@@ -1,11 +1,14 @@
-"""HA Wecker - Weckerliste der Android-App und Relaisbox (ESP32) in Home Assistant.
+"""HA Wecker - Weckerliste der Android-App und Signalsaeule in Home Assistant.
 
 Zwei Geraetetypen in einer Integration:
-- Wecker:    die App meldet ihren Stand per Webhook (kein Dienst im Hintergrund,
-             kein lokaler Server, nichts zum Abfragen)
-- Relaisbox: ESP32 im WLAN, Relais schalten und Alarmmuster laufen lassen
-- Saeule:    Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell,
-             Status mit Ansage, einzelne Leuchten, Selbstdiagnose
+- Wecker: die App meldet ihren Stand per Webhook (kein Dienst im Hintergrund,
+          kein lokaler Server, nichts zum Abfragen). An ihm haengt der
+          Weckablauf, der Hauptlicht und Saeule steuert - siehe ablauf.py.
+- Saeule: Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell,
+          Status mit Ansage, einzelne Leuchten, Selbstdiagnose.
+
+Bis November 2026 gab es eine dritte: die Relaisbox (ESP32). Sie ist draussen,
+die Saeule hat ihre Aufgabe uebernommen.
 """
 from __future__ import annotations
 
@@ -30,23 +33,19 @@ from .const import (
     SIGNAL_UPDATE,
     SIGNAL_WECKER_ALLE,
     STORAGE_VERSION,
-    TYP_RELAIS,
     TYP_SAEULE,
     TYP_WECKER,
 )
-from .lampe import WeckerLampe
-from .relais import RelaisCoordinator
+from .ablauf import Weckablauf
 from .saeule import SaeuleCoordinator
-from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS_WECKER: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.BUTTON]
-PLATFORMS_RELAIS: list[Platform] = [
-    Platform.SWITCH,
+PLATFORMS_WECKER: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.SWITCH,
 ]
 PLATFORMS_SAEULE: list[Platform] = [
     Platform.SELECT,
@@ -66,7 +65,7 @@ def platforms_fuer(entry: ConfigEntry) -> list[Platform]:
     typ = entry_typ(entry)
     if typ == TYP_SAEULE:
         return PLATFORMS_SAEULE
-    return PLATFORMS_RELAIS if typ == TYP_RELAIS else PLATFORMS_WECKER
+    return PLATFORMS_WECKER
 
 
 class WeckerData:
@@ -76,6 +75,7 @@ class WeckerData:
         self.hass = hass
         self.entry = entry
         self.payload: dict[str, Any] | None = None
+        self.ablauf: Any = None            # Weckablauf, siehe ablauf.py
         self.last_seen: datetime | None = None
         self._store: Store = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
@@ -152,23 +152,12 @@ async def _setup_wecker(hass: HomeAssistant, entry: ConfigEntry) -> None:
         local_only=False,
     )
 
+    # Der Weckablauf haengt am Wecker, nicht an einem Leuchtmittel: hier liegen
+    # die Weckzeiten. Die Geraete, die er steuert, stehen in anderen Eintraegen.
+    data.ablauf = Weckablauf(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_WECKER)
-
-
-async def _setup_relais(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    coordinator = RelaisCoordinator(hass, entry)
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady:
-        raise
-    hass.data[DOMAIN][entry.entry_id] = coordinator
-    # Weckerlampe: der Schalter stellt beim Anlegen seinen letzten Stand wieder her
-    coordinator.lampe = WeckerLampe(hass, entry, coordinator)
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_RELAIS)
-    coordinator.lampe.async_start()
-    entry.async_on_unload(coordinator.lampe.async_stop)
-    # Aenderungen kommen sofort ueber den Ereignisstrom, die Abfrage ist Rueckfall
-    coordinator.async_start_events()
+    data.ablauf.async_start()
+    entry.async_on_unload(data.ablauf.async_stop)
 
 
 async def _setup_saeule(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -186,12 +175,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     typ = entry_typ(entry)
     if typ == TYP_SAEULE:
         await _setup_saeule(hass, entry)
-    elif typ == TYP_RELAIS:
-        await _setup_relais(hass, entry)
     else:
         await _setup_wecker(hass, entry)
 
-    async_setup_services(hass)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
 
@@ -203,7 +189,7 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Eintrag wieder abbauen."""
     obj = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if isinstance(obj, RelaisCoordinator):
+    if isinstance(obj, SaeuleCoordinator):
         await obj.async_stop_events()
     if isinstance(obj, WeckerData):
         webhook.async_unregister(hass, obj.webhook_id)
@@ -214,5 +200,4 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, platforms_fuer(entry))
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        async_unload_services(hass)
     return unloaded

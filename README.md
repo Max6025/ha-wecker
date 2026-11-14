@@ -1,32 +1,31 @@
 # HA Wecker
 
-Drei Geraete fuer Home Assistant in einer Integration, kein MQTT:
+Zwei Geraete fuer Home Assistant in einer Integration, kein MQTT:
 
 1. **Wecker** - eine eigene Android-Wecker-App (wie die Samsung-Uhr), die ihre
    **komplette Weckerliste** - auch die ausgeschalteten Wecker - per Webhook an
    Home Assistant meldet. Die App laeuft dafuer **nicht im Hintergrund**: kein
    Dienst, kein Intervall, kein Wakelock. Sie sendet nur, wenn sich etwas
-   aendert, und schlaeft sonst.
-2. **Relaisbox** - ein ESP32-S3 im WLAN mit Relaisplatine. Jedes Relais ist ein
-   Schalter in HA, und die Integration bringt fertige Aktionen mit: `Alarm
-   starten` laesst ein Relais ein Muster laufen (Doppelblitz, Blinken, SOS ...),
-   `Alarm stoppen` beendet es. Ein Blueprint verbindet beides: solange der
-   Wecker klingelt, blinkt das Relais.
-3. **Signalsaeule** - ein Arduino UNO R4 WiFi an einer Rittal-Signalsaeule mit
+   aendert, und schlaeft sonst. An ihm haengt der **Weckablauf**: was rund um
+   den Weckruf passiert - Hauptlicht hochdimmen, Saeule schalten - steht in
+   einer Ablaufdatei mit Zeitbloecken.
+2. **Signalsaeule** - ein Arduino UNO R4 WiFi an einer Rittal-Signalsaeule mit
    vier Leuchtelementen und einer Blitz-Warnleuchte. Oben ein Umschalter
    **Auto / Manuell**: in Auto treibt ein **Status** die Saeule (Ruhe, Hinweis,
-   Achtung, Stoerung, Alarm), jeder Wechsel wird angesagt und bleibt dann
-   stehen; in Manuell schaltet man die Leuchten einzeln. Die Blitz-Warnleuchte
-   hat ihren eigenen Schalter. Die Saeule bringt ein **eigenes Web-Dashboard**
-   mit (Live-Bild, Testmodus, Selbstdiagnose) und merkt sich ihren Status ueber
-   einen Stromausfall hinweg.
+   Achtung, Stoerung, Alarm, Kreuzwechsel, Blinker), jeder Wechsel wird
+   angesagt und bleibt dann stehen; in Manuell schaltet man die Leuchten
+   einzeln. Die Blitz-Warnleuchte hat ihren eigenen Schalter. Die Saeule bringt
+   ein **eigenes Web-Dashboard** mit (Live-Bild, Testmodus, Selbstdiagnose) und
+   merkt sich ihren Status ueber einen Stromausfall hinweg.
+
+Bis November 2026 gab es eine dritte: die **Relaisbox** (ESP32-S3). Sie ist
+draussen; die Signalsaeule hat ihre Aufgabe uebernommen, und der Weckablauf
+haengt nicht mehr an ihr, sondern am Wecker.
 
 ```
 ha-wecker/
 ├── custom_components/ha_wecker/   Home-Assistant-Integration (HACS-faehig)
-├── blueprints/automation/         Blueprint "Relais blinkt, solange Wecker klingelt"
 ├── app/                           Android-App (Kotlin, nur androidx.core)
-├── firmware/relaisbox/            PlatformIO-Firmware fuer den ESP32-S3
 ├── firmware/signalsaeule/         Arduino-Sketch fuer den UNO R4 WiFi
 ├── homeassistant/                 YAML-Alternative ohne Integration, Lovelace-Karte
 └── tests/                         pytest mit pytest-homeassistant-custom-component
@@ -44,12 +43,12 @@ ha-wecker/
    Webhook-ID beim Anlegen, im Diagnose-Sensor „Webhook" und in den Optionen; die kommt
    in der App unter dem Zahnrad in das Feld Webhook-ID. App-APK aus `app/` bauen
    (Abschnitt 2) und installieren.
-3. **Relaisbox hinzufuegen:** Firmware aus `firmware/relaisbox/` flashen
-   (Abschnitt 6), WLAN-Zugang eintragen. Die Box meldet sich per mDNS, HA
-   bietet sie unter „Entdeckt" an - oder von Hand: HA Wecker -> *Relaisbox
-   (ESP32)* -> Adresse `relaisbox.local`.
-4. **Verbinden:** Blueprint `blueprints/automation/ha_wecker/wecker_alarm_relais.yaml`
-   importieren, Wecker-Sensor „Klingelt" und die gewuenschten Relais waehlen.
+3. **Signalsaeule hinzufuegen:** Sketch aus `firmware/signalsaeule/` flashen
+   (Abschnitt 6), WLAN-Zugang in `arduino_secrets.h` eintragen. Dann
+   HA Wecker -> *Signalsaeule* -> Adresse der Saeule.
+4. **Weckablauf einstellen:** beim Geraet „Wecker" auf Konfigurieren, dort das
+   **Hauptlicht** waehlen und die **Ablaufdatei** anpassen (Abschnitt 6a).
+   Danach den Knopf **Probelauf** druecken - er spielt alles sofort durch.
 
 ---
 
@@ -165,7 +164,7 @@ Jeder Eintrag in `alarms` hat: `id`, `name`, `label`, `time`, `hour`, `minute`,
 
 ## 5. Home Assistant - Integration (empfohlen)
 
-Die Integration legt je Eintrag **ein Geraet** an - „Wecker" oder „Relaisbox" -
+Die Integration legt je Eintrag **ein Geraet** an - „Wecker" oder „Signalsäule" -
 unter dem alle Entitaeten haengen. Beim Wecker erzeugt sie die Webhook-Adresse
 selbst.
 
@@ -300,151 +299,7 @@ Im Normalbetrieb zeigt die App nichts an und hat keine Daueranzeige. Ausnahmen:
 
 ---
 
-## 6. Relaisbox (ESP32-S3)
-
-Hardware: ESP32-S3-DevKitC-1 (zwei USB-C, RGB-LED, N16R8) mit drei einzelnen
-Relaismodulen an 3V3/GND. Relais 1-3 an **GPIO 4, 5, 6** (aktiv HIGH), Taster
-an **GPIO 7** nach GND (interner Pullup, gedrueckt = an, 30 ms entprellt). Die
-vier Pins liegen am linken Stecker direkt hinter den beiden 3V3-Pins
-nebeneinander und sind reine GPIOs: keine Strapping-, PSRAM-, JTAG- oder
-USB-Funktion, beim Start still. GPIO 42 geht beim Start dauerhaft auf HIGH.
-Fuer ein 3,3-V-Signal am Eingang `EINGANG_AKTIV_LOW` in `main.cpp` auf false
-setzen. Pins und Polaritaet stehen oben in `firmware/relaisbox/src/main.cpp`.
-
-**Pinwahl auf diesem Board.** Frei und unkritisch: 4, 5, 6, 7, 15, 16, 17, 18,
-1, 2, 21, 47. Meiden: 0, 3, 45, 46 (Strapping), 19, 20 (USB), 33-37 (PSRAM),
-39-42 (JTAG), 43, 44 (UART0), 48 (RGB-LED).
-
-**Nie GPIO 33-37 benutzen.** Beim N16R8-Modul haengen diese Pins intern am
-PSRAM-Chip. Relais daran klicken nur leise statt zu schalten, ein Eingang liest
-ohne Taster HIGH - das sah aus wie ein defektes Relais, war aber der Pin.
-
-**Variante fuer LOW-Trigger-Module an 5 V:** `pio run -e esp32s3-lowtrigger
--t upload` baut Open-Drain-Ausgaenge, „an" zieht nach GND, „aus" laesst den Pin
-los und das Modul liefert den Pegel selbst. Fuer die hier verwendeten
-3,3-V-Module nicht noetig.
-
-**Flashen**
-
-```bash
-cd firmware/relaisbox
-cp secrets.ini.beispiel secrets.ini     # WLAN eintragen
-pio run -e esp32s3 -t upload
-```
-
-Ohne `secrets.ini` oder bei falschem Kennwort oeffnet die Box nach 30 s das
-Einrichtungs-WLAN **Relaisbox-Setup**; unter `http://192.168.4.1/` laesst sich
-der Zugang eintragen. Seriell (115200) geht es auch: `wifi <ssid> <kennwort>`,
-`scan`, `state`, `alarm`, `stop`. Die RGB-LED zeigt den Zustand: blau blinkend
-= sucht WLAN, lila = Einrichtungs-WLAN offen, gruen = verbunden, amber
-pulsierend = Alarmmuster laeuft.
-
-**HTTP-Schnittstelle** (Port 80, `http://relaisbox.local/` zeigt eine Statusseite)
-
-| Methode | Pfad | Zweck |
-|---|---|---|
-| GET | `/api/state` | Zustand aller Relais und des Eingangs als JSON |
-| GET | `/api/ping` | Erreichbarkeitstest |
-| GET | `:8081/api/events` | **Ereignisstrom** (Server-Sent Events): bei jeder Aenderung sofort der komplette Zustand, alle 15 s ein Lebenszeichen |
-| POST | `/api/relais/<nr>?an=1` | Relais schalten (beendet ein Muster) |
-| POST | `/api/alarm?relais=1,3&muster=doppelblitz&dauer=0` | Muster starten; `relais=alle`, `dauer` in s, 0 = bis Stopp |
-| POST | `/api/alarm/stop?relais=1` | Muster beenden, Relais aus (ohne `relais` = alle) |
-| POST | `/api/led?dunkel=1` | Nachtruhe: RGB-LED der Box bleibt aus, solange kein Muster laeuft (gespeichert; die Integration setzt das 20-8 Uhr) |
-| POST | `/api/wifi?ssid=&pass=` | WLAN speichern, Neustart |
-
-Muster: `dauer`, `blinken` (1 s/1 s), `langsam` (2 s/2 s), `schnell` (¼ s),
-`doppelblitz` (100/120/100/680 ms wie eine Brandmeldezentrale),
-`dreifachblitz` (drei 60-ms-Blitze im 0,8-s-Takt, wie ein Stroboskop),
-`intervall` (10 s an, 2 s aus, etwa fuer eine Blitzleuchte im Dauertest),
-`takt5` (Doppelblitz alle 5 s), `sos`.
-Die Muster laufen auf dem ESP, HA sagt nur, welches wie lange. Jedes Relais
-in `/api/state` traegt `pegel` (den tatsaechlich gemessenen Pin, zur
-Fehlersuche) und bei der Bauweise „Lampen" einen `name`.
-
-Die Integration haelt den Ereignisstrom dauerhaft offen, dadurch erscheinen
-Eingang und Relaiszustand in HA ohne Verzoegerung. Reisst die Verbindung ab,
-verbindet sie sich neu und fragt dazwischen alle 10 s ab. Ob der Strom steht,
-zeigt das Attribut `ereignisstrom` am Diagnose-Sensor „Laufzeit".
-
-**Entitaeten in HA**
-
-| Entity | Inhalt |
-|---|---|
-| `switch.relaisbox_relais_1` ... `_3` | je Relais ein Schalter; Attribute `muster`, `rest_s`. Meldet die Box Namen (Bauweise „Lampen"), heissen sie danach: `switch.relaisbox_lampe`, `_rot`, `_warnleuchte` |
-| `switch.relaisbox_weckerlampe` | Weckerlampe an/aus (siehe unten); Attribute `phase`, `relais`, `hauptlicht`, `hauptlicht_fenster`, `hauptlicht_dabei`, `naechster_wecker`, `vorlauf_ab` |
-| `switch.relaisbox_testmodus` | Lichtbild zum Aufbauen: Lampe `dreifachblitz`, Rot `langsam`, Warnleuchte `intervall`, bis man ihn ausschaltet; ein Weckruf nimmt ihn zurueck |
-| `binary_sensor.relaisbox_alarm` | laeuft gerade ein Muster |
-| `binary_sensor.relaisbox_eingang` | Taster an GPIO 7 (fehlt bei der Bauweise „Lampen"); Attribute `seit_s`, `zaehler` |
-| `button.relaisbox_alarm_stoppen` | alles aus |
-| `sensor.relaisbox_wlan_signal`, `sensor.relaisbox_laufzeit` | Diagnose, standardmaessig deaktiviert |
-
-**Weckerlampe.** Die Leuchten der Box und ein dimmbares Hauptlicht folgen
-von selbst dem Wecker der App, ohne Automation. Relais-Nummern wie in der
-Bauweise „Lampen": 1 Lampe (mit gruener LED), 3 Rot, 4 Warnleuchte (blitzt
-bei Dauerplus von selbst). Das Hauptlicht ist eine `light`-Entitaet aus
-„Konfigurieren" (etwa ein Shelly Dimmer); leer = keins.
-
-| Phase | Rot | Lampe | Warnleuchte | Hauptlicht |
-|---|---|---|---|---|
-| Vorlauf, 1 min vor dem Weckruf | an | - | - | 3 %, in der Minute auf 10 % |
-| Klingeln | blinkt | Doppelblitz | an | 100 % |
-| Schlummern | aus | aus | aus | 10 % |
-| Nach dem Beenden | schnell, 5 min | blinkt (1 s), 5 min | noch 5 s | 50 % fuer 10 min, dann in 30 s aus; danach Warnleuchte noch 10 s |
-
-Klingelt es nach dem Schlummern wieder, geht es wie beim Klingeln weiter;
-fehlte der Vorlauf (HA gerade gestartet), startet das Klingeln direkt. Nach
-10:40 min Nachlauf ist Ruhe. Das Hauptlicht macht nur im Zeitfenster aus den
-Optionen mit (Vorgabe 3 bis 10 Uhr, entschieden beim Start eines Ablaufs);
-ausserhalb laufen nur die Leuchten. Der Schalter
-`switch.relaisbox_weckerlampe` schaltet das Ganze ein und aus (bleibt ueber
-Neustarts erhalten, neu angelegt ist er an); aus heisst sofort alles aus,
-auch das Hauptlicht, wenn es mitgemacht hat. Jedes Muster auf der Box bekommt
-eine Hoechstdauer (Vorlauf 11 min, Klingeln 10 min): meldet sich das Handy
-nicht mehr, gehen die Leuchten trotzdem aus. Gezaehlt werden alle
-Wecker-Eintraege der Integration.
-
-**Nachtruhe der Box.** Zwischen 20 und 8 Uhr schaltet die Integration die
-RGB-LED der Box dunkel (`/api/led?dunkel=1`, bei jeder Abfrage abgeglichen);
-laeuft ein Muster, zeigt die LED weiter Amber. Die rote Betriebs-LED des
-DevKits haengt fest an 3,3 V und laesst sich nicht abschalten (abkleben).
-
-**Bauweise „Lampen".** `pio run -e esp32s3-lampe -t upload` baut die
-Firmware fuer drei F5305S-MOSFET-Module (schalten die Plusleitung einer
-12/24-V-Lampe lautlos, Trigger 3,3 V vom GPIO): 1 Lampe an **GPIO 1** (die
-gruene LED haengt am selben Ausgang), 3 Rot an **GPIO 40**, 4 Warnleuchte an
-**GPIO 41** (eine WERMA 205 Blitzleuchte, die bei Dauerplus von selbst
-blitzt). Nummer 2 ist frei, die Nummern bleiben stabil, weil der Lampenplan
-daran haengt. Kein Taster, kein GPIO 42. Die Box meldet keinen Eingang,
-die Integration legt den Sensor nicht an. `pio run -e esp32s3-lampe-test
--t upload` baut dieselbe Firmware so, dass das Weckruf-Lichtbild ab dem
-Einschalten dauernd laeuft (zum Aufbauen und Vorfuehren, auch ohne WLAN).
-
-**Aktionen**
-
-```yaml
-action: ha_wecker.alarm_starten
-target:
-  entity_id: switch.relaisbox_relais_1     # oder device_id der Relaisbox
-data:
-  muster: doppelblitz
-  dauer: 900          # Sekunden, 0 = bis "Alarm stoppen"
-```
-
-```yaml
-action: ha_wecker.alarm_stoppen
-target:
-  device_id: <relaisbox>
-```
-
-Ohne Ziel gelten beide Aktionen fuer alle Relaisboxen. Der Blueprint in
-`blueprints/automation/ha_wecker/` startet den Alarm, wenn `binary_sensor
-... klingelt` auf *an* geht, und stoppt ihn beim Zurueckfallen auf *aus*; die
-Hoechstdauer (Standard 15 Minuten) faengt den Fall ab, dass das Ende nicht
-ankommt.
-
----
-
-## 7. Signalsaeule (Arduino UNO R4 WiFi)
+## 6. Signalsaeule (Arduino UNO R4 WiFi)
 
 Hardware: Rittal Signalsaeule SZ 2372.02.0 mit vier Leuchtelementen, dazu eine
 Blitz-Warnleuchte. Geschaltet wird ueber MOSFET-Leistungsstufen (F5305S,
@@ -623,7 +478,76 @@ Laufzeit.
 
 ---
 
-## 8. Warum nicht die Companion App
+## 6a. Weckablauf (Hauptlicht und Saeule folgen dem Wecker)
+
+Der Weckablauf haengt am **Wecker**, nicht an einem Leuchtmittel. Er holt sich
+die Weckzeiten aus dem, was die App gemeldet hat, und steuert damit Geraete aus
+anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
+2026 hing er an der Relaisbox: ohne die lief gar nichts.
+
+**Einstellen:** Optionen des Geraets „Wecker" (Zahnrad „Konfigurieren").
+
+| Feld | Inhalt |
+|---|---|
+| Hauptlicht | eine dimmbare `light`-Entitaet; leer = kein Hauptlicht |
+| Ablaufdatei | JSON mit Zeitbloecken (siehe unten); leer = Standardablauf |
+
+**Entitaeten**
+
+| Entity | Inhalt |
+|---|---|
+| `switch.ha_wecker_weckablauf` | an = der Ablauf laeuft mit. Attribute: Block, naechster Wecker, Nullpunkt, Fehler der Ablaufdatei und das **Protokoll** jedes Schritts mit Ergebnis |
+| `button.ha_wecker_probelauf` | spielt den Ablauf sofort durch: eine Minute Vorlauf, dann „klingelt" es |
+
+**Ablaufdatei**
+
+```json
+{
+  "version": 1,
+  "bloecke": [
+    {
+      "name": "Werktags frueh",
+      "wochentage": ["mo", "di", "mi", "do", "fr"],
+      "von": "04:00",
+      "bis": "10:00",
+      "schritte": [
+        { "zeit": -60, "saeule": { "status": "hinweis" } },
+        { "zeit": -60, "licht":  { "prozent": 3, "dauer": 60 } },
+        { "zeit":   0, "saeule": { "status": "alarm" } },
+        { "zeit":   0, "licht":  { "prozent": 90, "dauer": 20 } },
+        { "zeit": 540, "licht":  { "prozent": 5, "dauer": 30 } },
+        { "zeit": 840, "licht":  { "aus": true } },
+        { "zeit": 840, "saeule": { "status": "ruhe" } }
+      ]
+    }
+  ]
+}
+```
+
+- `zeit` zaehlt in **Sekunden ab dem Klingeln**, negativ heisst vorher.
+- Es gilt der **erste Block**, dessen Wochentag und Zeitfenster zur Weckzeit
+  passen. `von` gleich `bis` heisst: immer.
+- `licht`: `prozent` (0-100), `dauer` in Sekunden fuer den Uebergang, `aus`.
+  Kann die Leuchte kein `transition`, wird der Befehl ohne wiederholt.
+- `saeule`: `status` (eine Kennung aus der Statusliste der Saeule) und `warn`
+  fuer die Blitz-Warnleuchte.
+- Unsinn in der Datei wird beim Speichern abgelehnt, mit Angabe von Block und
+  Schritt. Bis dahin gilt der Standardablauf.
+
+**Die Weckzeit rechnet die Integration selbst** aus Stunde, Minute und
+Wochentagsmaske, die die App mitschickt, inklusive „naechsten ueberspringen".
+`next_trigger` aus der Nutzlast ist nur die Rueckfallebene: die App meldet sich
+nur bei Aenderungen, der Zeitstempel kann also alt sein. Genau daran scheiterte
+vorher der Vorlauf.
+
+**Wenn nichts passiert:** Das Protokoll am Schalter `switch.ha_wecker_weckablauf`
+zeigt jeden Schritt mit Zeit, Ziel und Ergebnis - auch die gescheiterten. Fuer
+einen schnellen Versuch den Knopf **Probelauf** druecken, statt bis zum
+naechsten Morgen zu warten.
+
+---
+
+## 7. Warum nicht die Companion App
 
 Die Home Assistant Companion App liest ueber den Sensor "Next Alarm" nur das
 `AlarmClockInfo` des Systems. Android gibt dort ausschliesslich den naechsten

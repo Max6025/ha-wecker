@@ -5,28 +5,12 @@
         "title": "HA Wecker – was soll hinzugefügt werden?",
         "menu_options": {
           "wecker": "Wecker (Android-App)",
-          "relais": "Relaisbox (ESP32)",
           "saeule": "Signalsäule (Arduino UNO R4 WiFi)"
         }
       },
       "wecker": {
         "title": "Wecker einrichten",
         "description": "Die App meldet ihren Weckerstand per Webhook – sie läuft nicht im Hintergrund, und nichts fragt sie ab. Die Webhook-Adresse wird jetzt erzeugt und danach im Diagnose-Sensor „Webhook“ und unter „Konfigurieren“ angezeigt; das ist die Adresse für die App.",
-        "data": {
-          "name": "Name"
-        }
-      },
-      "relais": {
-        "title": "Relaisbox einrichten",
-        "description": "Adresse der Relaisbox im Netz, z. B. relaisbox.local oder 192.168.1.60.",
-        "data": {
-          "name": "Name",
-          "host": "Adresse"
-        }
-      },
-      "relais_bestaetigen": {
-        "title": "Relaisbox gefunden",
-        "description": "Relaisbox unter {host} (Firmware {version}) hinzufügen?",
         "data": {
           "name": "Name"
         }
@@ -42,13 +26,12 @@
     },
     "error": {
       "host_fehlt": "Bitte eine Adresse eingeben.",
-      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox.",
+      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Signalsäule.",
       "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule."
     },
     "abort": {
       "already_configured": "Dieses Gerät ist bereits eingerichtet.",
-      "nicht_relaisbox": "Gefundenes Gerät ist keine Relaisbox.",
-      "nicht_erreichbar": "Die gefundene Relaisbox antwortet nicht.",
+      "nicht_erreichbar": "Die gefundene Signalsäule antwortet nicht.",
       "keine_saeule": "Die gefundene Signalsäule antwortet nicht."
     },
     "flow_title": "{name}"
@@ -57,17 +40,10 @@
     "step": {
       "init": {
         "title": "HA Wecker",
-        "description": "Adresse für die App:\n{webhook_url}",
-        "data": {}
-      },
-      "relais": {
-        "title": "Relaisbox",
-        "description": "Derzeit: {url}\n\nWeckerlampe (Schalter „Weckerlampe“): eine Minute vor dem Weckruf leuchtet Rot, das Hauptlicht geht auf 3 % und steigt auf 10 %. Beim Klingeln blinkt Rot, die Lampe macht Doppelblitz, die Warnleuchte geht an, das Hauptlicht auf 100 %. Schlummern: alles aus, Hauptlicht 10 %. Nach dem Beenden: Warnleuchte 5 s, Rot schnell 5 min, Lampe blinkt 5 min, Hauptlicht 50 % für 10 min, dann in 30 s aus, danach die Warnleuchte noch 10 s.\n\nDas Hauptlicht muss dimmbar sein (etwa ein Shelly Dimmer) und macht nur im Zeitfenster mit; leer = kein Hauptlicht.",
+        "description": "Adresse für die App:\n{webhook_url}\n\nWeckablauf: Was rund um den Weckruf passiert, steht in der Ablaufdatei. \"zeit\" zählt in Sekunden ab dem Klingeln, negativ heißt vorher. Es gilt der erste Block, dessen Wochentag und Zeitfenster zur Weckzeit passen; von = bis heißt: immer. \"licht\" steuert das Hauptlicht (prozent, dauer in Sekunden für den Übergang, aus), \"saeule\" die Signalsäule (status, warn). Der Knopf „Probelauf“ spielt alles sofort durch, das Ergebnis jedes Schritts steht danach am Schalter „Weckablauf“.\n\nZuletzt geprüft: {fehler}",
         "data": {
-          "host": "Adresse der Relaisbox",
-          "hauptlicht": "Hauptlicht (dimmbar)",
-          "hauptlicht_von": "Hauptlicht mitnehmen ab",
-          "hauptlicht_bis": "Hauptlicht mitnehmen bis"
+          "hauptlicht": "Hauptlicht (dimmbare Lampe, leer = keines)",
+          "ablauf": "Ablaufdatei (JSON)"
         }
       },
       "saeule": {
@@ -80,8 +56,9 @@
     },
     "error": {
       "host_fehlt": "Bitte eine Adresse eingeben.",
-      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Relaisbox.",
-      "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule."
+      "nicht_erreichbar": "Unter dieser Adresse antwortet keine Signalsäule.",
+      "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule.",
+      "ablauf_fehler": "Die Ablaufdatei ist nicht in Ordnung – siehe Beschreibung oben."
     }
   },
   "entity": {
@@ -101,26 +78,6 @@
         "doppelblitz": "Doppelblitz (wie Brandmeldezentrale)",
         "sos": "SOS"
       }
-    }
-  },
-  "services": {
-    "alarm_starten": {
-      "name": "Alarm starten",
-      "description": "Lässt die gewählten Relais der Relaisbox ein Muster laufen, z. B. Doppelblitz, bis „Alarm stoppen“ oder bis die Dauer abgelaufen ist.",
-      "fields": {
-        "muster": {
-          "name": "Muster",
-          "description": "Wie das Relais schalten soll."
-        },
-        "dauer": {
-          "name": "Dauer",
-          "description": "Sekunden, nach denen das Muster von selbst endet. 0 = bis „Alarm stoppen“."
-        }
-      }
-    },
-    "alarm_stoppen": {
-      "name": "Alarm stoppen",
-      "description": "Beendet das Muster auf den gewählten Relais und schaltet sie aus."
     }
   }
 }
