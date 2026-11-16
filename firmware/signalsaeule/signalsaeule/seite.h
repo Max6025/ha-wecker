@@ -128,6 +128,10 @@ td.z{width:18px} td.n{width:34%}
         beiden Betriebsarten. Im Status Alarm geht sie von selbst an, sobald Rot
         und Hinweis im Wechsel blinken, und beim Verlassen wieder auf ihren
         Stand von vorher.</div>
+      <div class="warn schalter" style="margin-top:10px" id="tonschalter"></div>
+      <div class="hinweis">Der Tongeber piept, solange Strom drauf ist. Er hängt
+        an gar nichts – kein Status, kein Testmodus, kein Startablauf nimmt ihn
+        mit – und wird auch nicht gemerkt: nach einem Stromausfall ist er aus.</div>
     </div>
 
     <div class="karte">
@@ -139,7 +143,7 @@ td.z{width:18px} td.n{width:34%}
       <table id="diagtab" style="margin-top:10px"></table>
       <div class="hinweis">Die Diagnose prüft, was der Arduino selbst wissen kann:
         WLAN, Speicher und ob jeder Ausgang seinen Pegel annimmt. Ob eine
-        Leuchte wirklich brennt, sieht er nicht. Die Blitzleuchte blitzt dabei kurz.</div>
+        Leuchte wirklich brennt, sieht er nicht. Die Blitzleuchte blitzt dabei kurz, der Tongeber piept kurz.</div>
     </div>
 
     <div class="karte">
@@ -178,7 +182,7 @@ function bauen() {
     w.appendChild(o);
   });
   const lampen = E('lampen'); lampen.innerHTML = '';
-  (z.relais || []).filter(r => r.rolle !== 'warn').forEach((r, i) => {
+  (z.relais || []).filter(r => r.rolle === 'stufe').forEach((r, i) => {
     const b = document.createElement('button');
     b.className = 'l' + r.nr; b.id = 'sw' + r.nr;
     b.innerHTML = '<span class="led"></span>' + (NAMEN[i] || r.name) +
@@ -193,6 +197,14 @@ function bauen() {
     b.innerHTML = '<span class="led"></span>Blitz-Warnleuchte<span class="pin"></span>';
     b.onclick = () => schalte(r.nr, !b.classList.contains('an'));
     ws.appendChild(b);
+  });
+  const ts = E('tonschalter'); ts.innerHTML = '';
+  (z.relais || []).filter(r => r.rolle === 'ton').forEach(r => {
+    const b = document.createElement('button');
+    b.className = 'l' + r.nr; b.id = 'sw' + r.nr;
+    b.innerHTML = '<span class="led"></span>Ton<span class="pin"></span>';
+    b.onclick = () => schalte(r.nr, !b.classList.contains('an'));
+    ts.appendChild(b);
   });
   bereit = true;
 }
@@ -233,13 +245,13 @@ function anwenden(l) {
   E('statusblock').style.display = auto ? '' : 'none';
   E('lampen').style.display = auto ? 'none' : '';
   E('lampenhinweis').style.display = auto ? 'none' : '';
-  E('leuchtenkopf').textContent = auto ? 'Warnleuchte' : 'Leuchten einzeln';
+  E('leuchtenkopf').textContent = auto ? 'Warnleuchte und Ton' : 'Leuchten einzeln';
   E('statushinweis').textContent =
     l.wechsel ? 'Wechsel läuft – die Säule sagt den neuen Status an.' : 'Status steht.';
   const band = E('band');
   if (l.phase !== 'betrieb') { band.style.display = 'block'; band.textContent = 'Startablauf läuft …'; }
   else if (l.diag) { band.style.display = 'block'; band.textContent = 'Selbstdiagnose läuft …'; }
-  else if (l.test) { band.style.display = 'block'; band.textContent = 'Testmodus läuft – alle Leuchten der Reihe nach.'; }
+  else if (l.test) { band.style.display = 'block'; band.textContent = 'Testmodus läuft – alle Leuchten der Reihe nach, ohne Ton.'; }
   else band.style.display = 'none';
   E('test').classList.toggle('an', !!l.test);
   E('test').classList.toggle('l5', !!l.test);

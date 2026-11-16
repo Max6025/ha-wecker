@@ -29,6 +29,9 @@ from .const import (
     DOMAIN,
     MODUS_AUTO,
     MODUS_MANUELL,
+    ROLLE_STUFE,
+    ROLLE_TON,
+    ROLLE_WARN,
     SAEULE_ABFRAGE_S,
     STATUS_STANDARD,
 )
@@ -142,16 +145,33 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         d = (self.data or {}).get("diagnose")
         return d if isinstance(d, dict) else {}
 
-    def leuchten(self, nur_warn: bool | None = None) -> list[dict[str, Any]]:
-        """Die Leuchten der Saeule; nur_warn trennt Stufen und Warnleuchte."""
+    def leuchten(self, rolle: str | None = None) -> list[dict[str, Any]]:
+        """Die Ausgaenge der Saeule, bei Bedarf nur die einer Rolle.
+
+        Ohne Angabe alle. Ein Ausgang ohne gemeldete Rolle gilt als Stufe -
+        sonst fielen bei einer aelteren Firmware alle Schalter weg.
+        """
         aus = []
         for r in (self.data or {}).get("relais", []) or []:
             if not isinstance(r, dict):
                 continue
-            warn = r.get("rolle") == "warn"
-            if nur_warn is None or warn == nur_warn:
+            if rolle is None or str(r.get("rolle") or ROLLE_STUFE) == rolle:
                 aus.append(r)
         return aus
+
+    def nummer_fuer(self, rolle: str) -> int | None:
+        """Nummer des Ausgangs mit dieser Rolle; None, wenn es ihn nicht gibt.
+
+        Die Nummern sind in der Firmware stabil (1-4 Stufen, 5 Warnleuchte,
+        6 Ton), aber hier nicht hartkodiert: eine Saeule ohne Tongeber meldet
+        Nr. 6 einfach nicht, und dann soll der Schritt sauber ausfallen statt
+        ins Leere zu schalten.
+        """
+        for r in self.leuchten(rolle):
+            nr = r.get("nr")
+            if isinstance(nr, int):
+                return nr
+        return None
 
     # --- Befehle ------------------------------------------------------
 
@@ -247,3 +267,14 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_schalten(self, nr: int, an: bool) -> None:
         await self._post(f"/api/relais/{nr}", {"an": 1 if an else 0})
+
+    async def async_rolle_schalten(self, rolle: str, an: bool) -> None:
+        """Den Ausgang dieser Rolle schalten (Warnleuchte, Tongeber)."""
+        nr = self.nummer_fuer(rolle)
+        if nr is None:
+            raise UpdateFailed(f"Die Saeule hat keinen Ausgang \"{rolle}\"")
+        await self.async_schalten(nr, an)
+
+    @property
+    def ton_an(self) -> bool:
+        return bool((self.data or {}).get(ROLLE_TON))

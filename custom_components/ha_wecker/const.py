@@ -14,9 +14,12 @@ SAEULE_ABFRAGE_S = 15
 MODUS_AUTO = "auto"
 MODUS_MANUELL = "manuell"
 STATUS_STANDARD = "ruhe"
-# Rolle einer Leuchte in /api/state: "stufe" gehoert zur Saeule und folgt dem
-# Status, "warn" ist die Blitz-Warnleuchte mit eigenem Schalter.
+# Rolle eines Ausgangs in /api/state: "stufe" gehoert zur Saeule und folgt dem
+# Status, "warn" ist die Blitz-Warnleuchte, "ton" der Tongeber - die beiden
+# letzten haengen an keiner Choreografie und haben eigene Schalter.
+ROLLE_STUFE = "stufe"
 ROLLE_WARN = "warn"
+ROLLE_TON = "ton"
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 SIGNAL_WECKER_ALLE = DOMAIN + "_wecker_alle"     # irgendein Wecker hat sich gemeldet

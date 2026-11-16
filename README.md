@@ -316,11 +316,23 @@ Der komplette Aufbau steht im Stromlaufplan `SIG-R4-E`.
 | D4      | K2 : IN2 | H2 orange, Stufe 2    | weiss   |
 | D5      | K2 : IN3 | H3 rot, Stufe 3       | gelb    |
 | D6      | K2 : IN4 | H4 Hinweis (orange), Stufe 4 | rot |
+| D7      | K3 : IN  | Tongeber (1-Kanal-Relais) | orange |
 
 Die Zuordnung stimmt mit dem Stromlaufplan `SIG-R4-E` ueberein.
 
-Die Nummern in `/api/state` (1 gruen bis 4 Hinweis, 5 Warnleuchte) bleiben
-stabil - die Entitaeten in Home Assistant haengen daran.
+Klemmleiste an der Saeule (Stand 16.11.2026, Cat-Kabel):
+
+| Klemme | Funktion | Draht |
+|---|---|---|
+| 0 | Minus | weiss (gruenes Paar) |
+| 1 | LED gruen | gruen (gruenes Paar) |
+| 2 | LED orange | braun (braunes Paar) |
+| 3 | LED rot | weiss (braunes Paar) |
+| 4 | Hinweisleuchte | blau |
+| 5 | Ton | orange |
+
+Die Nummern in `/api/state` (1 gruen bis 4 Hinweis, 5 Warnleuchte, 6 Ton)
+bleiben stabil - die Entitaeten in Home Assistant haengen daran.
 
 **Betriebsarten.** In **Auto** treibt der Status die Saeule. Ein Wechsel wird
 immer gleich angesagt: alle vier Stufen laufen von unten nach oben dazu (bei
@@ -359,6 +371,15 @@ dauerhaft an. Verlaesst die Saeule den Alarm, bekommt die Warnleuchte wieder
 den Stand, den sie vorher von Hand hatte; wer sie waehrend des Alarms selbst
 schaltet, nimmt sie dem Alarm ab. In `/api/state` sagt `warn_vom_alarm`, wer
 sie gerade in der Hand hat.
+
+Der **Tongeber** (seit Firmware 1.1.0, Nr. 6 an D7) haengt an gar nichts: er
+piept, solange Strom drauf ist, und wird nur ueber seinen eigenen Schalter
+geschaltet - oder vom Weckablauf, siehe Abschnitt 6a. Kein Status, kein
+Testmodus und kein Startablauf nehmen ihn mit, und gemerkt wird er auch nicht:
+**nach einem Stromausfall ist er aus.** Eine Saeule, die beim Booten um
+Viertel vor fuenf losschreit, weckt das halbe Haus. Nur die Selbstdiagnose
+laesst ihn kurz piepen - sie schaltet jeden Ausgang der Reihe nach fuer
+0,4 Sekunden ein.
 
 **Das Licht haengt nicht an der Schleife.** Beim UNO R4 WiFi laeuft jede
 Socket-Operation ueber eine Uebertragung an den ESP32-S3, der das WLAN macht.
@@ -474,7 +495,7 @@ arduino-cli upload -b arduino:renesas_uno:unor4wifi -p /dev/ttyACM0 signalsaeule
 **In Home Assistant hinzufuegen:** Einstellungen -> Geraete & Dienste -> HA
 Wecker -> *Signalsäule (Arduino UNO R4 WiFi)*, dann die Adresse eintragen. Es
 entstehen zwei Auswahlfelder (Betriebsart, Status), ein Schalter je Leuchte,
-der Schalter *Warnleuchte*, *Testmodus*, die Knoepfe *Selbstdiagnose* und
+die Schalter *Warnleuchte*, *Ton*, *Testmodus*, die Knoepfe *Selbstdiagnose* und
 *Alles aus* sowie Sensoren fuer Anzeige, Selbstdiagnose, Feldstaerke und
 Laufzeit.
 
@@ -518,9 +539,9 @@ anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
       "schritte": [
         { "zeit": -60, "saeule": { "status": "hinweis" } },
         { "zeit": -60, "licht":  { "prozent": 5, "dauer": 60 } },
-        { "zeit":   0, "saeule": { "status": "alarm" } },
+        { "zeit":   0, "saeule": { "status": "alarm", "ton": true } },
 
-        { "zeit":   0, "ab": "ende", "saeule": { "status": "kreuz" } },
+        { "zeit":   0, "ab": "ende", "saeule": { "status": "kreuz", "ton": false } },
         { "zeit":   0, "ab": "ende", "licht":  { "prozent": 70, "dauer": 10 } },
         { "zeit": 420, "ab": "ende", "licht":  { "aus": true, "dauer": 30 } },
         { "zeit": 420, "ab": "ende", "saeule": { "status": "alarm" } },
@@ -533,9 +554,10 @@ anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
 
 Das ist zugleich der **Standardablauf**, wenn das Feld leer bleibt: In der
 letzten Minute vor dem Weckruf steigt das Licht auf 5 %, die Saeule zeigt
-Hinweis. Beim Klingeln geht sie in den Alarm und nimmt ihre Blitz-Warnleuchte
-mit. Sobald du den Weckruf **beendest**, faellt die Warnleuchte mit dem Alarm
-weg, die Saeule geht in den Kreuzwechsel und das Licht auf 70 %. Sieben
+Hinweis. Beim Klingeln geht sie in den Alarm, nimmt ihre Blitz-Warnleuchte mit
+und der **Tongeber faengt an zu piepen**. Sobald du den Weckruf **beendest**,
+hoert der Ton sofort auf, die Warnleuchte faellt mit dem Alarm weg, die Saeule
+geht in den Kreuzwechsel und das Licht auf 70 %. Sieben
 Minuten spaeter dimmt das Licht aus und die Saeule schlaegt noch einmal Alarm,
 eine Minute danach steht sie auf Gruen und nimmt wieder Befehle an.
 
@@ -547,8 +569,13 @@ eine Minute danach steht sie auf Gruen und nimmt wieder Befehle an.
   passen. `von` gleich `bis` heisst: immer.
 - `licht`: `prozent` (0-100), `dauer` in Sekunden fuer den Uebergang, `aus`.
   Kann die Leuchte kein `transition`, wird der Befehl ohne wiederholt.
-- `saeule`: `status` (eine Kennung aus der Statusliste der Saeule) und `warn`
-  fuer die Blitz-Warnleuchte.
+- `saeule`: `status` (eine Kennung aus der Statusliste der Saeule), `warn`
+  fuer die Blitz-Warnleuchte und `ton` fuer den Tongeber. Die Nummer des
+  Ausgangs wird aus seiner Rolle gesucht, nicht geraten: hat die Saeule keinen
+  Tongeber, steht das als Fehler im Protokoll, statt irgendetwas zu schalten.
+- **Kommt nie ein Beenden** (App stumm, Handy aus), greift nach `ABLAUF_MAX_S`
+  das Sicherheitsnetz und stellt Ton, Saeule und Licht zurueck. Sonst piepte
+  es zwei Stunden in ein leeres Zimmer.
 - Unsinn in der Datei wird beim Speichern abgelehnt, mit Angabe von Block und
   Schritt. Bis dahin gilt der Standardablauf.
 - **Leeres Feld heisst: der eingebaute Standardablauf gilt** - und waechst mit

@@ -14,7 +14,16 @@
     D4  K2 : IN2      H2  orange  Stufe 2     Ader weiss
     D5  K2 : IN3      H3  rot     Stufe 3     Ader gelb
     D6  K2 : IN4      H4  Hinweis Stufe 4     Ader rot
-                      Reserve (Ader schwarz) bleibt ungeschaltet
+    D7  K3 : IN       Tongeber (1-Kanal-Relais)  Ader orange
+
+  Klemmleiste an der Saeule (Stand 16.11.2026, Cat-Kabel)
+
+    0  Minus              weiss (gruenes Paar)
+    1  LED gruen          gruen (gruenes Paar)
+    2  LED orange         braun (braunes Paar)
+    3  LED rot            weiss (braunes Paar)
+    4  Hinweisleuchte     blau
+    5  Ton                orange
 
   Die Module ziehen bei HIGH durch (F5305S, P-Kanal, schaltet im Pluspfad).
   Kein Oeffner, kein Ruhestromprinzip - fehlt die Steuerung, ist alles dunkel.
@@ -24,6 +33,12 @@
     auto     ein Status treibt die Saeule. Jeder Wechsel wird angesagt
              (Aufbau, Abbau, Einrasten), danach steht das Bild des Status.
     manuell  jede Leuchte wird einzeln geschaltet und bleibt so stehen.
+
+  Der Tongeber haengt an gar nichts: er piept, solange Strom drauf ist, und
+  wird nur ueber seinen eigenen Schalter an- und ausgeschaltet. Weder Status
+  noch Testmodus noch Startablauf nehmen ihn mit, und gemerkt wird er auch
+  nicht - nach einem Stromausfall ist er aus. Eine Saeule, die beim Booten
+  um Viertel vor fuenf losschreit, weckt das halbe Haus.
 
   Die Warnleuchte haengt an keiner Choreografie: sie hat einen eigenen
   Schalter und gilt in beiden Betriebsarten. Mitgenommen wird sie von zweierlei:
@@ -37,7 +52,8 @@
     GET  /api/state                 Zustand als JSON
     GET  /api/ping                  {"ok":true}
     GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
-    POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> manuell)
+    POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> manuell),
+                                    Nr. 6 ist der Tongeber
     POST /api/modus?modus=auto|manuell
     POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm  (-> auto)
     POST /api/test?an=1|0           Testmodus
@@ -53,7 +69,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.0.0";
+static const char* VERSION  = "1.1.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -67,11 +83,17 @@ static const char* STATUS_ID[]   = {"ruhe", "hinweis", "achtung", "stoerung", "a
 static const char* STATUS_NAME[] = {"Ruhe", "Hinweis", "Achtung", "St\xc3\xb6rung", "Alarm",
                                     "Kreuzwechsel", "Blinker"};
 
+// Was ein Ausgang ist. "stufe" gehoert zur Saeule und folgt dem Status,
+// "warn" ist die Blitz-Warnleuchte, "ton" der Tongeber - die beiden letzten
+// haengen an keiner Choreografie und haben eigene Schalter.
+enum Rolle { R_STUFE = 0, R_WARN, R_TON };
+static const char* ROLLE_ID[] = {"stufe", "warn", "ton"};
+
 struct Leuchte {
   uint8_t nr;            // Nummer bleibt stabil, HA haengt daran
   uint8_t pin;
   const char* name;
-  bool warn;             // true = Blitz-Warnleuchte, laeuft ausserhalb der Status
+  Rolle rolle;
 };
 
 struct DiagPunkt {
@@ -98,15 +120,17 @@ WiFiServer sseServer(SSE_PORT);
 // an der Verdrahtung etwas aendert - die Entitaeten in Home Assistant haengen
 // daran.
 static Leuchte LEUCHTEN[] = {
-  {1, 3, "Gruen",       false},
-  {2, 4, "Orange",      false},
-  {3, 5, "Rot",         false},
-  {4, 6, "Hinweis",     false},
-  {5, 2, "Warnleuchte", true },
+  {1, 3, "Gruen",       R_STUFE},
+  {2, 4, "Orange",      R_STUFE},
+  {3, 5, "Rot",         R_STUFE},
+  {4, 6, "Hinweis",     R_STUFE},
+  {5, 2, "Warnleuchte", R_WARN },
+  {6, 7, "Ton",         R_TON  },
 };
 static const uint8_t ANZAHL = sizeof(LEUCHTEN) / sizeof(LEUCHTEN[0]);
 static const uint8_t STUFEN = 4;        // Index 0..3 sind die Stufen der Saeule
 static const uint8_t IDX_WARN = 4;      // Index der Warnleuchte
+static const uint8_t IDX_TON = 5;       // Index des Tongebers
 
 static bool istAn[ANZAHL];              // was gerade wirklich gesetzt ist
 static bool manuell[ANZAHL];            // Wunsch in der Betriebsart "manuell"
@@ -165,6 +189,9 @@ static bool warnAn = false;
 // sie wieder den Stand, den sie vorher von Hand hatte.
 static bool warnVomAlarm = false;
 static bool warnVorAlarm = false;
+// Der Tongeber: piept, solange Strom drauf ist. Bewusst nicht im Flash
+// gemerkt - nach einem Stromausfall ist er aus.
+static bool tonAn = false;
 static bool testAn = false;
 
 static unsigned long statusSeit = 0;
@@ -246,6 +273,7 @@ static void testStellen() {
   for (uint8_t s = 0; s < STUFEN; s++) setzen(s, s == i);
   unsigned long p = t % (TEST_WARN_AN_MS + TEST_WARN_AUS_MS);
   setzen(IDX_WARN, p < TEST_WARN_AN_MS);
+  setzen(IDX_TON, false);     // der Testmodus laeuft lautlos
 }
 
 // --------------------------------------------------------- Selbstdiagnose
@@ -394,8 +422,10 @@ static void lampenStellen() {
   if (diagLaeuft()) return;            // die Diagnose stellt selbst
   if (testAn) { testStellen(); return; }
 
-  // Warnleuchte: eigener Schalter, unabhaengig von der Betriebsart
+  // Warnleuchte und Tongeber: eigene Schalter, unabhaengig von der
+  // Betriebsart - darum vor allen Rueckkehrpunkten dieser Funktion
   setzen(IDX_WARN, warnAn);
+  setzen(IDX_TON, tonAn);
 
   if (!autoModus) {
     for (uint8_t s = 0; s < STUFEN; s++) setzen(s, manuell[s]);
@@ -522,6 +552,7 @@ static void matrixSpiegeln() {
     matrix.rect(0, 0, 1, 8);
     matrix.rect(11, 0, 1, 8);
   }
+  if (istAn[IDX_TON]) matrix.rect(5, 0, 2, 1);
   matrix.endDraw();
 }
 
@@ -685,6 +716,7 @@ static void startStellen() {
     for (uint8_t s = 0; s < STUFEN; s++) setzen(s, false);
   }
   setzen(IDX_WARN, warn);
+  setzen(IDX_TON, false);        // der Startablauf bleibt lautlos
 
   // Balken auf der Matrix waechst mit dem Ablauf
   static unsigned long letzterBalken = 0;
@@ -736,6 +768,8 @@ static String jsonText(const char* s) {
 }
 
 static bool sollAn(uint8_t i) {
+  // Der Ton zuerst: im Testmodus laeuft alles, nur er nicht
+  if (i == IDX_TON) return tonAn;
   if (testAn) return true;
   if (i == IDX_WARN) return warnAn;
   if (!autoModus) return manuell[i];
@@ -770,6 +804,7 @@ static String stateJson() {
   s += ",\"wechsel\":" + String(imWechsel() || inRuhephase() ? "true" : "false");
   s += ",\"warn\":" + String(warnAn ? "true" : "false");
   s += ",\"warn_vom_alarm\":" + String(warnVomAlarm ? "true" : "false");
+  s += ",\"ton\":" + String(tonAn ? "true" : "false");
   s += ",\"test\":" + String(testAn ? "true" : "false");
 
   s += ",\"status_liste\":[";
@@ -798,7 +833,7 @@ static String stateJson() {
     s += "{\"nr\":" + String(LEUCHTEN[i].nr);
     s += ",\"gpio\":" + String(LEUCHTEN[i].pin);
     s += ",\"name\":" + jsonText(LEUCHTEN[i].name);
-    s += ",\"rolle\":\"" + String(LEUCHTEN[i].warn ? "warn" : "stufe") + "\"";
+    s += ",\"rolle\":\"" + String(ROLLE_ID[LEUCHTEN[i].rolle]) + "\"";
     s += ",\"defekt\":false";
     s += ",\"an\":" + String(sollAn(i) ? "true" : "false");       // logischer Zustand
     s += ",\"live\":" + String(istAn[i] ? "true" : "false");      // was gerade leuchtet
@@ -819,6 +854,7 @@ static String liveJson() {
   s += ",\"wechsel\":" + String(imWechsel() || inRuhephase() ? "true" : "false");
   s += ",\"warn\":" + String(warnAn ? "true" : "false");
   s += ",\"warn_vom_alarm\":" + String(warnVomAlarm ? "true" : "false");
+  s += ",\"ton\":" + String(tonAn ? "true" : "false");
   s += ",\"test\":" + String(testAn ? "true" : "false");
   s += ",\"phase\":\"" + String(phase == PH_BETRIEB ? "betrieb" : "start") + "\"";
   s += ",\"diag\":" + String(diagLaeuft() ? "true" : "false");
@@ -1061,7 +1097,11 @@ static void httpBedienen() {
       sendeJson(c, 404, "{\"ok\":false,\"fehler\":\"nummer\"}");
     } else {
       bool an = wahr(argWert(ziel, "an"));
-      if (LEUCHTEN[i].warn) {
+      if (LEUCHTEN[i].rolle == R_TON) {
+        // Der Tongeber haengt an nichts: nur an- oder ausschalten, und die
+        // Betriebsart bleibt, wie sie ist.
+        tonAn = an;
+      } else if (LEUCHTEN[i].rolle == R_WARN) {
         // Warnleuchte gilt in beiden Betriebsarten. Von Hand geschaltet gilt
         // das auch waehrend eines Alarms - der Alarm hat sie dann abgegeben.
         warnAn = an;
@@ -1113,6 +1153,7 @@ static void httpBedienen() {
     testAn = false;
     warnAn = false;
     warnVomAlarm = false;
+    tonAn = false;
     autoModus = false;
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
     geaendert = true;

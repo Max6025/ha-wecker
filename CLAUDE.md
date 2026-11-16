@@ -23,11 +23,32 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Platzhalter `DEINE_WEBHOOK_ID` verwenden.
 - **Signalsaeule-Pins:** MOSFET-Module, aktiv **HIGH**. D2 = H5 Blitz-Warnleuchte
   (1-Kanal-Modul K1), D3-D6 = H1 gruen, H2 orange, H3 rot, H4 Hinweis
-  (K2 IN1-IN4), wie im Stromlaufplan SIG-R4-E. Die Nummern 1-4 (Stufen) und 5
-  (Warnleuchte) in `/api/state` nie umsortieren, die HA-Entitaeten haengen
-  daran - eine geaenderte Verdrahtung nur ueber den Pin in `LEUCHTEN` richten.
-  Die Nummern in `/api/state` (1-4 Stufen, 5 Warnleuchte) nie umsortieren, die
-  HA-Entitaeten haengen daran. Stromlaufplan: `SIG-R4-E`.
+  (K2 IN1-IN4), D7 = Tongeber (1-Kanal-Relais K3, seit 16.11.2026), wie im
+  Stromlaufplan SIG-R4-E. Die Nummern 1-4 (Stufen), 5 (Warnleuchte) und 6
+  (Ton) in `/api/state` nie umsortieren, die HA-Entitaeten haengen daran -
+  eine geaenderte Verdrahtung nur ueber den Pin in `LEUCHTEN` richten.
+  Stromlaufplan: `SIG-R4-E`. Die Klemmenbelegung an der Saeule steht in der
+  README (Abschnitt 6) und im Kopf des Sketches.
+- **Saeule: ein Ausgang hat eine Rolle**, nicht ein `bool warn`. `R_STUFE`
+  folgt dem Status, `R_WARN` ist die Blitzleuchte, `R_TON` der Tongeber; die
+  Kennung steht als `rolle` in `/api/state` und die Integration filtert
+  danach (`coordinator.leuchten(ROLLE_TON)`). Ein Ausgang ohne gemeldete
+  Rolle gilt als Stufe, damit eine aeltere Firmware nicht alle Schalter
+  verliert.
+- **Saeule: der Tongeber bleibt still, wo er nur kann.** Kein Status, kein
+  Testmodus (`testStellen` setzt ihn ausdruecklich aus) und kein Startablauf
+  nehmen ihn mit, und er liegt **nicht** im Flash-Gedaechtnis: nach einem
+  Stromausfall ist er aus. Die Saeule bekommt um 4:45 Strom - ein gemerkter
+  Ton wuerde beim Booten das halbe Haus wecken. In `sollAn()` steht er
+  deshalb **vor** `if (testAn) return true;`.
+- **Die Nummer eines Ausgangs nicht hartkodieren.** `async_rolle_schalten`
+  sucht sie ueber `nummer_fuer(rolle)`; fehlt der Ausgang (aeltere Firmware
+  ohne Tongeber), gibt es einen Fehler im Protokoll statt eines Schaltbefehls
+  an eine geratene Nummer. Vorher stand im Ablauf `async_schalten(5, ...)`.
+- **Kommt nie ein Beenden, raeumt das Sicherheitsnetz auf.** `_fertig()`
+  erkennt am noch leeren `beendet_um`, dass der Weckruf-Teil ohne Beenden
+  ausgelaufen ist, und ruft `_aufraeumen()` (Ton aus, Saeule auf Ruhe, Licht
+  aus). Ohne das piepte der Tongeber die vollen `ABLAUF_MAX_S`.
 - **Saeule: die Ausgaenge stellt der Zeitgeber, nicht `loop()`.** Ein GPT
   laeuft mit 100 Hz und ruft `lampenStellen()` aus der Unterbrechung. Grund:
   jede Socket-Operation geht beim R4 WiFi ueber den ESP32-S3, eine Anfrage

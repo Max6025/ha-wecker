@@ -11,7 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, ROLLE_WARN, SIGNAL_ABLAUF
+from .const import DOMAIN, ROLLE_STUFE, ROLLE_TON, ROLLE_WARN, SIGNAL_ABLAUF
 from .entity import SaeuleEntity, WeckerEntity
 from .saeule import SaeuleCoordinator
 
@@ -25,9 +25,10 @@ async def async_setup_entry(
         return
     if isinstance(obj, SaeuleCoordinator):
         saeule: list[SwitchEntity] = [
-            LeuchteSwitch(obj, r["nr"]) for r in obj.leuchten(nur_warn=False)
+            LeuchteSwitch(obj, r["nr"]) for r in obj.leuchten(ROLLE_STUFE)
         ]
-        saeule += [WarnleuchteSwitch(obj, r["nr"]) for r in obj.leuchten(nur_warn=True)]
+        saeule += [WarnleuchteSwitch(obj, r["nr"]) for r in obj.leuchten(ROLLE_WARN)]
+        saeule += [TonSwitch(obj, r["nr"]) for r in obj.leuchten(ROLLE_TON)]
         saeule.append(SaeuleTestSwitch(obj))
         async_add_entities(saeule)
         return
@@ -121,6 +122,25 @@ class WarnleuchteSwitch(_SaeuleLeuchte):
     @property
     def icon(self) -> str:
         return "mdi:alarm-light" if self.is_on else "mdi:alarm-light-off-outline"
+
+
+class TonSwitch(_SaeuleLeuchte):
+    """Der Tongeber am Relais D7. Piept, solange Strom drauf ist.
+
+    Haengt an keiner Choreografie: kein Status, kein Testmodus und kein
+    Startablauf nehmen ihn mit, und die Saeule merkt ihn auch nicht - nach
+    einem Stromausfall ist er aus. Nur dieser Schalter und der Weckablauf
+    (Schritt "saeule": {"ton": true}) schalten ihn.
+    """
+
+    _attr_name = "Ton"
+
+    def __init__(self, coordinator: SaeuleCoordinator, nr: int) -> None:
+        super().__init__(coordinator, nr, "ton")
+
+    @property
+    def icon(self) -> str:
+        return "mdi:bullhorn" if self.is_on else "mdi:bullhorn-outline"
 
 
 class SaeuleTestSwitch(SaeuleEntity, SwitchEntity):

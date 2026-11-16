@@ -235,7 +235,7 @@ SAEULE_URL = "http://192.168.1.70"
 
 
 def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=None,
-                 warn_vom_alarm=False):
+                 warn_vom_alarm=False, ton=False):
     stufen = {
         "ruhe":     [True,  False, False, False],
         "hinweis":  [True,  False, False, True],
@@ -259,8 +259,13 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
          "an": warn, "live": warn, "pegel": int(warn),
          "muster": "dauer" if warn else "aus", "rest_s": -1}
     )
+    relais.append(
+        {"nr": 6, "gpio": 7, "name": "Ton", "rolle": "ton", "defekt": False,
+         "an": ton, "live": ton, "pegel": int(ton),
+         "muster": "dauer" if ton else "aus", "rest_s": -1}
+    )
     return {
-        "name": "Signalsäule", "typ": "saeule", "version": "1.0.0",
+        "name": "Signalsäule", "typ": "saeule", "version": "1.1.0",
         "mac": "34:85:18:aa:bb:cc", "ip": "192.168.1.70", "rssi": -58,
         "uptime_s": 300, "events_port": 8081, "ram_frei": 21000,
         "phase": "betrieb", "modus": modus, "status": status,
@@ -268,6 +273,7 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
                         "stoerung": "Störung", "alarm": "Alarm",
                         "kreuz": "Kreuzwechsel", "blinker": "Blinker"}[status],
         "wechsel": False, "warn": warn, "warn_vom_alarm": warn_vom_alarm, "test": test,
+        "ton": ton,
         "status_liste": [
             {"id": "ruhe", "name": "Ruhe"}, {"id": "hinweis", "name": "Hinweis"},
             {"id": "achtung", "name": "Achtung"}, {"id": "stoerung", "name": "Störung"},
@@ -903,3 +909,133 @@ async def test_ohne_steckdose_schaltet_nichts(hass: HomeAssistant, freezer) -> N
     assert not an
     strom = hass.states.get("switch.ha_wecker_weckablauf").attributes["strom"]
     assert strom["entitaet"] == "nicht eingestellt"
+
+
+# ---------------------------------------------------------------------------
+# Tongeber (Relais an D7, Nr. 6): eigener Schalter, Schritt im Weckablauf
+# ---------------------------------------------------------------------------
+
+
+async def test_saeule_tonschalter(hass: HomeAssistant, aioclient_mock) -> None:
+    """Der Ton hat seinen eigenen Schalter und steht nicht bei den Stufen."""
+    await _setup_saeule(hass, aioclient_mock)
+
+    ton = hass.states.get("switch.signalsaeule_ton")
+    assert ton is not None and ton.state == "off"
+    assert ton.attributes["pin"] == 7
+    # Die vier Stufen und die Warnleuchte sind eigene Entitaeten, der Ton
+    # gehoert zu keiner Stufe
+    assert hass.states.get("switch.signalsaeule_gruen") is not None
+    assert hass.states.get("switch.signalsaeule_warnleuchte") is not None
+
+    aioclient_mock.post(f"{SAEULE_URL}/api/relais/6", json=saeule_state(ton=True))
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_ton"}, blocking=True
+    )
+    url = _letzter_aufruf(aioclient_mock)
+    assert url.path == "/api/relais/6"
+    assert url.query["an"] == "1"
+    assert hass.states.get("switch.signalsaeule_ton").state == "on"
+
+
+async def test_ton_nummer_kommt_aus_der_rolle(hass: HomeAssistant, aioclient_mock) -> None:
+    """Die Nummer wird gesucht, nicht geraten - eine Saeule ohne Ton faellt auf."""
+    from custom_components.ha_wecker.const import DOMAIN as D, ROLLE_TON, ROLLE_WARN
+
+    entry = await _setup_saeule(hass, aioclient_mock)
+    coordinator = hass.data[D][entry.entry_id]
+    assert coordinator.nummer_fuer(ROLLE_TON) == 6
+    assert coordinator.nummer_fuer(ROLLE_WARN) == 5
+
+    # Aeltere Firmware ohne Tongeber: kein Ausgang, keine geratene Nummer
+    ohne = saeule_state()
+    ohne["relais"] = [r for r in ohne["relais"] if r["nr"] != 6]
+    coordinator.async_set_updated_data(ohne)
+    assert coordinator.nummer_fuer(ROLLE_TON) is None
+
+
+async def test_ablauf_schaltet_den_ton(
+    hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
+) -> None:
+    """Beim Klingeln piept es, beim Beenden des Weckrufs hoert es sofort auf."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    async_mock_service(hass, "light", "turn_on")
+    async_mock_service(hass, "light", "turn_off")
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
+    aioclient_mock.post(f"{SAEULE_URL}/api/relais/6", json=saeule_state(ton=True))
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+
+    client = await hass_client_no_auth()
+
+    async def melden(**aenderung):
+        p = copy.deepcopy(PAYLOAD)
+        p.update(aenderung.pop("root", {}))
+        p["alarms"][0].update(aenderung)
+        resp = await client.post("/api/webhook/hawecker_test123", json=p)
+        assert resp.status == 200
+        await hass.async_block_till_done()
+
+    def tonrufe():
+        return [
+            u for _, u, *_ in aioclient_mock.mock_calls if u.path == "/api/relais/6"
+        ]
+
+    await melden(ringing=True, root={"ringing": True})
+    assert [u.query["an"] for u in tonrufe()] == ["1"], "beim Klingeln muss es piepen"
+
+    await melden(ringing=False, root={"ringing": False})
+    assert [u.query["an"] for u in tonrufe()] == ["1", "0"], "beim Beenden sofort still"
+
+    protokoll = hass.states.get("switch.ha_wecker_weckablauf").attributes["protokoll"]
+    tonzeilen = [e["text"] for e in protokoll if e["text"].startswith("Ton ")]
+    assert tonzeilen == ["Ton aus", "Ton an"]      # neueste zuerst
+
+
+async def test_sicherheitsnetz_macht_den_ton_aus(hass: HomeAssistant, aioclient_mock) -> None:
+    """Kommt nie ein Beenden, darf es nicht zwei Stunden weiterpiepen."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import (
+        async_fire_time_changed,
+        async_mock_service,
+    )
+
+    from custom_components.ha_wecker.const import ABLAUF_MAX_S
+
+    async_mock_service(hass, "light", "turn_on")
+    aus = async_mock_service(hass, "light", "turn_off")
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
+    aioclient_mock.post(f"{SAEULE_URL}/api/relais/6", json=saeule_state(ton=True))
+    entry = await _setup(hass, options={"hauptlicht": "light.decke"})
+    data = hass.data[DOMAIN][entry.entry_id]
+
+    start = dt_util.utcnow()
+    p = copy.deepcopy(PAYLOAD)
+    p["ringing"] = True
+    p["alarms"][0]["ringing"] = True
+    data.async_set_payload(p)
+    await hass.async_block_till_done()
+    assert hass.states.get("switch.ha_wecker_weckablauf").attributes["laeuft"] is True
+
+    # Die App meldet sich nie wieder - nach ABLAUF_MAX_S greift das Netz
+    async_fire_time_changed(hass, start + timedelta(seconds=ABLAUF_MAX_S + 5))
+    await hass.async_block_till_done()
+
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert [e for e in zustand["protokoll"] if e["was"] == "Sicherheitsnetz"]
+    letzte = [u for _, u, *_ in aioclient_mock.mock_calls if u.path == "/api/relais/6"]
+    assert letzte and letzte[-1].query["an"] == "0", "der Ton muss aus sein"
+    assert any(
+        u.query.get("status") == "ruhe"
+        for _, u, *_ in aioclient_mock.mock_calls
+        if u.path == "/api/status"
+    ), "und die Saeule zurueck auf Ruhe"
+    assert len(aus) == 1, "und das Licht aus"
+    # "laeuft" steht danach wieder: _fertig plant gleich den naechsten Vorlauf.
+    # Der alte Lauf ist aber zu Ende - der Nullpunkt zeigt auf den naechsten
+    # Weckruf, nicht mehr auf den verpassten.
+    assert zustand["beendet_um"] is None
