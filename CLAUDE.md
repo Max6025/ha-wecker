@@ -102,10 +102,28 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   laesst das hinter `VUSB_LDO_ENABLE` aus, aber das allein ist nicht der Grund.
   `(bool)Serial` (`tud_cdc_connected()`) bleibt dauerhaft true, auch ohne
   offenen Port. Darum gibt es in `/api/state` kein `usb` mehr.
-- **Saeule: Gedaechtnis im Daten-Flash.** Status, Betriebsart und Warnleuchte
-  liegen in `Preferences` ("saeule"), damit die Saeule nach einem Stromausfall
-  ihren Status wieder aufnimmt. Verzoegert geschrieben (3 s) und nur bei echter
-  Aenderung - der Daten-Flash haelt keine beliebige Zahl von Zyklen aus.
+- **Saeule: stiller Start, und darum kein Gedaechtnis mehr.** Seit 1.2.0
+  kommt die Saeule dunkel hoch: keine Startanimation, keine Matrix, Betriebsart
+  manuell, alle Ausgaenge aus. Grund ist die Steckdose, die um 4:45 angeht -
+  bis der Vorlauf kommt, darf in einem Schlafzimmer nichts leuchten. Damit war
+  das Flash-Gedaechtnis (`Preferences`, Status/Modus/Warnleuchte) nicht nur
+  nutzlos, es beschrieb den Daten-Flash umsonst; es ist ganz raus, samt
+  `geaendert`/`merkenBald`. `START_ANIMATION = true` dreht die Animation
+  zurueck. Dass die Saeule auf Befehl wieder aufwacht, ist am Geraet geprueft:
+  `POST /api/status?status=hinweis` stellt auf Auto und leuchtet.
+- **Der Tongeber steht nicht im Standardablauf.** Max will ihn als eigenen
+  Knopf, nicht am Weckruf (16.11.2026). Die Moeglichkeit bleibt
+  (`"ton": true` in einem Schritt), und dann raeumt der Ablauf ihn beim
+  Schlummern und im Sicherheitsnetz auch wieder ab - aber nur, wenn er ihn
+  selbst angestellt hat (`_ton_von_uns`). Sonst schaltete ein Weckruf den von
+  Hand gedrueckten Knopf aus.
+- **Eine geaenderte Weckzeit muss den Vorlauf nachziehen.** Stand der Vorlauf
+  schon, blieb `laeuft` gesetzt und `_wecker_geaendert` plante nicht neu: am
+  16.11. stellte Max abends 05:00 auf 04:50 um, der Stromplan zog mit (die
+  Dose ging um 04:45 an), der Ablauf nicht. Um 04:50 klingelte es, die alten
+  Timer auf 04:59 wurden abgeraeumt, und Hinweis und die 5 % Licht fielen
+  ganz aus. Jetzt wird neu geplant, sobald `naechster != nullpunkt` - aber
+  nur solange nichts klingelt und kein Nachlauf laeuft.
 - **Weckablauf haengt am Wecker, nicht an einem Leuchtmittel** (`ablauf.py`).
   Vorher stand er in `lampe.py` und wurde nur in `_setup_relais` angelegt: ohne
   Relaisbox lief gar nichts, und die Hauptlicht-Option steckte in deren

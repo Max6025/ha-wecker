@@ -374,12 +374,28 @@ sie gerade in der Hand hat.
 
 Der **Tongeber** (seit Firmware 1.1.0, Nr. 6 an D7) haengt an gar nichts: er
 piept, solange Strom drauf ist, und wird nur ueber seinen eigenen Schalter
-geschaltet - oder vom Weckablauf, siehe Abschnitt 6a. Kein Status, kein
-Testmodus und kein Startablauf nehmen ihn mit, und gemerkt wird er auch nicht:
-**nach einem Stromausfall ist er aus.** Eine Saeule, die beim Booten um
-Viertel vor fuenf losschreit, weckt das halbe Haus. Nur die Selbstdiagnose
-laesst ihn kurz piepen - sie schaltet jeden Ausgang der Reihe nach fuer
-0,4 Sekunden ein.
+geschaltet. Im Standardablauf des Weckers steht er **nicht** - wer ihn dort
+haben will, schreibt `"ton": true` in einen Schritt (Abschnitt 6a). Kein
+Status, kein Testmodus und kein Startablauf nehmen ihn mit, und gemerkt wird
+er auch nicht: **nach einem Stromausfall ist er aus.** Eine Saeule, die beim
+Booten um Viertel vor fuenf losschreit, weckt das halbe Haus. Nur die
+Selbstdiagnose laesst ihn kurz piepen - sie schaltet jeden Ausgang der Reihe
+nach fuer 0,4 Sekunden ein.
+
+**Stiller Start (seit Firmware 1.2.0).** Die Saeule haengt an einer
+schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
+bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,
+kein gemerkter Status. Die Saeule kommt in der Betriebsart *Manuell* mit allen
+Ausgaengen aus hoch und wartet. Erst was Home Assistant schickt - der Vorlauf
+eine Minute vor dem Weckruf - laesst etwas leuchten. In einem Schlafzimmer
+darf vorher nichts angehen.
+
+Damit ist auch das **Flash-Gedaechtnis entfallen**: bis 1.1.0 lagen Status,
+Betriebsart und Warnleuchte in `Preferences`, damit die Saeule nach einem
+Stromausfall wieder so dastand wie vorher. Das widerspricht dem stillen Start
+und hat den Daten-Flash nur umsonst beschrieben. Wer die Startanimation
+zurueckwill (Lauflicht, zwei Blitze, Adresse auf der Matrix), setzt
+`START_ANIMATION` im Sketch auf `true`.
 
 **Das Licht haengt nicht an der Schleife.** Beim UNO R4 WiFi laeuft jede
 Socket-Operation ueber eine Uebertragung an den ESP32-S3, der das WLAN macht.

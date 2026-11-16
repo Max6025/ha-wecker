@@ -28,6 +28,14 @@
   Die Module ziehen bei HIGH durch (F5305S, P-Kanal, schaltet im Pluspfad).
   Kein Oeffner, kein Ruhestromprinzip - fehlt die Steuerung, ist alles dunkel.
 
+  Stiller Start (seit 1.2.0)
+
+  Die Saeule haengt an einer schaltbaren Steckdose, die kurz vor dem Weckruf
+  angeht. Darum bleibt beim Einschalten alles dunkel: keine Startanimation,
+  keine Matrix, kein gemerkter Status. Erst was Home Assistant schickt - der
+  Vorlauf eine Minute vor dem Weckruf - laesst etwas leuchten. Vorher darf in
+  einem Schlafzimmer nichts angehen. `START_ANIMATION` dreht das zurueck.
+
   Betriebsart
 
     auto     ein Status treibt die Saeule. Jeder Wechsel wird angesagt
@@ -64,12 +72,11 @@
 #include "ArduinoGraphics.h"
 #include "Arduino_LED_Matrix.h"
 #include <WiFiS3.h>
-#include <Preferences.h>
 #include "FspTimer.h"
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.1.0";
+static const char* VERSION  = "1.2.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -637,42 +644,12 @@ static bool taktgeberStarten() {
 
 // ------------------------------------------------------- Gedaechtnis (Flash)
 //
-// Status, Betriebsart und Warnleuchte liegen im Daten-Flash des RA4M1
-// (Preferences). Nach einem Stromausfall steht die Saeule wieder so da wie
-// vorher. Geschrieben wird verzoegert und nur bei echter Aenderung - der
-// Daten-Flash haelt keine beliebige Zahl von Schreibzyklen aus.
-
-Preferences merker;
-static const unsigned long MERKEN_VERZUG_MS = 3000;
-static unsigned long merkenFaellig = 0;
-static uint8_t gemerktStatus = 255;
-static uint8_t gemerktModus = 255;
-static uint8_t gemerktWarn = 255;
-
-static void merkenBald() { merkenFaellig = millis() + MERKEN_VERZUG_MS; }
-
-static void merkenJetzt() {
-  merkenFaellig = 0;
-  uint8_t s = (uint8_t)status, m = autoModus ? 1 : 0;
-  // den Stand von Hand merken, nicht den vom Alarm erzwungenen
-  uint8_t w = (warnVomAlarm ? warnVorAlarm : warnAn) ? 1 : 0;
-  if (s == gemerktStatus && m == gemerktModus && w == gemerktWarn) return;
-  merker.putUChar("status", s);
-  merker.putUChar("modus", m);
-  merker.putUChar("warn", w);
-  gemerktStatus = s; gemerktModus = m; gemerktWarn = w;
-}
-
-static void gedaechtnisLaden() {
-  merker.begin("saeule", false);
-  gemerktStatus = merker.getUChar("status", (uint8_t)RUHE);
-  gemerktModus  = merker.getUChar("modus", 1);
-  gemerktWarn   = merker.getUChar("warn", 0);
-  if (gemerktStatus >= STATUS_ANZAHL) gemerktStatus = RUHE;
-  status = (Status)gemerktStatus;
-  autoModus = (gemerktModus != 0);
-  warnAn = (gemerktWarn != 0);
-}
+// Es gibt keins mehr. Bis 1.1.0 lagen Status, Betriebsart und Warnleuchte im
+// Daten-Flash, damit die Saeule nach einem Stromausfall wieder so dastand wie
+// vorher. Seit dem stillen Start (1.2.0) nimmt sie beim Einschalten gar
+// nichts auf - die Steckdose geht um Viertel vor fuenf an, und bis der Vorlauf
+// kommt, darf nichts leuchten. Damit war das Merken nicht nur nutzlos, es
+// hat den Daten-Flash umsonst beschrieben.
 
 // ------------------------------------------------------------ Startablauf
 //
@@ -693,6 +670,10 @@ static const unsigned long ST_PAUSE_ENDE  = ST_BLITZ1_ENDE + 200; // 1460 alles 
 static const unsigned long ST_BLITZ2_ENDE = ST_PAUSE_ENDE + 300;  // 1760 alle an
 static const unsigned long ST_ENDE        = ST_BLITZ2_ENDE + 240; // 2000 aus, fertig
 static const bool START_MIT_BLITZ = true;     // die Warnleuchte zuckt einmal mit
+// Still starten: die Saeule steht in einem Schlafzimmer an einer Steckdose,
+// die um Viertel vor fuenf angeht. Auf true gestellt laeuft stattdessen das
+// Lauflicht mit den zwei Blitzen - gut zum Vorfuehren, nichts fuer die Nacht.
+static const bool START_ANIMATION = false;
 
 static void startStellen() {
   unsigned long t = millis() - startSeit;
@@ -1046,7 +1027,6 @@ static void httpBedienen() {
   int fz = pfad.indexOf('?');
   if (fz >= 0) pfad = pfad.substring(0, fz);
 
-  bool geaendert = false;
 
   if (pfad == "/" || pfad == "/index.html") {
     sendeSeite(c);
@@ -1069,7 +1049,6 @@ static void httpBedienen() {
           for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
           autoModus = false;
         }
-            geaendert = true;
       }
       sendeJson(c, 200, stateJson());
     } else {
@@ -1087,7 +1066,6 @@ static void httpBedienen() {
       autoModus = true;
       testAn = false;
       statusSetzen((Status)gefunden, true, warManuell);
-      geaendert = true;
       sendeJson(c, 200, stateJson());
     }
   } else if (pfad.startsWith("/api/relais/")) {
@@ -1114,7 +1092,6 @@ static void httpBedienen() {
         manuell[i] = an;
         testAn = false;
       }
-      geaendert = true;
       sendeJson(c, 200, stateJson());
     }
   } else if (pfad == "/api/test") {
@@ -1123,7 +1100,6 @@ static void httpBedienen() {
       testSeit = millis();
       testAn = an;
       if (!an) statusSetzen(status, false);
-      geaendert = true;
     }
     sendeJson(c, 200, stateJson());
   } else if (pfad == "/api/spur") {
@@ -1156,7 +1132,6 @@ static void httpBedienen() {
     tonAn = false;
     autoModus = false;
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
-    geaendert = true;
     sendeJson(c, 200, stateJson());
   } else {
     sendeJson(c, 404, "{\"ok\":false,\"fehler\":\"unbekannt\"}");
@@ -1164,7 +1139,6 @@ static void httpBedienen() {
 
   c.flush();
   c.stop();
-  if (geaendert) merkenBald();
 }
 
 // ----------------------------------------------------------------- Ablauf
@@ -1182,7 +1156,6 @@ void setup() {
 
   Serial.begin(115200);
   matrix.begin();
-  gedaechtnisLaden();            // Status von vor dem Stromausfall
 
   if (!taktgeberStarten()) Serial.println("Taktgeber laesst sich nicht starten");
 
@@ -1196,6 +1169,10 @@ void loop() {
   schleifeBegann = millis();
 
   if (phase == PH_START) {
+    if (!START_ANIMATION) {
+      phase = PH_WLAN;          // still: gar nichts vorfuehren
+      return;
+    }
     startStellen();
     if (millis() - startSeit >= ST_ENDE) {
       for (uint8_t i = 0; i < ANZAHL; i++) setzen(i, false);
@@ -1205,18 +1182,30 @@ void loop() {
   }
 
   if (phase == PH_WLAN) {
-    // Erst den Status wieder aufnehmen, dann ins WLAN. Andersherum stand die
-    // Saeule nach dem Einschalten dreizehn Sekunden dunkel da und sah aus wie
-    // tot - so lange dauert das Verbinden. Ab hier stellt der Zeitgeber die
-    // Lampen, der laeuft auch weiter, waehrend WiFi.begin() blockiert.
+    // Ab hier stellt der Zeitgeber die Lampen; der laeuft auch weiter,
+    // waehrend WiFi.begin() blockiert (das dauert gut dreizehn Sekunden).
     phase = PH_BETRIEB;
-    statusSetzen(status, true);
+    // Still anfangen: Betriebsart manuell, alles aus. Kein gemerkter Status
+    // wird aufgenommen - sonst stuende die Saeule um Viertel vor fuenf auf
+    // Gruen, lange bevor der Wecker klingelt.
+    autoModus = false;
+    for (uint8_t i = 0; i < ANZAHL; i++) {
+      manuell[i] = false;
+      setzen(i, false);
+    }
+    warnAn = warnVomAlarm = warnVorAlarm = tonAn = false;
+    statusSetzen(RUHE, false);   // Grundstellung ohne Ansage, aber dunkel
     wlanVerbinden();
-    // Startbild: das letzte Glied der Adresse, damit man sie am Geraet sieht
-    if (WiFi.status() == WL_CONNECTED) matrixAdresse(WiFi.localIP()[3]);
-    else                               matrixZahl("--");
+    if (START_ANIMATION) {
+      // Startbild: das letzte Glied der Adresse, damit man sie am Geraet sieht
+      if (WiFi.status() == WL_CONNECTED) matrixAdresse(WiFi.localIP()[3]);
+      else                               matrixZahl("--");
+    } else {
+      matrix.beginDraw();
+      matrix.clear();
+      matrix.endDraw();
+    }
     matrixBild = 0xFF;          // danach wieder das Abbild der Saeule
-    merkenJetzt();
     return;
   }
 
@@ -1238,8 +1227,6 @@ void loop() {
     if (wechselAktiv && wechselZeit() >= wechselDauer() + RUHE_MS) wechselAktiv = false;
     takten();           // Alarmkopplung und Matrix; die Leuchten macht der Zeitgeber
   }
-
-  if (merkenFaellig && millis() >= merkenFaellig) merkenJetzt();
 
   // laengster Durchlauf seit der letzten Abfrage - zeigt, ob etwas bremst
   uint32_t dauer = millis() - schleifeBegann;

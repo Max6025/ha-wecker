@@ -954,10 +954,48 @@ async def test_ton_nummer_kommt_aus_der_rolle(hass: HomeAssistant, aioclient_moc
     assert coordinator.nummer_fuer(ROLLE_TON) is None
 
 
+TON_ABLAUF = """
+{"version": 1, "bloecke": [{"name": "Mit Ton", "schritte": [
+  {"zeit": 0, "saeule": {"status": "alarm", "ton": true}},
+  {"zeit": 0, "ab": "ende", "saeule": {"status": "kreuz", "ton": false}}]}]}
+"""
+
+
+async def test_standardablauf_laesst_den_ton_in_ruhe(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Der Ton gehoert nicht in den Weckruf - er hat seinen eigenen Knopf."""
+    from custom_components.ha_wecker.ablauf import STANDARD_ABLAUF
+
+    schritte = [s for b in STANDARD_ABLAUF["bloecke"] for s in b["schritte"]]
+    assert schritte, "der Standardablauf ist leer"
+    assert not any("ton" in (s.get("saeule") or {}) for s in schritte)
+
+    # Und auch beim Abbruch wird ein von Hand gedrueckter Ton nicht ausgemacht
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    async_mock_service(hass, "light", "turn_on")
+    async_mock_service(hass, "light", "turn_off")
+    await _setup_saeule(hass, aioclient_mock, state=saeule_state(ton=True))
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(ton=True))
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.ha_wecker_probelauf"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.ha_wecker_ablauf_abbrechen"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert not [
+        u for _, u, *_ in aioclient_mock.mock_calls if u.path == "/api/relais/6"
+    ], "der Ablauf darf den Tonschalter nicht anfassen"
+
+
 async def test_ablauf_schaltet_den_ton(
     hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
 ) -> None:
-    """Beim Klingeln piept es, beim Beenden des Weckrufs hoert es sofort auf."""
+    """Steht "ton" in der Ablaufdatei, piept es beim Klingeln und endet beim Beenden."""
     from pytest_homeassistant_custom_component.common import async_mock_service
 
     async_mock_service(hass, "light", "turn_on")
@@ -965,7 +1003,7 @@ async def test_ablauf_schaltet_den_ton(
     await _setup_saeule(hass, aioclient_mock)
     aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
     aioclient_mock.post(f"{SAEULE_URL}/api/relais/6", json=saeule_state(ton=True))
-    await _setup(hass, options={"hauptlicht": "light.decke"})
+    await _setup(hass, options={"hauptlicht": "light.decke", "ablauf": TON_ABLAUF})
 
     client = await hass_client_no_auth()
 
@@ -1010,7 +1048,9 @@ async def test_sicherheitsnetz_macht_den_ton_aus(hass: HomeAssistant, aioclient_
     await _setup_saeule(hass, aioclient_mock)
     aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
     aioclient_mock.post(f"{SAEULE_URL}/api/relais/6", json=saeule_state(ton=True))
-    entry = await _setup(hass, options={"hauptlicht": "light.decke"})
+    entry = await _setup(
+        hass, options={"hauptlicht": "light.decke", "ablauf": TON_ABLAUF}
+    )
     data = hass.data[DOMAIN][entry.entry_id]
 
     start = dt_util.utcnow()
@@ -1039,3 +1079,82 @@ async def test_sicherheitsnetz_macht_den_ton_aus(hass: HomeAssistant, aioclient_
     # Der alte Lauf ist aber zu Ende - der Nullpunkt zeigt auf den naechsten
     # Weckruf, nicht mehr auf den verpassten.
     assert zustand["beendet_um"] is None
+
+
+async def test_vorlauf_zieht_bei_geaenderter_weckzeit_mit(
+    hass: HomeAssistant, aioclient_mock, freezer
+) -> None:
+    """Wird der Wecker verstellt, waehrend der Vorlauf steht, gilt die neue Zeit.
+
+    Max' Fall vom 16.11.: abends 05:00 auf 04:50 umgestellt. Der Vorlauf stand
+    noch auf 04:59, und weil "laeuft" gesetzt war, plante der Ablauf nicht neu.
+    Um 04:50 klingelte es, die alten Timer wurden abgeraeumt, und Hinweis und
+    die 5 % Licht fielen ganz aus.
+    """
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    await _berlin(hass, freezer, "2026-11-16T21:00:00")
+    an = async_mock_service(hass, "light", "turn_on")
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="hinweis"))
+    entry = await _setup(hass, options={"hauptlicht": "light.decke"})
+    data = hass.data[DOMAIN][entry.entry_id]
+
+    def mit_weckzeit(stunde, minute):
+        p = copy.deepcopy(PAYLOAD)
+        p["alarms"] = [
+            dict(p["alarms"][0], hour=stunde, minute=minute, days_mask=31,
+                 next_trigger=None, enabled=True)
+        ]
+        return p
+
+    data.async_set_payload(mit_weckzeit(5, 0))
+    await hass.async_block_till_done()
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert zustand["laeuft"] is True
+    assert zustand["nullpunkt"].startswith("2026-11-17T04:00")   # 05:00 Berlin
+
+    # Jetzt auf 04:50 umstellen - der Ablauf muss den Nullpunkt nachziehen
+    data.async_set_payload(mit_weckzeit(4, 50))
+    await hass.async_block_till_done()
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert zustand["nullpunkt"].startswith("2026-11-17T03:50")   # 04:50 Berlin
+
+    # Eine Minute vor dem neuen Termin laeuft der Vorlauf wirklich
+    await _vorspulen(hass, freezer, "2026-11-17T03:49:05")
+    assert [(c.service, c.data.get("brightness_pct")) for c in an] == [("turn_on", 5)]
+    assert _letzter_aufruf(aioclient_mock).query["status"] == "hinweis"
+
+
+async def test_vorlauf_bleibt_waehrend_des_nachlaufs_stehen(
+    hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
+) -> None:
+    """Der Nachlauf darf nicht vom naechsten Wecker ueberschrieben werden."""
+    from pytest_homeassistant_custom_component.common import async_mock_service
+
+    async_mock_service(hass, "light", "turn_on")
+    async_mock_service(hass, "light", "turn_off")
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="kreuz"))
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+
+    client = await hass_client_no_auth()
+
+    async def melden(**aenderung):
+        p = copy.deepcopy(PAYLOAD)
+        p.update(aenderung.pop("root", {}))
+        p["alarms"][0].update(aenderung)
+        resp = await client.post("/api/webhook/hawecker_test123", json=p)
+        assert resp.status == 200
+        await hass.async_block_till_done()
+
+    await melden(ringing=True, root={"ringing": True})
+    await melden(ringing=False, root={"ringing": False})
+    beendet = hass.states.get("switch.ha_wecker_weckablauf").attributes["beendet_um"]
+    assert beendet
+
+    # Noch eine Meldung der App, waehrend der Nachlauf laeuft: er bleibt stehen
+    await melden(ringing=False, root={"ringing": False})
+    zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
+    assert zustand["beendet_um"] == beendet
+    assert len([e for e in zustand["protokoll"] if "ab dem Beenden" in e["text"]]) == 1

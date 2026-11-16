@@ -72,12 +72,12 @@ STANDARD_ABLAUF: dict[str, Any] = {
                 {"zeit": -60, "saeule": {"status": "hinweis"}},
                 {"zeit": -60, "licht": {"prozent": 5, "dauer": 60}},
                 # Es klingelt: Saeule in den Alarm, sie nimmt die Warnleuchte
-                # mit, und der Tongeber am Relais faengt an zu piepen
-                {"zeit": 0, "saeule": {"status": "alarm", "ton": True}},
-                # Weckruf beendet: der Ton hoert sofort auf, die Warnleuchte
-                # faellt mit dem Alarm weg, die Saeule geht in den
-                # Kreuzwechsel, das Licht auf 70 %
-                {"zeit": 0, "ab": "ende", "saeule": {"status": "kreuz", "ton": False}},
+                # mit. Der Tongeber bleibt bewusst draussen - er hat seinen
+                # eigenen Schalter und haengt nicht am Weckruf.
+                {"zeit": 0, "saeule": {"status": "alarm"}},
+                # Weckruf beendet: Warnleuchte faellt mit dem Alarm weg, die
+                # Saeule geht in den Kreuzwechsel, das Licht auf 70 %
+                {"zeit": 0, "ab": "ende", "saeule": {"status": "kreuz"}},
                 {"zeit": 0, "ab": "ende", "licht": {"prozent": 70, "dauer": 10}},
                 # Nach sieben Minuten Licht aus, dafuer noch einmal Alarm
                 {"zeit": 420, "ab": "ende", "licht": {"aus": True, "dauer": 30}},
@@ -252,6 +252,11 @@ class Weckablauf:
         self.strom: Any = None                  # Stromplan der Saeule, siehe strom.py
         self.protokoll: list[dict[str, Any]] = []
         self._klingelt_alt = False
+        # Hat ein Schritt den Tongeber angestellt? Nur dann macht der Ablauf
+        # ihn beim Schlummern oder im Sicherheitsnetz wieder aus. Steht er
+        # ab Werk nicht im Ablauf, soll ein von Hand gedrueckter Knopf auch
+        # nicht von einem Weckruf abgeschaltet werden.
+        self._ton_von_uns = False
         self._timer: list[CALLBACK_TYPE] = []
         self._probe_timer: CALLBACK_TYPE | None = None
         self._unsub_signal: CALLBACK_TYPE | None = None
@@ -348,6 +353,20 @@ class Weckablauf:
             self.beendet_um = dt_util.utcnow()
             self._starten(self.beendet_um, AB_ENDE)
         elif not self.laeuft and naechster is not None:
+            self._starten(naechster, AB_WECKRUF)
+        elif (
+            self.laeuft
+            and not klingelt
+            and self.beendet_um is None
+            and naechster is not None
+            and naechster != self.nullpunkt
+        ):
+            # Die Weckzeit hat sich verschoben, waehrend der Vorlauf schon
+            # stand. Am 16.11. stellte Max abends 05:00 auf 04:50 um: der
+            # Stromplan zog mit (die Dose ging um 04:45 an), der Ablauf nicht -
+            # er sah nur "laeuft" und liess die alten Timer auf 04:59 stehen.
+            # Um 04:50 klingelte es, die wurden weggeraeumt, und Hinweis und
+            # die 5 % Licht fielen ganz aus.
             self._starten(naechster, AB_WECKRUF)
         self.melden()
 
@@ -493,8 +512,11 @@ class Weckablauf:
         await self._aufraeumen()
 
     async def _aufraeumen(self) -> None:
-        """Ton aus, Saeule auf Ruhe, Licht aus - der stille Grundzustand."""
-        await self._saeule({"status": STATUS_STANDARD, "ton": False})
+        """Saeule auf Ruhe, Licht aus - und den Ton nur, wenn er von uns kam."""
+        wunsch: dict[str, Any] = {"status": STATUS_STANDARD}
+        if self._ton_von_uns:
+            wunsch["ton"] = False
+        await self._saeule(wunsch)
         await self._licht({"aus": True})
         self.melden()
 
@@ -506,8 +528,7 @@ class Weckablauf:
         self.beendet_um = None
         self.notiz("Abbruch", "Ablauf gestoppt" if war else "nichts lief", "ok")
         if war:
-            await self._licht({"aus": True})
-            await self._saeule({"status": STATUS_STANDARD, "ton": False})
+            await self._aufraeumen()
         self.melden()
 
     # --- Schritte ausfuehren ------------------------------------------
@@ -564,8 +585,10 @@ class Weckablauf:
                 await coordinator.async_rolle_schalten(ROLLE_WARN, bool(wunsch["warn"]))
                 self.notiz("Signalsaeule", f"Warnleuchte {'an' if wunsch['warn'] else 'aus'}", "ok")
             if "ton" in wunsch:
-                await coordinator.async_rolle_schalten(ROLLE_TON, bool(wunsch["ton"]))
-                self.notiz("Signalsaeule", f"Ton {'an' if wunsch['ton'] else 'aus'}", "ok")
+                an = bool(wunsch["ton"])
+                await coordinator.async_rolle_schalten(ROLLE_TON, an)
+                self._ton_von_uns = an
+                self.notiz("Signalsaeule", f"Ton {'an' if an else 'aus'}", "ok")
         except Exception as err:  # noqa: BLE001
             self.notiz("Signalsaeule", str(err), "fehler")
             _LOGGER.warning("Weckablauf: Saeule %s: %s", wunsch, err)
