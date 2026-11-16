@@ -561,7 +561,11 @@ anderen Eintraegen derselben Integration - die Signalsaeule etwa. Bis November
         { "zeit":   0, "ab": "ende", "licht":  { "prozent": 70, "dauer": 10 } },
         { "zeit": 420, "ab": "ende", "licht":  { "aus": true, "dauer": 30 } },
         { "zeit": 420, "ab": "ende", "saeule": { "status": "alarm" } },
-        { "zeit": 480, "ab": "ende", "saeule": { "status": "ruhe" } }
+        { "zeit": 480, "ab": "ende", "saeule": { "status": "ruhe" } },
+
+        { "zeit":    0, "ab": "schlummern", "saeule": { "status": "ruhe" } },
+        { "zeit":    0, "ab": "schlummern", "licht":  { "prozent": 5, "dauer": 10 } },
+        { "zeit": 1140, "ab": "schlummern", "licht":  { "aus": true, "dauer": 30 } }
       ]
     }
   ]
@@ -579,8 +583,8 @@ eine Minute danach steht sie auf Gruen und nimmt wieder Befehle an.
 
 - `zeit` zaehlt in **Sekunden**, `ab` sagt wovon: `weckruf` (Vorgabe) rechnet
   ab dem Klingeln, negativ heisst vorher; `ende` rechnet ab dem Moment, in dem
-  du den Weckruf beendest. Der Nachlauf haengt also an dir, nicht an der Uhr.
-  Wird geschlummert, bleibt der Ablauf stehen, bis es wieder klingelt.
+  du den Weckruf beendest; `schlummern` ab dem Moment, in dem du ihn vertagst.
+  Nachlauf und Schlummern haengen also an dir, nicht an der Uhr.
 - Es gilt der **erste Block**, dessen Wochentag und Zeitfenster zur Weckzeit
   passen. `von` gleich `bis` heisst: immer.
 - `licht`: `prozent` (0-100), `dauer` in Sekunden fuer den Uebergang, `aus`.
@@ -597,8 +601,12 @@ eine Minute danach steht sie auf Gruen und nimmt wieder Befehle an.
 - **Leeres Feld heisst: der eingebaute Standardablauf gilt** - und waechst mit
   jeder neuen Fassung mit. Wer einen eigenen Ablauf eintraegt, bleibt dabei,
   bis er ihn wieder loescht.
-- Wird **geschlummert**, raeumt der Ablauf auf (Saeule auf Ruhe, Licht aus) und
-  wartet; klingelt es wieder, geht es von vorn los.
+- Wird **geschlummert**, laufen die Schritte mit `"ab": "schlummern"`: im
+  Standardablauf geht die Saeule zurueck auf Ruhe und das Licht auf 5 % - es
+  soll nicht stockdunkel werden, aber auch nicht hell bleiben. Kommt danach
+  **19 Minuten** lang nichts mehr, kein neues Klingeln und kein Beenden, geht
+  das Licht aus. Klingelt es vorher wieder (Max' Wecker schlummert zwei
+  Minuten), gilt wieder der Weckruf und der Schlummer-Timer ist vom Tisch.
 
 **Die Weckzeit rechnet die Integration selbst** aus Stunde, Minute und
 Wochentagsmaske, die die App mitschickt, inklusive „naechsten ueberspringen".

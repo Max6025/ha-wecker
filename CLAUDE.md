@@ -129,12 +129,21 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Relaisbox lief gar nichts, und die Hauptlicht-Option steckte in deren
   Optionsdialog. Der Ablauf greift ueber `hass.data[DOMAIN]` auf Geraete aus
   anderen Eintraegen zu (die Saeule), das ist Absicht.
-- **Ein Schritt haengt entweder am Weckruf oder am Beenden** (`ab`:
-  "weckruf" oder "ende"). Beide Haelften werden getrennt geplant; ein neuer
-  Lauf raeumt nur die Timer seiner eigenen Haelfte ab. Der Nachlauf faengt
-  genau dann an, wenn die App "ringing" auf false setzt - nicht nach Uhrzeit.
-  Der Probelauf simuliert das Beenden nach 30 s, sonst liefe die zweite
-  Haelfte nie an.
+- **Ein Schritt haengt am Weckruf, am Beenden oder am Schlummern** (`ab`:
+  "weckruf", "ende", "schlummern"). Die Teile werden getrennt geplant; ein
+  neuer Lauf raeumt die Timer des alten ab. Der Nachlauf faengt genau dann an,
+  wenn die App "ringing" auf false setzt - nicht nach Uhrzeit. Der Probelauf
+  simuliert das Beenden nach 30 s, sonst liefe die zweite Haelfte nie an.
+- **Schlummern ist ein eigener Teil des Ablaufs**, kein hartkodiertes
+  Aufraeumen (bis 2.3.0 war es `_schlummern()`). Im Standardablauf: Saeule auf
+  Ruhe, Licht auf 5 %, und nach 1140 s (19 min) Licht aus - Max' Vorgabe vom
+  16.11., nachdem "ganz aus" eine Stunde vorher noch richtig schien. Mit zwei
+  Minuten Schlummerzeit klingelt es vorher wieder, dann raeumt der
+  Weckruf-Teil die Schlummer-Timer ab. `AB_SPAETER` fasst "ende" und
+  "schlummern" zusammen: beide waehlen den Block ueber den alten Nullpunkt
+  und enden mit ihrem letzten Schritt, statt auf `ABLAUF_MAX_S` zu warten.
+  `_letzte_art` haelt fest, welcher Teil lief - sonst meldete `_fertig()`
+  nach jedem Schlummern faelschlich das Sicherheitsnetz.
 - **Das Ablauffeld im Optionsdialog nie mit dem Standardablauf
   vorausfuellen.** Genau das war am 14.11. die Ursache, warum der Nachlauf bei
   Max nicht lief: er hatte den Dialog geoeffnet und gespeichert, damit lag der

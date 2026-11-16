@@ -672,13 +672,23 @@ async def test_nach_dem_ablauf_wieder_frei(hass: HomeAssistant) -> None:
     assert [e for e in zustand["protokoll"] if e["was"] == "Fertig"]
 
 
-async def test_schlummern_raeumt_die_saeule_zurueck(
+async def test_schlummern_dimmt_auf_fuenf_prozent(
     hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
 ) -> None:
-    """Beim Schlummern darf die Saeule nicht im Alarm haengenbleiben."""
-    from pytest_homeassistant_custom_component.common import async_mock_service
+    """Beim Schlummern: Saeule zurueck auf Ruhe, Licht auf 5 % - nicht dunkel.
 
-    async_mock_service(hass, "light", "turn_on")
+    Max' Mo-Fr-Wecker schlummert zwei Minuten. Dazwischen soll es nicht
+    stockdunkel werden, aber auch nicht hell bleiben.
+    """
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import (
+        async_fire_time_changed,
+        async_mock_service,
+    )
+
+    an = async_mock_service(hass, "light", "turn_on")
     aus = async_mock_service(hass, "light", "turn_off")
     await _setup_saeule(hass, aioclient_mock)
     aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm", warn=True))
@@ -697,12 +707,59 @@ async def test_schlummern_raeumt_die_saeule_zurueck(
     await melden(ringing=True, root={"ringing": True})
     assert _letzter_aufruf(aioclient_mock).query["status"] == "alarm"
 
+    geschlummert = dt_util.utcnow()
     await melden(ringing=False, snoozed=True, root={"ringing": False, "snoozed": True})
     assert _letzter_aufruf(aioclient_mock).query["status"] == "ruhe"
-    assert len(aus) == 1
+    assert _lichtrufe(an)[-1] == ("turn_on", 5, 10), "Licht auf 5 %, nicht aus"
+    assert not aus
     zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
-    assert zustand["laeuft"] is False
     assert [e for e in zustand["protokoll"] if e["was"] == "Schlummern"]
+    assert [e for e in zustand["protokoll"] if "ab dem Schlummern" in e["text"]]
+
+    # Kommt 19 Minuten lang nichts mehr, geht das Licht aus
+    async_fire_time_changed(hass, geschlummert + timedelta(seconds=1145))
+    await hass.async_block_till_done()
+    assert len(aus) == 1
+
+
+async def test_neues_klingeln_beendet_das_schlummern(
+    hass: HomeAssistant, aioclient_mock, hass_client_no_auth: ClientSessionGenerator
+) -> None:
+    """Klingelt es nach zwei Minuten wieder, gilt der Weckruf - nicht das Schlummern."""
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import (
+        async_fire_time_changed,
+        async_mock_service,
+    )
+
+    async_mock_service(hass, "light", "turn_on")
+    aus = async_mock_service(hass, "light", "turn_off")
+    await _setup_saeule(hass, aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
+    await _setup(hass, options={"hauptlicht": "light.decke"})
+
+    client = await hass_client_no_auth()
+
+    async def melden(**aenderung):
+        p = copy.deepcopy(PAYLOAD)
+        p.update(aenderung.pop("root", {}))
+        p["alarms"][0].update(aenderung)
+        resp = await client.post("/api/webhook/hawecker_test123", json=p)
+        assert resp.status == 200
+        await hass.async_block_till_done()
+
+    await melden(ringing=True, root={"ringing": True})
+    geschlummert = dt_util.utcnow()
+    await melden(ringing=False, snoozed=True, root={"ringing": False, "snoozed": True})
+    await melden(ringing=True, snoozed=False, root={"ringing": True, "snoozed": False})
+    assert _letzter_aufruf(aioclient_mock).query["status"] == "alarm"
+
+    # Der 19-Minuten-Timer des Schlummerns ist damit vom Tisch
+    async_fire_time_changed(hass, geschlummert + timedelta(seconds=1145))
+    await hass.async_block_till_done()
+    assert not aus, "das neue Klingeln hat den Schlummer-Timer abgeraeumt"
 
 
 # ---------------------------------------------------------------------------

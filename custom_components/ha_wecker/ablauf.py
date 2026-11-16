@@ -23,7 +23,8 @@ Was wann passiert, steht in Zeitbloecken (JSON, in den Optionen des Weckers):
 
 "zeit" zaehlt in Sekunden, "ab" sagt wovon: "weckruf" (Vorgabe) rechnet ab dem
 Klingeln, negativ heisst vorher; "ende" rechnet ab dem Moment, in dem der
-Weckruf beendet wird. Der Nachlauf haengt also an dir, nicht an der Uhr.
+Weckruf beendet wird; "schlummern" ab dem Moment, in dem du ihn vertagst.
+Nachlauf und Schlummern haengen also an dir, nicht an der Uhr.
 
 Es gewinnt der erste Block, dessen Wochentag und Zeitfenster zur Weckzeit
 passen. Jeder Schritt landet mit Zeit und Ergebnis im Protokoll am Schalter.
@@ -84,6 +85,13 @@ STANDARD_ABLAUF: dict[str, Any] = {
                 {"zeit": 420, "ab": "ende", "saeule": {"status": "alarm"}},
                 # Eine Minute spaeter zurueck auf Gruen und stehen bleiben
                 {"zeit": 480, "ab": "ende", "saeule": {"status": "ruhe"}},
+                # Geschlummert: Saeule zurueck in den Ruhestand, Licht auf
+                # 5 %. Es soll nicht stockdunkel werden, aber auch nicht hell
+                # bleiben. Kommt danach 19 Minuten lang nichts mehr - kein
+                # neues Klingeln, kein Beenden -, geht es aus.
+                {"zeit": 0, "ab": "schlummern", "saeule": {"status": "ruhe"}},
+                {"zeit": 0, "ab": "schlummern", "licht": {"prozent": 5, "dauer": 10}},
+                {"zeit": 1140, "ab": "schlummern", "licht": {"aus": True, "dauer": 30}},
             ],
         }
     ],
@@ -91,11 +99,17 @@ STANDARD_ABLAUF: dict[str, Any] = {
 
 AB_WECKRUF = "weckruf"
 AB_ENDE = "ende"
+AB_SCHLUMMER = "schlummern"
+BEZUEGE = (AB_WECKRUF, AB_ENDE, AB_SCHLUMMER)
+# Diese beiden haengen an einem Moment, den du bestimmst, nicht an der Uhr -
+# darum werden sie erst in diesem Moment geplant und enden mit ihrem letzten
+# Schritt, waehrend der Weckruf-Teil auf das Beenden wartet.
+AB_SPAETER = (AB_ENDE, AB_SCHLUMMER)
 
 
 def bezug(schritt: dict[str, Any]) -> str:
     wert = str(schritt.get("ab") or AB_WECKRUF).lower()
-    return AB_ENDE if wert == AB_ENDE else AB_WECKRUF
+    return wert if wert in BEZUEGE else AB_WECKRUF
 
 
 def zeit_lesen(wert: Any, vorgabe: time) -> time:
@@ -143,9 +157,10 @@ def ablauf_lesen(roh: Any) -> tuple[dict[str, Any], str | None]:
                 return STANDARD_ABLAUF, f"Block {i}, Schritt {j}: \"zeit\" ist keine Zahl"
             if not any(k in schritt for k in ("licht", "saeule")):
                 return STANDARD_ABLAUF, f"Block {i}, Schritt {j} tut nichts"
-            if "ab" in schritt and str(schritt["ab"]).lower() not in (AB_WECKRUF, AB_ENDE):
+            if "ab" in schritt and str(schritt["ab"]).lower() not in BEZUEGE:
                 return STANDARD_ABLAUF, (
-                    f"Block {i}, Schritt {j}: \"ab\" kennt nur \"weckruf\" und \"ende\""
+                    f"Block {i}, Schritt {j}: \"ab\" kennt nur "
+                    + ", ".join(f'"{b}"' for b in BEZUEGE)
                 )
     return daten, None
 
@@ -257,6 +272,7 @@ class Weckablauf:
         # ab Werk nicht im Ablauf, soll ein von Hand gedrueckter Knopf auch
         # nicht von einem Weckruf abgeschaltet werden.
         self._ton_von_uns = False
+        self._letzte_art = AB_WECKRUF            # welcher Teil zuletzt lief
         self._timer: list[CALLBACK_TYPE] = []
         self._probe_timer: CALLBACK_TYPE | None = None
         self._unsub_signal: CALLBACK_TYPE | None = None
@@ -341,13 +357,12 @@ class Weckablauf:
             # Es klingelt wirklich: ab hier zaehlt die Zeit, alles ab 0 kommt neu
             self._starten(dt_util.utcnow(), AB_WECKRUF, nur_ab_null=True)
         elif flanke_aus and schlummert:
-            # Geschlummert: die Schritte des Weckrufs sind durch, aber der
-            # Nachlauf gilt noch nicht. Ohne Aufraeumen bliebe die Saeule im
-            # Alarm stehen und das Licht an, bis es wieder klingelt.
-            self._timer_weg()
-            self.notiz("Schlummern", "Ablauf angehalten, Saeule zurueck", "ok")
-            self.laeuft = False
-            self.hass.async_create_task(self._schlummern())
+            # Geschlummert: die Schritte des Weckrufs sind durch, der Nachlauf
+            # gilt noch nicht. Ohne eigene Schritte bliebe die Saeule im Alarm
+            # stehen und das Licht hell, bis es wieder klingelt. Was dann
+            # passiert, steht als "ab": "schlummern" in der Ablaufdatei.
+            self.notiz("Schlummern", "Weckruf vertagt", "ok")
+            self._starten(dt_util.utcnow(), AB_SCHLUMMER)
         elif flanke_aus:
             # Weckruf beendet: der Nachlauf haengt an diesem Moment
             self.beendet_um = dt_util.utcnow()
@@ -373,14 +388,14 @@ class Weckablauf:
     def _starten(self, nullpunkt: datetime, art: str, nur_ab_null: bool = False) -> None:
         """Die Schritte des Blocks mit diesem Bezugspunkt auf Zeitpunkte legen.
 
-        `art` trennt die beiden Haelften der Liste: die am Weckruf haengen und
-        die, die erst nach dem Beenden gelten. Ein neuer Lauf raeumt die Timer
-        der alten Haelfte ab, damit nichts aus dem Vorlauf hereinredet.
+        `art` trennt die Schritte der Liste: die am Weckruf haengen, die erst
+        nach dem Beenden gelten und die beim Schlummern. Ein neuer Lauf raeumt
+        die Timer des alten ab, damit nichts aus dem Vorlauf hereinredet.
         """
         ablauf, fehler = self.ablauf
         if fehler:
             self.notiz("Ablaufdatei", fehler, "fehler")
-        bezugszeit = self.nullpunkt if art == AB_ENDE and self.nullpunkt else nullpunkt
+        bezugszeit = self.nullpunkt if art in AB_SPAETER and self.nullpunkt else nullpunkt
         block = block_waehlen(ablauf, bezugszeit)
         if block is None:
             self._timer_weg()
@@ -394,6 +409,7 @@ class Weckablauf:
             self.nullpunkt = nullpunkt
             self.beendet_um = None
         self.laeuft = True
+        self._letzte_art = art
         jetzt = dt_util.utcnow()
         geplant = 0
         letzter: datetime | None = None
@@ -420,14 +436,18 @@ class Weckablauf:
         # letzten Schritt. Beim Weckruf-Teil wartet er auf das Beenden - kommt
         # das nie (App stumm, Handy aus), greift das Sicherheitsnetz, sonst
         # bliebe "laeuft" fuer immer stehen und kein Vorlauf mehr geplant.
-        ende = (letzter + timedelta(seconds=1)) if art == AB_ENDE and letzter else None
+        ende = (letzter + timedelta(seconds=1)) if art in AB_SPAETER and letzter else None
         if art == AB_WECKRUF:
             ende = nullpunkt + timedelta(seconds=ABLAUF_MAX_S)
         if ende is not None:
             self._timer.append(
                 async_track_point_in_utc_time(self.hass, self._fertig, ende)
             )
-        woher = "ab dem Weckruf" if art == AB_WECKRUF else "ab dem Beenden"
+        woher = {
+            AB_WECKRUF: "ab dem Weckruf",
+            AB_ENDE: "ab dem Beenden",
+            AB_SCHLUMMER: "ab dem Schlummern",
+        }[art]
         self.notiz(
             "Geplant",
             f"Block \"{self.block}\", {geplant} Schritte {woher} "
@@ -449,7 +469,10 @@ class Weckablauf:
         niemand - das wird hier zurueckgestellt.
         """
         war_probe = self.probelauf
-        ohne_ende = self.laeuft and not war_probe and self.beendet_um is None
+        war_schlummer = self._letzte_art == AB_SCHLUMMER
+        ohne_ende = (
+            self.laeuft and not war_probe and not war_schlummer and self.beendet_um is None
+        )
         self.laeuft = self.probelauf = False
         self.beendet_um = None
         if ohne_ende:
@@ -506,10 +529,6 @@ class Weckablauf:
         self.notiz("Probelauf", "Weckruf beendet", "ok")
         self._starten(self.beendet_um, AB_ENDE)
         self.melden()
-
-    async def _schlummern(self) -> None:
-        """Beim Schlummern zurueck in den Ruhestand, aber den Wecker nicht vergessen."""
-        await self._aufraeumen()
 
     async def _aufraeumen(self) -> None:
         """Saeule auf Ruhe, Licht aus - und den Ton nur, wenn er von uns kam."""
