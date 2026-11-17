@@ -147,9 +147,11 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   auf `manuell` und die Stufen werden einzeln gestellt - ein stehendes Bild,
   keine Choreografie. Nicht ueber den Status gehen: `stoerung` waere rot,
   liesse aber die Hinweisleuchte mitblinken, und eine Ampel soll ruhig sein.
-  Drei Dinge beenden sie: ein anderer Platz im Schalter, ein Status oder eine
+  Vier Dinge beenden sie: ein anderer Platz im Schalter, ein Status oder eine
   **Stufe** von Hand (Warnleuchte und Tongeber nicht - die gehoeren zu keinem
-  Bild), und jeder Neustart.
+  Bild), der Knopf „Alles aus" und jeder Neustart. „Alles aus" gehoert dazu,
+  weil sonst das naechste Wort aus der Garage die Saeule gleich wieder
+  anschaltete und der Knopf wirkungslos waere.
 - **Der Ampelmodus wird bewusst nicht gemerkt.** Kein `RestoreEntity`, kein
   Store. Die Saeule geht abends vom Netz und kommt um 4:55 still wieder hoch;
   wuerde der Ampelmodus das ueberdauern, stuende sie auf Rot, lange bevor der

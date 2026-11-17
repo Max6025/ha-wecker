@@ -737,9 +737,11 @@ Firmware meldet keine Farben; dann bleibt die Saeule dunkel und das Attribut
 `ampel_fehler` sagt, warum. Der Platz „Ampel" steht ueberhaupt nur im Schalter,
 wenn es den Garagen-ESP in Home Assistant wirklich gibt.
 
-**Was die Betriebsart beendet.** Dreierlei:
+**Was die Betriebsart beendet.** Viererlei:
 
 - ein anderer Platz im Schalter (Auto oder Manuell),
+- der Knopf **Alles aus** - sonst schaltete das naechste Wort aus der Garage
+  die Saeule gleich wieder an, und der Knopf waere wirkungslos,
 - ein **Status** oder eine **Stufe** von Hand - wer selbst stellt, will selbst
   stellen. Dieselbe Regel gilt in der Firmware fuer Auto und Manuell. Die
   Warnleuchte und der Tongeber beenden sie **nicht**: die gehoeren zu keinem

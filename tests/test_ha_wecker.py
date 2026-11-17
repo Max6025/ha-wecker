@@ -1514,6 +1514,27 @@ async def test_ampel_endet_bei_stufe_von_hand_nicht_beim_ton(
     assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
 
 
+async def test_ampel_endet_bei_alles_aus(hass: HomeAssistant, aioclient_mock) -> None:
+    """Alles aus heisst alles aus - sonst waere der Knopf wirkungslos."""
+    garage = await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/alarm/stop", json=saeule_state(modus="manuell"))
+    await _betriebsart(hass, "Ampel")
+
+    await hass.services.async_call(
+        "button", "press", {"entity_id": "button.signalsaeule_alles_aus"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
+
+    # Und die Garage schaltet die Saeule nicht wieder an
+    vorher = len(_postpfade(aioclient_mock))
+    _garage_melden(hass, garage, ampel="frei", auto_drin=False)
+    await hass.async_block_till_done()
+    assert _postpfade(aioclient_mock)[vorher:] == []
+
+
 async def test_ampel_ruht_waehrend_des_weckrufs(hass: HomeAssistant, aioclient_mock) -> None:
     """Der Weckruf hat Vorrang und gibt die Ampel danach wieder frei."""
     garage = await _setup_garage(hass, aioclient_mock)

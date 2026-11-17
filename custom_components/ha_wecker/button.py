@@ -58,6 +58,11 @@ class AllesAusButton(SaeuleEntity, ButtonEntity):
         super().__init__(coordinator, "alles_aus")
 
     async def async_press(self) -> None:
+        # Alles aus heisst alles aus - also auch die Betriebsart "Ampel". Sonst
+        # schaltete das naechste Wort aus der Garage die Saeule gleich wieder
+        # an, und der Knopf waere wirkungslos (siehe ampel.py).
+        if self.coordinator.ampel is not None:
+            self.coordinator.ampel.verlassen()
         try:
             await self.coordinator.async_alles_aus()
         except Exception as err:  # noqa: BLE001
