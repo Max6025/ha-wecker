@@ -516,6 +516,9 @@ GET  /api/state                 kompletter Zustand als JSON
 GET  /api/live                  Kurzfassung fuer das Dashboard
 GET  /api/ping                  {"ok":true,"typ":"saeule"}
 GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
+POST /api/stufen?gruen=&orange=&rot=&hinweis=   alle vier Stufen in einem
+                                Zug (-> Manuell): Wert ist die Blinkperiode
+                                in ms, 0 heisst dauernd, fehlt heisst aus
 POST /api/relais/<nr>?an=1|0[&blinken=ms]  eine Leuchte schalten
                                 (Stufe -> Manuell), "blinken" ist die
                                 Periode in ms (nur Stufen, nur Manuell)
@@ -748,13 +751,21 @@ gelb.
 
 Das Blinken macht die **Saeule** (ab Firmware 1.6.0, `POST
 /api/relais/<nr>?an=1&blinken=1000`), nicht Home Assistant: ein Ampeltakt aus
-dem Netz waere ein Zufallstakt. Die Periode gilt nur fuer die Stufen in der
+dem Netz waere ein Zufallstakt. Gesetzt wird das Bild in einem Zug ueber
+`POST /api/stufen` (ab 1.7.0) - vier einzelne Anfragen sieht man flackern. Die Periode gilt nur fuer die Stufen in der
 Betriebsart manuell und wird beim Wechsel auf Auto, bei „Alles aus" und beim
 stillen Start geloescht.
 
 **Still bleibt es.** Kein Ton, keine Blitz-Warnleuchte - auch bei der
 Stoerung nicht. Den Tongeber gibt es genau einmal: beim Umschalten auf diese
 Betriebsart.
+
+**Beim Einschalten fahert sie einmal vor**, wie eine Verkehrsampel bei der
+Inbetriebnahme: die mittlere blinkt eine Sekunde gelb (250 ms Takt), dann
+gruen, rot, gruen - je 0,6 Sekunden - und danach steht das Bild, das wirklich
+gilt. Ist in dem Moment eine **Stoerung**, entfaellt das: dann soll man sie
+sofort sehen und nicht erst nach drei Sekunden Theater. Kommt die Stoerung
+mitten in der Eroeffnung, bricht sie ab.
 
 Beim Umschalten gibt der Tongeber einmal den Quittungston (`/api/piep`, siehe
 Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu
@@ -795,8 +806,8 @@ wieder"). Waehrend sie ruht, schaltet auch ein Wort aus der Garage nichts.
 Die Attribute am Schalter **Betriebsart** sagen, was los ist: `lage` und
 `lage_text` (was die Saeule zeigt: `besetzt`, `frei`, `kein_strom`,
 `kein_esp`), `ampel` (was der ESP seiner eigenen Lampe sagt - nur zur
-Information), `ampel_pausiert`, `ampel_fehler`, `garage` und `geraet` (worauf
-die Saeule selbst steht, also `auto` oder `manuell`).
+Information), `ampel_pausiert`, `ampel_eroeffnet`, `ampel_fehler`, `garage`
+und `geraet` (worauf die Saeule selbst steht, also `auto` oder `manuell`).
 
 Code: `custom_components/ha_wecker/ampel.py`.
 

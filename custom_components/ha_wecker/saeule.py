@@ -228,21 +228,18 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         await self._post("/api/piep", {"muster": muster} if muster else {})
 
-    async def async_stufen_stellen(self, an: dict[int, int]) -> None:
-        """Genau diese Stufen an, alle anderen aus - in Betriebsart manuell.
+    async def async_stufen_stellen(self, bild: dict[str, int]) -> None:
+        """Das ganze Stufenbild in einem Zug setzen (Betriebsart manuell).
 
-        `an` bildet die Nummer auf die Blinkperiode in ms ab, 0 heisst
-        dauernd. Fuer die Betriebsart "Ampel": die Saeule soll ein ruhiges
-        Bild zeigen, keine Choreografie. Darum nicht ueber den Status, sondern
-        Stufe fuer Stufe. Erst manuell, dann stellen - sonst raeumt die
-        laufende Ansage gleich wieder ab, was hier gesetzt wurde.
+        `bild` bildet die Farbe auf die Blinkperiode in ms ab, 0 heisst
+        dauernd; was nicht darin steht, geht aus. Fuer die Betriebsart
+        "Ampel": die Saeule soll ein ruhiges Bild zeigen, keine Choreografie -
+        darum nicht ueber den Status. Und in einem Ruf, nicht Stufe fuer
+        Stufe: vier Anfragen hintereinander sieht man flackern. Braucht
+        Firmware 1.7.0.
         """
-        if self.modus != MODUS_MANUELL:
-            await self.async_modus(False)
-        for r in self.leuchten(ROLLE_STUFE):
-            nr = r.get("nr")
-            if isinstance(nr, int):
-                await self.async_schalten(nr, nr in an, an.get(nr, 0))
+        werte = {farbe: periode for farbe, periode in bild.items()}
+        await self._post("/api/stufen", werte)
 
     # --- Ereignisstrom -----------------------------------------------
 

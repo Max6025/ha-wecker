@@ -78,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.6.0";
+static const char* VERSION  = "1.7.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -1164,6 +1164,26 @@ static void httpBedienen() {
       statusSetzen((Status)gefunden, true, warManuell);
       sendeJson(c, 200, stateJson());
     }
+  } else if (pfad == "/api/stufen") {
+    // Das ganze Bild in einem Zug. Stufe fuer Stufe zu schalten heisst vier
+    // Anfragen, und zwischen der ersten und der letzten flackert es - fuer
+    // eine Ampel ist das nichts. Jede Farbe, die nicht dabeisteht, geht aus.
+    if (autoModus) {
+      for (uint8_t s2 = 0; s2 < STUFEN; s2++) manuell[s2] = sollAn(s2);
+      autoModus = false;
+    }
+    testAn = false;
+    noInterrupts();
+    for (uint8_t i = 0; i < STUFEN; i++) {
+      String wert = argWert(ziel, LEUCHTEN[i].farbe);
+      bool dabei = wert.length() > 0;
+      long periode = dabei ? wert.toInt() : 0;
+      manuell[i] = dabei;
+      blinkMs[i] = (dabei && periode >= BLINK_MIN_MS) ? (uint16_t)periode : 0;
+      blinkSeit[i] = millis();
+    }
+    interrupts();
+    sendeJson(c, 200, stateJson());
   } else if (pfad.startsWith("/api/relais/")) {
     int nr = pfad.substring(pfad.lastIndexOf('/') + 1).toInt();
     int8_t i = leuchteIndex(nr);

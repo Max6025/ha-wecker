@@ -1326,6 +1326,21 @@ async def test_garage_config_flow_wie_der_esp(hass: HomeAssistant, aioclient_moc
 # --- Betriebsart "Ampel": die Saeule zeigt die Garagenampel ------------------
 
 
+@pytest.fixture
+def schnelle_eroeffnung():
+    """Die Eroeffnung dauert echte drei Sekunden - im Test im Zeitraffer.
+
+    Die Schritte und ihre Reihenfolge bleiben, nur die Standzeiten fallen weg.
+    """
+    from unittest.mock import patch
+
+    from custom_components.ha_wecker import ampel as ampel_modul
+
+    kurz = tuple((bild, 1) for bild, _ in ampel_modul.AMPEL_START)
+    with patch.object(ampel_modul, "AMPEL_START", kurz):
+        yield
+
+
 def _postpfade(aioclient_mock) -> list[str]:
     """Pfad samt Query jedes POST an ein Geraet, in der Reihenfolge."""
     pfade = []
@@ -1346,6 +1361,7 @@ def _saeule_posts(aioclient_mock, **kw) -> None:
     antwort = saeule_state(modus="manuell", **kw)
     aioclient_mock.post(f"{SAEULE_URL}/api/piep", json=saeule_state(**kw))
     aioclient_mock.post(f"{SAEULE_URL}/api/modus", json=antwort)
+    aioclient_mock.post(f"{SAEULE_URL}/api/stufen", json=antwort)
     for nr in range(1, 7):
         aioclient_mock.post(f"{SAEULE_URL}/api/relais/{nr}", json=antwort)
 
@@ -1364,7 +1380,26 @@ async def _betriebsart(hass: HomeAssistant, wahl: str) -> None:
     await hass.async_block_till_done()
 
 
-async def test_ampel_fehlt_ohne_garage(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_eroeffnung_fahrt_einmal_vor(
+    hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung
+) -> None:
+    """Beim Einschalten: gelb blinkt, dann gruen, rot, gruen, dann das Bild."""
+    await _setup_garage(hass, aioclient_mock)          # Auto steht drin
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    assert _postpfade(aioclient_mock) == [
+        "/api/piep",
+        "/api/stufen?orange=250",      # die mittlere blinkt
+        "/api/stufen?gruen=0",
+        "/api/stufen?rot=0",
+        "/api/stufen?gruen=0",
+        "/api/stufen?rot=0",           # und dann, was wirklich gilt
+    ]
+
+
+async def test_ampel_fehlt_ohne_garage(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Ohne Garagen-ESP hat der Schalter nur Auto und Manuell."""
     await _setup_saeule(hass, aioclient_mock)
     st = hass.states.get("select.signalsaeule_betriebsart")
@@ -1372,7 +1407,7 @@ async def test_ampel_fehlt_ohne_garage(hass: HomeAssistant, aioclient_mock) -> N
     assert st.attributes["garage"] == "nicht eingerichtet"
 
 
-async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Auto steht drin: zwei kurze Toene, dann rot - und nur rot."""
     await _setup_garage(hass, aioclient_mock)          # ampel = stopp
     await _setup_saeule(hass, aioclient_mock)
@@ -1386,15 +1421,10 @@ async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclie
     pfade = _postpfade(aioclient_mock)
     # Der Quittungston kommt vor dem Bild
     assert pfade[0] == "/api/piep"
-    # Erst manuell, dann Stufe fuer Stufe: nur Rot (Nr. 3) an
-    assert "/api/modus?modus=manuell" in pfade
-    assert "/api/relais/3?an=1" in pfade
-    assert "/api/relais/1?an=0" in pfade
-    assert "/api/relais/2?an=0" in pfade
-    assert "/api/relais/4?an=0" in pfade
+    # Das ganze Bild in einem Zug: nur Rot, dauernd
+    assert pfade[-1] == "/api/stufen?rot=0"
     # Die Warnleuchte und der Tongeber gehoeren zu keinem Bild
-    assert not [p for p in pfade if p.startswith("/api/relais/5")]
-    assert not [p for p in pfade if p.startswith("/api/relais/6")]
+    assert not [p for p in pfade if p.startswith("/api/relais/")]
 
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.state == "Ampel"
@@ -1403,7 +1433,7 @@ async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclie
     assert st.attributes["ampel_fehler"] is None
 
 
-async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Wird die Garage frei, wird die Saeule gruen - ohne Zutun."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
@@ -1415,8 +1445,7 @@ async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock) -> No
     await hass.async_block_till_done()
 
     neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/relais/1?an=1" in neu      # gruen
-    assert "/api/relais/3?an=0" in neu      # rot aus
+    assert neu == ["/api/stufen?gruen=0"]
     assert hass.states.get("select.signalsaeule_betriebsart").attributes["lage"] == "frei"
 
     # Dasselbe noch einmal gemeldet schaltet nicht wieder - das Bild steht schon
@@ -1427,7 +1456,7 @@ async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock) -> No
 
 
 async def test_ampel_folgt_dem_platz_nicht_der_lampe(
-    hass: HomeAssistant, aioclient_mock
+    hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung
 ) -> None:
     """Die Lampe des ESP geht aus, wenn niemand einparkt - rot bleibt.
 
@@ -1447,16 +1476,13 @@ async def test_ampel_folgt_dem_platz_nicht_der_lampe(
 
     pfade = _postpfade(aioclient_mock)
     assert pfade[0] == "/api/piep"
-    assert "/api/relais/3?an=1" in pfade             # rot, dauernd
-    assert "/api/relais/1?an=0" in pfade
-    assert "/api/relais/2?an=0" in pfade
-    assert "/api/relais/4?an=0" in pfade
+    assert pfade[-1] == "/api/stufen?rot=0"          # rot, dauernd
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.attributes["lage"] == "besetzt"
     assert st.attributes["ampel"] == "aus"           # was der ESP seiner Lampe sagt
 
 
-async def test_ampel_ohne_urteil_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_ohne_urteil_blinkt_gelb(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Weiss der ESP nichts ueber den Platz, ist das eine Stoerung."""
     daten = garage_state(ampel="aus", strom=True)
     daten["auto_drin"] = None
@@ -1466,11 +1492,11 @@ async def test_ampel_ohne_urteil_blinkt_gelb(hass: HomeAssistant, aioclient_mock
     await _betriebsart(hass, "Ampel")
 
     pfade = _postpfade(aioclient_mock)
-    assert "/api/relais/2?an=1&blinken=1000" in pfade    # lieber gelb blinken
-    assert "/api/relais/1?an=0" in pfade                 # als faelschlich gruen
+    assert "/api/stufen?orange=1000&hinweis=160" in pfade   # lieber gelb blinken
+    assert not [p for p in pfade if "gruen" in p]           # als faelschlich gruen
 
 
-async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Kein Strom am Tor: gelb blinkt im Sekundentakt, Hinweis sehr schnell."""
     await _setup_garage(hass, aioclient_mock, garage_state(ampel="kein_strom", strom=False, auto_drin=False))
     await _setup_saeule(hass, aioclient_mock)
@@ -1478,19 +1504,14 @@ async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -
     await _betriebsart(hass, "Ampel")
 
     pfade = _postpfade(aioclient_mock)
-    assert "/api/relais/2?an=1&blinken=1000" in pfade    # gelb, ein Hertz
-    assert "/api/relais/4?an=1&blinken=160" in pfade     # Hinweis, sehr schnell
-    assert "/api/relais/1?an=0" in pfade                 # gruen aus
-    assert "/api/relais/3?an=0" in pfade                 # rot aus
-    # Still bleibt es: kein Ton im Bild, keine Warnleuchte
-    assert not [p for p in pfade if p.startswith("/api/relais/5")]
-    assert not [p for p in pfade if p.startswith("/api/relais/6")]
-    # Der Ton kommt genau einmal, beim Umschalten
-    assert len([p for p in pfade if p.startswith("/api/piep")]) == 1
+    # Gelb mit einem Hertz, Hinweisleuchte sehr schnell - in einem Zug
+    assert "/api/stufen?orange=1000&hinweis=160" in pfade
+    # Eine Stoerung kommt sofort, ohne Eroeffnung
+    assert pfade == ["/api/piep", "/api/stufen?orange=1000&hinweis=160"]
 
 
 async def test_ampel_ueberlebt_ein_neuladen_der_garage(
-    hass: HomeAssistant, aioclient_mock
+    hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung
 ) -> None:
     """Nach einem Reload der Garage haengt der Listener am neuen Coordinator."""
     garage = await _setup_garage(hass, aioclient_mock)
@@ -1509,11 +1530,11 @@ async def test_ampel_ueberlebt_ein_neuladen_der_garage(
     _garage_melden(hass, garage, ampel="frei", auto_drin=False)
     await hass.async_block_till_done()
     neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/relais/1?an=1" in neu
+    assert "/api/stufen?gruen=0" in neu
     assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
 
 
-async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Antwortet der ESP nicht, fehlen ihm die 5 V: rot im Takt der gelben."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
@@ -1528,16 +1549,11 @@ async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock) ->
     await hass.async_block_till_done()
 
     neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/relais/3?an=1&blinken=1000" in neu      # rot, im Takt der gelben
-    assert "/api/relais/2?an=0" in neu                   # gelb aus
-    assert "/api/relais/4?an=0" in neu                   # Hinweisleuchte aus
-    assert "/api/relais/1?an=0" in neu                   # gruen aus
-    # Kein schnelles Blinken irgendwo
-    assert not [p for p in neu if "blinken=160" in p]
+    assert neu == ["/api/stufen?rot=1000"]               # rot, im Takt der gelben
     assert hass.states.get("select.signalsaeule_betriebsart").attributes["lage"] == "kein_esp"
 
 
-async def test_ampel_endet_bei_status_von_hand(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_endet_bei_status_von_hand(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Einen Status zu waehlen heisst: ich stelle selbst."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
@@ -1560,7 +1576,7 @@ async def test_ampel_endet_bei_status_von_hand(hass: HomeAssistant, aioclient_mo
 
 
 async def test_ampel_endet_bei_stufe_von_hand_nicht_beim_ton(
-    hass: HomeAssistant, aioclient_mock
+    hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung
 ) -> None:
     """Eine Stufe von Hand beendet die Ampel, Warnleuchte und Ton nicht."""
     await _setup_garage(hass, aioclient_mock)
@@ -1590,7 +1606,7 @@ async def test_ampel_endet_bei_stufe_von_hand_nicht_beim_ton(
     assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
 
 
-async def test_ampel_endet_bei_alles_aus(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_endet_bei_alles_aus(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Alles aus heisst alles aus - sonst waere der Knopf wirkungslos."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
@@ -1611,7 +1627,7 @@ async def test_ampel_endet_bei_alles_aus(hass: HomeAssistant, aioclient_mock) ->
     assert _postpfade(aioclient_mock)[vorher:] == []
 
 
-async def test_ampel_ruht_waehrend_des_weckrufs(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_ruht_waehrend_des_weckrufs(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Der Weckruf hat Vorrang und gibt die Ampel danach wieder frei."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
@@ -1641,11 +1657,11 @@ async def test_ampel_ruht_waehrend_des_weckrufs(hass: HomeAssistant, aioclient_m
     await hass.async_block_till_done()
     assert saeule.ampel.pausiert is False
     neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/relais/1?an=1" in neu       # gruen, die Garage ist frei
+    assert "/api/stufen?gruen=0" in neu      # gruen, die Garage ist frei
     assert any(n["was"] == "Betriebsart Ampel" for n in ablauf.protokoll)
 
 
-async def test_ampel_braucht_die_farben_der_firmware(hass: HomeAssistant, aioclient_mock) -> None:
+async def test_ampel_braucht_die_farben_der_firmware(hass: HomeAssistant, aioclient_mock, schnelle_eroeffnung) -> None:
     """Eine alte Firmware ohne Farben: kein Bild, aber eine klare Auskunft."""
     await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock, saeule_state(mit_farbe=False))

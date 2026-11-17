@@ -163,6 +163,22 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   zieht sie ihr Bild nach (`_bild = None`, weil der Ablauf die Saeule
   umgestellt hat). Nicht an `laeuft` haengen: das ist auch wahr, waehrend nur
   der Vorlauf steht, und dann waere die Ampel den ganzen Tag stumm.
+- **Das Ampelbild in einem Zug setzen, nicht Stufe fuer Stufe.** `POST
+  /api/stufen?gruen=&orange=&rot=&hinweis=` (1.7.0) setzt alle vier; jede
+  Farbe, die nicht dabeisteht, geht aus. Vier einzelne Anfragen hintereinander
+  sieht man flackern, und bei der Eroeffnung (gruen, rot, gruen) waere das
+  nicht hinnehmbar.
+- **Die Eroeffnung der Ampel laeuft nebenher, nicht im Dienstruf.** Drei
+  Sekunden lang einen `select.select_option` haengen zu lassen geht nicht,
+  darum eine Task (`_eroeffnen`). Waehrend sie laeuft (`eroeffnet`) schreibt
+  der Ampelmodus kein Bild - sonst funkte ein Wort aus der Garage mitten
+  hinein. Eine Stoerung laesst sie ganz entfallen oder bricht sie ab: die
+  soll sofort zu sehen sein.
+- **Was der Ampelmodus aendert, muss er selbst melden.** `melden()` ruft
+  `async_update_listeners()` am Saeulen-Coordinator. Ohne das stand der
+  Schalter auf dem Stand vom Augenblick des Dienstrufs - ein Fehler, der
+  danach auffiel (die Eroeffnung und jedes Wort aus der Garage passieren
+  ausserhalb eines Dienstrufs).
 - **Das Blinken macht die Saeule, nicht Home Assistant.** Seit 1.6.0 nimmt
   `POST /api/relais/<nr>?an=1&blinken=1000` eine Periode in ms (halb an, halb
   aus) - nur fuer die Stufen und nur in „manuell", denn „auto" hat seine

@@ -41,6 +41,7 @@ Ampelmodus bis zum Ende des Laufs und zieht danach das Ampelbild nach.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -83,6 +84,18 @@ AMPEL_BILD: dict[str, dict[str, int]] = {
     # gelben. Nicht im schnellen Blinken, und ohne Hinweisleuchte.
     LAGE_KEIN_ESP: {FARBE_ROT: AMPEL_BLINK_MS},
 }
+# Die Eroeffnung: (Bild, wie lange es steht in ms). Danach gilt das echte
+# Bild. Eine Verkehrsampel macht es bei der Inbetriebnahme genauso - erst
+# blinkt gelb, dann fahrt sie einmal durch.
+AMPEL_START: tuple[tuple[dict[str, int], int], ...] = (
+    ({FARBE_ORANGE: 250}, 1000),     # die mittlere blinkt eine Sekunde
+    ({FARBE_GRUEN: 0}, 600),
+    ({FARBE_ROT: 0}, 600),
+    ({FARBE_GRUEN: 0}, 600),
+)
+# Bei diesen Lagen entfaellt die Eroeffnung
+LAGE_STOERUNG = (LAGE_KEIN_STROM, LAGE_KEIN_ESP)
+
 LAGE_TEXT: dict[str, str] = {
     LAGE_BESETZT: "Auto steht in der Garage",
     LAGE_FREI: "Garage frei",
@@ -100,9 +113,21 @@ class Ampelmodus:
         self.aktiv = False
         self.pausiert = False          # der Weckablauf hat die Saeule
         self.fehler: str | None = None
-        self._bild: dict[int, int] | None = None   # was zuletzt gestellt wurde
+        self._bild: dict[str, int] | None = None   # was zuletzt gestellt wurde
+        self._start: asyncio.Task | None = None    # laufende Eroeffnung
         self._ab_garage: Any = None           # Abmelder des Garagen-Listeners
         self._gehoert: Any = None             # an welchem Coordinator er haengt
+
+    @callback
+    def melden(self) -> None:
+        """Die Entitaeten der Saeule auffrischen.
+
+        Die Betriebsart steht am Schalter mit allem, was hier passiert -
+        Lage, Fehler, Eroeffnung. Weil das auch ausserhalb eines Dienstrufs
+        passiert (Wort aus der Garage, Ende der Eroeffnung), muss es von hier
+        gemeldet werden, sonst bleibt der Schalter auf dem alten Stand.
+        """
+        self.saeule.async_update_listeners()
 
     # --- Die Garage ---------------------------------------------------
 
@@ -156,12 +181,52 @@ class Ampelmodus:
         self._bild = None
         self._horchen()
         # Der Ton kommt vor dem Bild: das Umschalten soll man hoeren, auch
-        # wenn die Ampel gerade "aus" sagt und gar nichts zu sehen ist.
+        # wenn gerade nichts Neues zu sehen ist.
         try:
             await self.saeule.async_piep()
         except Exception as err:  # noqa: BLE001 - ein stummer Piep ist kein Grund
             _LOGGER.debug("Quittungston ging nicht: %s", err)
-        await self.async_nachziehen()
+        if self.lage in LAGE_STOERUNG:
+            # Eine Stoerung soll sofort zu sehen sein, nicht erst nach drei
+            # Sekunden Theater.
+            await self.async_nachziehen()
+            return
+        # Die Eroeffnung laeuft nebenher: der Dienstruf in Home Assistant
+        # soll nicht drei Sekunden lang haengen.
+        self._start = self.hass.async_create_task(self._eroeffnen())
+
+    async def _eroeffnen(self) -> None:
+        """Einmal vorfahren, dann das echte Bild - wie eine Verkehrsampel."""
+        try:
+            for bild, dauer_ms in AMPEL_START:
+                if not self.aktiv:
+                    return
+                if self.lage in LAGE_STOERUNG:
+                    break           # eine Stoerung dazwischen bricht ab
+                await self.saeule.async_stufen_stellen(bild)
+                await asyncio.sleep(dauer_ms / 1000)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001
+            self.fehler = str(err)
+            _LOGGER.warning("Betriebsart Ampel, Eroeffnung: %s", err)
+        finally:
+            self._start = None
+            if self.aktiv:
+                self._bild = None   # die Eroeffnung hat die Saeule umgestellt
+                await self.async_nachziehen()
+            self.melden()
+
+    @property
+    def eroeffnet(self) -> bool:
+        """Laeuft gerade die Eroeffnung?"""
+        return self._start is not None and not self._start.done()
+
+    @callback
+    def _start_abbrechen(self) -> None:
+        task, self._start = self._start, None
+        if task is not None and not task.done():
+            task.cancel()
 
     @callback
     def verlassen(self) -> None:
@@ -175,6 +240,7 @@ class Ampelmodus:
         self.pausiert = False
         self.fehler = None
         self._bild = None
+        self._start_abbrechen()
         self._nicht_mehr_horchen()
 
     # --- Der Weckruf hat Vorrang --------------------------------------
@@ -195,30 +261,27 @@ class Ampelmodus:
 
     # --- Das Bild stellen ---------------------------------------------
 
-    def _bild_fuer(self, lage: str) -> tuple[dict[int, int], str]:
-        """({Nummer: Blinkperiode in ms}; was das Bild bedeutet)."""
-        farben = AMPEL_BILD.get(lage, {})
-        warum = LAGE_TEXT.get(lage, lage)
-        bild: dict[int, int] = {}
-        for farbe, periode in farben.items():
-            nr = self.saeule.nummer_farbe(farbe)
-            if nr is None:
+    def _bild_fuer(self, lage: str) -> tuple[dict[str, int], str]:
+        """({Farbe: Blinkperiode in ms}; was das Bild bedeutet)."""
+        bild = AMPEL_BILD.get(lage, {})
+        for farbe in bild:
+            if self.saeule.nummer_farbe(farbe) is None:
                 raise UpdateFailed(
                     f"Die Saeule meldet keine Leuchte \"{farbe}\" - "
                     "braucht Firmware 1.3.0 oder neuer"
                 )
-            bild[nr] = periode
-        return bild, warum
+        return dict(bild), LAGE_TEXT.get(lage, lage)
 
     async def async_nachziehen(self) -> None:
         """Das Ampelbild stellen, wenn es sich geaendert hat."""
-        if not self.aktiv or self.pausiert:
+        if not self.aktiv or self.pausiert or self.eroeffnet:
             return
         try:
             an, warum = self._bild_fuer(self.lage)
         except UpdateFailed as err:
             self.fehler = str(err)
             _LOGGER.warning("Betriebsart Ampel: %s", err)
+            self.melden()
             return
         if an == self._bild:
             return
@@ -227,9 +290,11 @@ class Ampelmodus:
         except Exception as err:  # noqa: BLE001
             self.fehler = str(err)
             _LOGGER.warning("Betriebsart Ampel: %s", err)
+            self.melden()
             return
         self._bild = an
         self.fehler = None
+        self.melden()
         _LOGGER.debug("Betriebsart Ampel: %s -> Leuchten %s", warum, an or "aus")
 
     # Die Saeule blinkt selbst (Firmware 1.6.0): Home Assistant kann nicht im
@@ -275,11 +340,12 @@ class Ampelmodus:
 
     @callback
     def _garage_gemeldet(self) -> None:
-        if self.aktiv and not self.pausiert:
+        if self.aktiv and not self.pausiert and not self.eroeffnet:
             self.hass.async_create_task(self.async_nachziehen())
 
     @callback
     def async_stop(self) -> None:
+        self._start_abbrechen()
         self._nicht_mehr_horchen()
 
     # --- Anzeige ------------------------------------------------------
@@ -290,6 +356,7 @@ class Ampelmodus:
             "lage_text": LAGE_TEXT.get(self.lage, self.lage),
             "ampel": self.ampel,               # was der ESP seiner Lampe sagt
             "ampel_pausiert": self.pausiert,
+            "ampel_eroeffnet": self.eroeffnet,
             "ampel_fehler": self.fehler,
             "garage": "verbunden" if self.garage() else "nicht eingerichtet",
         }
