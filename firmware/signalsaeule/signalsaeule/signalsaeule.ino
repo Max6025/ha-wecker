@@ -77,7 +77,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.3.0";
+static const char* VERSION  = "1.3.1";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -209,8 +209,11 @@ static bool tonAn = false;
 // (alle 10 ms), nicht in der Schleife: die steht beim Ausliefern einer Seite
 // auch mal eine Sekunde, und dann waere aus dem kurzen Piep ein Ton geworden.
 static const uint8_t  PIEP_ANZAHL_MAX = 5;
-static const uint16_t PIEP_AN_MS      = 70;    // so lange ein Ton
-static const uint16_t PIEP_AUS_MS     = 110;   // so lange die Pause dazwischen
+// 70 ms waren am Geraet nicht zu hoeren: das Relais zieht erst an, und der
+// Tongenerator braucht einen Augenblick, bis er Luft bewegt. 200 ms sind eine
+// deutliche Quittung und immer noch kein Alarm (Max, 17.11.2026).
+static const uint16_t PIEP_AN_MS      = 200;   // so lange ein Ton
+static const uint16_t PIEP_AUS_MS     = 150;   // so lange die Pause dazwischen
 static volatile uint8_t  piepRest  = 0;        // noch so viele Halbschritte
 static volatile bool     piepAn    = false;    // Ton im laufenden Halbschritt
 static volatile uint32_t piepBis   = 0;        // bis wann er gilt (millis)

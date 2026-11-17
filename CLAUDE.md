@@ -57,7 +57,9 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   mit einer Pause dazwischen: so ist der Ton wirklich kurz, auch wenn das Netz
   gerade langsam ist. Die Folge laeuft im Zeitgeber, nicht in `loop()` - die
   steht beim Ausliefern einer Seite ueber eine Sekunde, und dann waere aus dem
-  Piep ein Ton geworden. `piepAn` teilt sich den Ausgang mit `tonAn`
+  Piep ein Ton geworden. 70 ms waren am Geraet nicht zu hoeren (das Relais
+  zieht erst an, der Tongenerator braucht einen Augenblick) - seit 1.3.1 sind
+  es 200 ms Ton und 150 ms Pause. `piepAn` teilt sich den Ausgang mit `tonAn`
   (`setzen(IDX_TON, tonAn || piepAn)`), steht aber **nicht** im JSON: ein
   Piep ist kein Zustand. Der stille Start und `/api/alarm/stop` raeumen eine
   laufende Folge ab.

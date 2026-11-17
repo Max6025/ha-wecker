@@ -397,8 +397,8 @@ Booten um Viertel vor fuenf losschreit, weckt das halbe Haus. Nur die
 Selbstdiagnose laesst ihn kurz piepen - sie schaltet jeden Ausgang der Reihe
 nach fuer 0,4 Sekunden ein.
 
-**Kurzer Hinweiston (seit Firmware 1.3.0).** `POST /api/piep` gibt zwei ganz
-kurze Toene (70 ms Ton, 110 ms Pause, 70 ms Ton) und laesst den Schalter
+**Kurzer Hinweiston (seit Firmware 1.3.0).** `POST /api/piep` gibt zwei kurze
+Toene (200 ms Ton, 150 ms Pause, 200 ms Ton) und laesst den Schalter
 darueber unberuehrt - eine Quittung, kein Alarm. `anzahl`, `an` und `aus`
 lassen sich mitgeben, mehr als fuenf Toene gibt die Saeule nicht. Die Folge
 laeuft im Zeitgeber (alle 10 ms), nicht in der Schleife: die steht beim
@@ -716,7 +716,7 @@ auf **Ampel**, zeigt die Signalsaeule, was der Garagen-ESP meldet (Abschnitt
 | `aus`                          | nichts     |
 | nicht zu erreichen             | Hinweisleuchte oben, allein |
 
-Beim Umschalten gibt der Tongeber zwei ganz kurze Toene (`/api/piep`, siehe
+Beim Umschalten gibt der Tongeber zwei kurze Toene (`/api/piep`, siehe
 Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu
 sehen ist. Gehoert hat man es trotzdem.
 
