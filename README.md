@@ -713,27 +713,38 @@ Deshalb plant jetzt nur der Timer-Rueckruf, nie das Schalten selbst.
 ## 6c. Betriebsart „Ampel" (die Saeule zeigt die Garagenampel)
 
 Ein dritter Platz im Schalter **Betriebsart** neben Auto und Manuell. Steht er
-auf **Ampel**, zeigt die Signalsaeule, was der Garagen-ESP meldet (Abschnitt
-8) - im Zimmer sieht man also, ob der 206 richtig in der Garage steht:
+auf **Ampel**, zeigt die Signalsaeule, wie der Stellplatz in der Garage steht
+(Abschnitt 8) - im Zimmer sieht man also, ob der 206 drinsteht:
 
-| Garage meldet                  | Saeule     |
+| Lage in der Garage             | Saeule     |
 |--------------------------------|------------|
-| `stopp` (Auto steht richtig)   | rot        |
-| `frei`                         | gruen      |
-| `kein_strom` (nichts am Tor)   | **gelb blinkt** im Sekundentakt, Hinweisleuchte blinkt sehr schnell dazu |
-| antwortet nicht                | **rot blinkt**, im Takt der gelben, sonst nichts |
-| `aus`                          | nichts     |
+| Auto steht drin                | rot        |
+| frei                           | gruen      |
+| kein Strom an der Lichtschranke | **gelb blinkt** im Sekundentakt, Hinweisleuchte blinkt sehr schnell dazu |
+| ESP antwortet nicht            | **rot blinkt**, im Takt der gelben, sonst nichts |
 
-Die **Stoerung am Tor** ist nachgebaut, wie eine Ampel es an der Kreuzung
+**Nicht** die Ampel des ESP.** Das Feld `ampel` in dessen `/api/state` gehoert
+zur Lampe in der Garage und ist zum Einparken gedacht: es geht auf `aus`,
+sobald das Tor zu ist und das Auto nicht mehr per Funk zu hoeren ist. Der 206
+steht dann immer noch drin, nur muss ihn niemand mehr anleuchten. Eine
+Statusanzeige im Zimmer will das Gegenteil - sie soll gerade dann sagen, dass
+der Platz belegt ist. Darum urteilt die Betriebsart selbst, aus `auto_drin`
+und `strom`. (Am 17.11.2026 stand genau das im Weg: Auto drin, Lichtschranke
+durchtrennt, und die Saeule blieb dunkel, weil der ESP `ampel: aus` meldete.)
+Weiss der ESP nichts ueber den Platz, blinkt es gelb - lieber eine Stoerung
+zeigen als faelschlich gruen. Ein Bild fuer „nichts leuchtet" gibt es nicht:
+eine Statusanzeige, die dunkel ist, sagt nichts.
+
+Die **Stoerung an der Lichtschranke** ist nachgebaut, wie eine Ampel es an der Kreuzung
 macht: gelb blinkt mit einem Hertz. Die Hinweisleuchte blinkt sehr schnell
 dazu (160 ms), damit man es nicht mit dem Status „Achtung" verwechselt.
 
 **Antwortet der ESP gar nicht**, ist das ein anderer Fall und bekommt ein
 anderes Bild: dann fehlen ihm die 5 V, mit denen er selbst betrieben wird. Es
 steht also nicht einmal fest, dass die Garage ueberwacht wird - darum blinkt
-**rot**, allein, im ruhigen Takt der gelben und ohne Hinweisleuchte. Meldet er
-dagegen `kein_strom`, lebt er und sagt nur, dass der Lichtschranke die 24 V
-fehlen.
+**rot**, allein, im ruhigen Takt der gelben und ohne Hinweisleuchte. Lebt er
+dagegen und meldet nur, dass der Lichtschranke die 24 V fehlen, blinkt es
+gelb.
 
 Das Blinken macht die **Saeule** (ab Firmware 1.6.0, `POST
 /api/relais/<nr>?an=1&blinken=1000`), nicht Home Assistant: ein Ampeltakt aus
@@ -781,9 +792,11 @@ Betriebsart bis zum Ende des Laufs und zieht danach das Ampelbild nach. Beides
 steht im Protokoll des Weckablaufs („ruht bis zum Ende des Laufs", „laeuft
 wieder"). Waehrend sie ruht, schaltet auch ein Wort aus der Garage nichts.
 
-Die Attribute am Schalter **Betriebsart** sagen, was los ist: `ampel` (der
-Wert aus der Garage), `ampel_pausiert`, `ampel_fehler`, `garage` und `geraet`
-(worauf die Saeule selbst steht, also `auto` oder `manuell`).
+Die Attribute am Schalter **Betriebsart** sagen, was los ist: `lage` und
+`lage_text` (was die Saeule zeigt: `besetzt`, `frei`, `kein_strom`,
+`kein_esp`), `ampel` (was der ESP seiner eigenen Lampe sagt - nur zur
+Information), `ampel_pausiert`, `ampel_fehler`, `garage` und `geraet` (worauf
+die Saeule selbst steht, also `auto` oder `manuell`).
 
 Code: `custom_components/ha_wecker/ampel.py`.
 

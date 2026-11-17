@@ -56,29 +56,38 @@ from .const import (
     FARBE_ORANGE,
     FARBE_ROT,
 )
-from .garage import AMPEL_AUS, AMPEL_FREI, AMPEL_KEIN_STROM, AMPEL_STOPP
+# Die Lage am Stellplatz - das, was die Saeule zeigen soll. Nicht zu
+# verwechseln mit der Ampel des ESP, die zur Lampe in der Garage gehoert.
+LAGE_BESETZT = "besetzt"
+LAGE_FREI = "frei"
+LAGE_KEIN_STROM = "kein_strom"
+LAGE_KEIN_ESP = "kein_esp"
 
 _LOGGER = logging.getLogger(__name__)
 
-# Welches Bild die Saeule bei welcher Ampel zeigt: Farbe und Blinkperiode in
+# Welches Bild die Saeule bei welcher Lage zeigt: Farbe und Blinkperiode in
 # Millisekunden (0 heisst dauernd). Nach Farbe, nicht nach Relaisnummer - die
 # Saeule meldet sie selbst (ab Firmware 1.3.0).
 #
 # Die Stoerung ist nachgebaut, wie eine Ampel es an der Kreuzung macht: gelb
 # blinkt im Sekundentakt. Die Hinweisleuchte blinkt sehr schnell dazu, damit
 # man eine Stoerung nicht mit "Achtung" verwechselt.
-AMPEL_STOERUNG: dict[str, int] = {
-    FARBE_ORANGE: AMPEL_BLINK_MS,
-    FARBE_HINWEIS: AMPEL_BLINK_SCHNELL_MS,
-}
-# Der ESP antwortet nicht - ihm fehlen die 5 V. Rot, allein, im Takt der
-# gelben. Nicht im schnellen Blinken, und ohne Hinweisleuchte.
-AMPEL_KEIN_ESP: dict[str, int] = {FARBE_ROT: AMPEL_BLINK_MS}
 AMPEL_BILD: dict[str, dict[str, int]] = {
-    AMPEL_STOPP: {FARBE_ROT: 0},
-    AMPEL_FREI: {FARBE_GRUEN: 0},
-    AMPEL_KEIN_STROM: AMPEL_STOERUNG,
-    AMPEL_AUS: {},
+    LAGE_BESETZT: {FARBE_ROT: 0},
+    LAGE_FREI: {FARBE_GRUEN: 0},
+    LAGE_KEIN_STROM: {
+        FARBE_ORANGE: AMPEL_BLINK_MS,
+        FARBE_HINWEIS: AMPEL_BLINK_SCHNELL_MS,
+    },
+    # Der ESP antwortet nicht - ihm fehlen die 5 V. Rot, allein, im Takt der
+    # gelben. Nicht im schnellen Blinken, und ohne Hinweisleuchte.
+    LAGE_KEIN_ESP: {FARBE_ROT: AMPEL_BLINK_MS},
+}
+LAGE_TEXT: dict[str, str] = {
+    LAGE_BESETZT: "Auto steht in der Garage",
+    LAGE_FREI: "Garage frei",
+    LAGE_KEIN_STROM: "kein Strom an der Lichtschranke",
+    LAGE_KEIN_ESP: "Garage nicht zu erreichen",
 }
 
 
@@ -108,11 +117,30 @@ class Ampelmodus:
 
     @property
     def ampel(self) -> str | None:
-        """Der Ampelwert, oder None wenn die Garage nichts sagt."""
+        """Der Ampelwert des ESP - nur zur Anzeige, nicht fuer das Bild."""
         g = self.garage()
         if g is None or not g.last_update_success or not g.data:
             return None
         return g.ampel
+
+    @property
+    def lage(self) -> str:
+        """Wie der Stellplatz steht - das, was die Saeule zeigen soll.
+
+        Aus `auto_drin` und `strom`, nicht aus der Ampel des ESP: die gehoert
+        zur Lampe in der Garage und geht aus, sobald niemand mehr einparkt.
+        Weiss der ESP nichts ueber den Platz, ist das eine Stoerung und keine
+        freie Garage - lieber gelb blinken als faelschlich gruen.
+        """
+        g = self.garage()
+        if g is None or not g.last_update_success or not g.data:
+            return LAGE_KEIN_ESP
+        if not g.ja("strom"):
+            return LAGE_KEIN_STROM
+        drin = g.ja("auto_drin")
+        if drin is None:
+            return LAGE_KEIN_STROM
+        return LAGE_BESETZT if drin else LAGE_FREI
 
     # --- Ein und aus --------------------------------------------------
 
@@ -167,18 +195,10 @@ class Ampelmodus:
 
     # --- Das Bild stellen ---------------------------------------------
 
-    def _bild_fuer(self, ampel: str | None) -> tuple[dict[int, int], str]:
-        """({Nummer: Blinkperiode in ms}; was das Bild bedeutet).
-
-        Antwortet die Garage nicht, fehlen dem ESP die 5 V - ein anderer
-        Fall als "kein Strom am Tor", und darum ein anderes Bild: rot blinkt
-        im Takt der gelben, ohne Hinweisleuchte.
-        """
-        if ampel is None:
-            farben, warum = AMPEL_KEIN_ESP, "Garage nicht zu erreichen"
-        else:
-            farben = AMPEL_BILD.get(ampel, {})
-            warum = f"Ampel {ampel}"
+    def _bild_fuer(self, lage: str) -> tuple[dict[int, int], str]:
+        """({Nummer: Blinkperiode in ms}; was das Bild bedeutet)."""
+        farben = AMPEL_BILD.get(lage, {})
+        warum = LAGE_TEXT.get(lage, lage)
         bild: dict[int, int] = {}
         for farbe, periode in farben.items():
             nr = self.saeule.nummer_farbe(farbe)
@@ -195,7 +215,7 @@ class Ampelmodus:
         if not self.aktiv or self.pausiert:
             return
         try:
-            an, warum = self._bild_fuer(self.ampel)
+            an, warum = self._bild_fuer(self.lage)
         except UpdateFailed as err:
             self.fehler = str(err)
             _LOGGER.warning("Betriebsart Ampel: %s", err)
@@ -266,7 +286,9 @@ class Ampelmodus:
 
     def attribute(self) -> dict[str, Any]:
         return {
-            "ampel": self.ampel,
+            "lage": self.lage,                 # was die Saeule zeigt
+            "lage_text": LAGE_TEXT.get(self.lage, self.lage),
+            "ampel": self.ampel,               # was der ESP seiner Lampe sagt
             "ampel_pausiert": self.pausiert,
             "ampel_fehler": self.fehler,
             "garage": "verbunden" if self.garage() else "nicht eingerichtet",

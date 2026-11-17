@@ -1398,7 +1398,7 @@ async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclie
 
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.state == "Ampel"
-    assert st.attributes["ampel"] == "stopp"
+    assert st.attributes["lage"] == "besetzt"
     assert st.attributes["geraet"] == "manuell"
     assert st.attributes["ampel_fehler"] is None
 
@@ -1417,7 +1417,7 @@ async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock) -> No
     neu = _postpfade(aioclient_mock)[vorher:]
     assert "/api/relais/1?an=1" in neu      # gruen
     assert "/api/relais/3?an=0" in neu      # rot aus
-    assert hass.states.get("select.signalsaeule_betriebsart").attributes["ampel"] == "frei"
+    assert hass.states.get("select.signalsaeule_betriebsart").attributes["lage"] == "frei"
 
     # Dasselbe noch einmal gemeldet schaltet nicht wieder - das Bild steht schon
     vorher = len(_postpfade(aioclient_mock))
@@ -1426,19 +1426,48 @@ async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock) -> No
     assert _postpfade(aioclient_mock)[vorher:] == []
 
 
-async def test_ampel_aus_laesst_nichts_leuchten(hass: HomeAssistant, aioclient_mock) -> None:
-    """Ampel aus heisst dunkel - kein Ersatzbild."""
-    await _setup_garage(hass, aioclient_mock, garage_state(ampel="aus", auto=False, lampe=False))
+async def test_ampel_folgt_dem_platz_nicht_der_lampe(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Die Lampe des ESP geht aus, wenn niemand einparkt - rot bleibt.
+
+    Genau das ging am 17.11. schief: das Auto stand in der Garage, die
+    Lichtschranke war durchtrennt, und der ESP meldete "ampel: aus" ("Tor zu
+    und kein Auto zu hoeren"). Die Statusanzeige im Zimmer muss trotzdem rot
+    zeigen - sie folgt dem Stellplatz, nicht der Lampe.
+    """
+    await _setup_garage(
+        hass, aioclient_mock,
+        garage_state(ampel="aus", auto_drin=True, strom=True, tor="zu",
+                     auto=False, lampe=False),
+    )
     await _setup_saeule(hass, aioclient_mock)
     _saeule_posts(aioclient_mock)
     await _betriebsart(hass, "Ampel")
 
     pfade = _postpfade(aioclient_mock)
-    assert pfade[0] == "/api/piep"                   # gehoert hat man es trotzdem
-    assert [p for p in pfade if p.startswith("/api/relais/")] == [
-        "/api/relais/1?an=0", "/api/relais/2?an=0",
-        "/api/relais/3?an=0", "/api/relais/4?an=0",
-    ]
+    assert pfade[0] == "/api/piep"
+    assert "/api/relais/3?an=1" in pfade             # rot, dauernd
+    assert "/api/relais/1?an=0" in pfade
+    assert "/api/relais/2?an=0" in pfade
+    assert "/api/relais/4?an=0" in pfade
+    st = hass.states.get("select.signalsaeule_betriebsart")
+    assert st.attributes["lage"] == "besetzt"
+    assert st.attributes["ampel"] == "aus"           # was der ESP seiner Lampe sagt
+
+
+async def test_ampel_ohne_urteil_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -> None:
+    """Weiss der ESP nichts ueber den Platz, ist das eine Stoerung."""
+    daten = garage_state(ampel="aus", strom=True)
+    daten["auto_drin"] = None
+    await _setup_garage(hass, aioclient_mock, daten)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    pfade = _postpfade(aioclient_mock)
+    assert "/api/relais/2?an=1&blinken=1000" in pfade    # lieber gelb blinken
+    assert "/api/relais/1?an=0" in pfade                 # als faelschlich gruen
 
 
 async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -> None:
@@ -1505,7 +1534,7 @@ async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock) ->
     assert "/api/relais/1?an=0" in neu                   # gruen aus
     # Kein schnelles Blinken irgendwo
     assert not [p for p in neu if "blinken=160" in p]
-    assert hass.states.get("select.signalsaeule_betriebsart").attributes["ampel"] is None
+    assert hass.states.get("select.signalsaeule_betriebsart").attributes["lage"] == "kein_esp"
 
 
 async def test_ampel_endet_bei_status_von_hand(hass: HomeAssistant, aioclient_mock) -> None:

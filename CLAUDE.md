@@ -174,8 +174,17 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 - **Die Ampel bleibt still.** Kein Ton und keine Warnleuchte im Bild, auch
   nicht bei der Stoerung (Max, 17.11.2026). Der Tongeber kommt genau einmal
   beim Umschalten auf die Betriebsart.
+- **Die Betriebsart „Ampel" folgt dem Stellplatz, nicht der Lampe des ESP.**
+  Das Feld `ampel` in dessen `/api/state` gehoert zur Lampe in der Garage und
+  geht auf `aus`, sobald das Tor zu ist und das Auto nicht mehr zu hoeren ist -
+  dann steht der 206 immer noch drin. Am 17.11. blieb die Saeule darum dunkel,
+  obwohl das Auto drinstand und die Lichtschranke durchtrennt war. Die
+  Betriebsart urteilt jetzt selbst, aus `auto_drin` und `strom`
+  (`Ampelmodus.lage`); `ampel` steht nur noch als Attribut daneben. Weiss der
+  ESP nichts ueber den Platz, blinkt es gelb - nie faelschlich gruen. Und es
+  gibt kein Bild fuer „nichts leuchtet": eine dunkle Statusanzeige sagt nichts.
 - **Die zwei Stoerungen der Ampel nicht zusammenwerfen.** `kein_strom` heisst:
-  der ESP lebt und sagt, dass der Lichtschranke die 24 V fehlen - gelb blinkt
+  der ESP lebt und `strom` ist falsch, der Lichtschranke fehlen die 24 V - gelb blinkt
   mit einem Hertz, Hinweisleuchte sehr schnell dazu. Antwortet er gar nicht,
   fehlen ihm selbst die 5 V, und dann steht nicht einmal fest, dass die Garage
   ueberwacht wird: rot blinkt, allein, im Takt der gelben und ohne
