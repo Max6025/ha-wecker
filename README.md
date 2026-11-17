@@ -1,6 +1,6 @@
 # HA Wecker
 
-Zwei Geraete fuer Home Assistant in einer Integration, kein MQTT:
+Drei Geraete fuer Home Assistant in einer Integration, kein MQTT:
 
 1. **Wecker** - eine eigene Android-Wecker-App (wie die Samsung-Uhr), die ihre
    **komplette Weckerliste** - auch die ausgeschalteten Wecker - per Webhook an
@@ -18,7 +18,15 @@ Zwei Geraete fuer Home Assistant in einer Integration, kein MQTT:
    ein **eigenes Web-Dashboard** mit (Live-Bild, Testmodus, Selbstdiagnose) und
    merkt sich ihren Status ueber einen Stromausfall hinweg.
 
-Bis November 2026 gab es eine dritte: die **Relaisbox** (ESP32-S3). Sie ist
+3. **Garage** - der Garagen-ESP des Peugeot 206 (ESP32 an der Lichtschranke,
+   Firmware `ls` im Repo `van206`). Er liest, ob das Auto weit genug drin steht,
+   schaltet die rote Lampe und hoert per Funk den ESP im Auto. In Home Assistant
+   stehen die **Ampel** (Stopp, Frei, kein Strom, aus - dieselbe wie im Tacho),
+   Tor, Auto in der Garage, **Auto-ESP verbunden**, verriegelt, Zuendung,
+   Rueckwaertsgang, Strom der Lichtschranke, Lampe. **Er meldet sich selbst
+   an** - in Home Assistant muss niemand etwas einrichten (Abschnitt 8).
+
+Bis November 2026 gab es daneben die **Relaisbox** (ESP32-S3). Sie ist
 draussen; die Signalsaeule hat ihre Aufgabe uebernommen, und der Weckablauf
 haengt nicht mehr an ihr, sondern am Wecker.
 
@@ -672,6 +680,50 @@ die Aufgabe sofort und laesst sie bis zum ersten echten Warten durchlaufen.
 Als `_schalten` am Ende noch neu plante, lief das synchron in die Planung
 zurueck - einmal im Kreis fuer jeden Schaltvorgang, bis der Stapel voll war.
 Deshalb plant jetzt nur der Timer-Rueckruf, nie das Schalten selbst.
+
+---
+
+## 8. Garage (ESP32 an der Lichtschranke des Peugeot 206)
+
+Der Garagen-ESP gehoert zum Projekt `van206` (Ordner `firmware/ls`, Firmware
+ab `ls-1.8`). Er hat nichts mit dem Wecker zu tun, aber dieselbe Integration
+und dieselbe Bauart wie die Signalsaeule: `GET /api/state` liefert alles als
+JSON, auf Port 8081 haelt `/api/events` einen Ereignisstrom offen, ueber den
+jede Aenderung sofort kommt (Server-Sent Events, Lebenszeichen alle 15 s).
+
+**Einrichten: nichts.** Der ESP kennt Adresse und Token von Home Assistant
+schon (er liest damit das Garagentor). Sobald er Home Assistant erreicht,
+startet er den Einrichtungsablauf dieser Integration ueber deren
+REST-Schnittstelle selbst - genau die drei Schritte, die man sonst in der
+Oberflaeche klickt: Integration HA Wecker, Garage, Adresse - und danach steht
+das Geraet „Garage" da. Das wiederholt er nach jedem Start, einmal am Tag und
+sobald sich seine IP aendert; ein zweiter Anlauf legt kein zweites Geraet an,
+sondern zieht nur die Adresse nach. Der Token braucht dafuer Verwalterrechte
+(der langlebige Token aus dem Profil hat sie). Steht die Integration noch
+nicht oder noch in einer Version vor 2.5, meldet der ESP das in seiner
+Konsole und versucht es stuendlich wieder; `a` in der Konsole versucht es
+sofort. Von Hand geht es natuerlich auch: HA Wecker -> Garage -> Adresse.
+
+**Entitaeten**
+
+| Entity | Inhalt |
+|---|---|
+| `sensor.garage_ampel` | **Stopp** (Lichtschranke durchtrennt, Auto steht weit genug drin), **Frei**, **Kein Strom** (24 V der Schranke fehlen, kein Urteil), **Aus** (Tor zu, kein Auto zu hoeren). Attribut `grund` sagt es in Worten |
+| `binary_sensor.garage_auto_in_der_garage` | Lichtschranke durchtrennt |
+| `binary_sensor.garage_auto_esp_verbunden` | der ESP im Auto ist per Funk zu hoeren (Attribute: zuletzt vor, Pakete, aufgesperrt, Funkkanal) |
+| `binary_sensor.garage_auto_verriegelt` | Verriegelung des Autos (nur solange das Auto zu hoeren ist) |
+| `binary_sensor.garage_zundung_des_autos`, `..._ruckwartsgang` | was der Auto-ESP funkt, ebenfalls nur in Reichweite |
+| `binary_sensor.garage_lichtschranke_strom` | 24 V der Lichtschranke liegen an |
+| `binary_sensor.garage_rote_lampe` | die rote Lampe (Attribute: blinkt, Nachlauf) |
+| `binary_sensor.garage_tor_laut_esp` | das Tor, wie der ESP es gelesen hat - danach richtet sich die Lampe (Diagnose) |
+| `sensor.garage_auto_zuletzt_gehort` | Zeitstempel |
+| `sensor.garage_pakete_vom_auto`, `_funkkanal`, `_wlan_signal`, `_laufzeit` | Diagnose |
+| `binary_sensor.garage_ereignisstrom` | steht die Dauerverbindung (Diagnose) |
+| `button.garage_lampe_testen` | rote Lampe zehn Sekunden an |
+| `button.garage_neustart` | ESP neu starten |
+
+Die alten, per REST gesetzten `binary_sensor.garage_*` der Firmware bis
+`ls-1.7` schickt der ESP nicht mehr, sobald er angemeldet ist.
 
 ---
 

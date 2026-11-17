@@ -6,6 +6,7 @@ DOMAIN = "ha_wecker"
 CONF_TYP = "typ"
 TYP_WECKER = "wecker"
 TYP_SAEULE = "saeule"
+TYP_GARAGE = "garage"      # Garagen-ESP "VAN206 LS" an der Lichtschranke, siehe garage.py
 
 # Signalsaeule (Arduino UNO R4 WiFi). Sie schiebt jede Aenderung ueber den
 # Ereignisstrom, die Abfrage ist nur die Rueckfallebene.
@@ -20,6 +21,9 @@ STATUS_STANDARD = "ruhe"
 ROLLE_STUFE = "stufe"
 ROLLE_WARN = "warn"
 ROLLE_TON = "ton"
+
+# Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
+GARAGE_ABFRAGE_S = 15
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 SIGNAL_WECKER_ALLE = DOMAIN + "_wecker_alle"     # irgendein Wecker hat sich gemeldet

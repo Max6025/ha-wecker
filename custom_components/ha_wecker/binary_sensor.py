@@ -23,7 +23,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import WeckerData
 from .const import DOMAIN, SIGNAL_UPDATE
-from .entity import SaeuleEntity, WeckerEntity
+from .entity import GarageEntity, SaeuleEntity, WeckerEntity
+from .garage import GarageCoordinator
 from .saeule import SaeuleCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,6 +49,21 @@ async def async_setup_entry(
     obj = hass.data[DOMAIN][entry.entry_id]
     if isinstance(obj, SaeuleCoordinator):
         async_add_entities([SaeuleWechselBinarySensor(obj), SaeuleDiagnoseOkBinarySensor(obj)])
+        return
+    if isinstance(obj, GarageCoordinator):
+        async_add_entities(
+            [
+                GarageJaNein(obj, "auto_drin", "Auto in der Garage", BinarySensorDeviceClass.OCCUPANCY, "mdi:garage-variant"),
+                GarageTor(obj),
+                GarageAutoVerbunden(obj),
+                GarageAutoWert(obj, "auto_verriegelt", "Auto verriegelt", BinarySensorDeviceClass.LOCK, "mdi:car-key", umkehren=True),
+                GarageAutoWert(obj, "auto_zuendung", "Zündung des Autos", BinarySensorDeviceClass.POWER, "mdi:key-variant"),
+                GarageAutoWert(obj, "auto_rueckwaerts", "Rückwärtsgang", None, "mdi:car-back"),
+                GarageJaNein(obj, "strom", "Lichtschranke Strom", BinarySensorDeviceClass.POWER, "mdi:flash"),
+                GarageLampe(obj),
+                GarageEreignisstrom(obj),
+            ]
+        )
         return
     data: WeckerData = obj
     async_add_entities([RingingBinarySensor(data), SleepBinarySensor(data)])
@@ -298,3 +314,137 @@ class SaeuleDiagnoseOkBinarySensor(SaeuleEntity, BinarySensorEntity):
     def is_on(self) -> bool:
         punkte = self.coordinator.diagnose.get("punkte") or []
         return any(isinstance(p, dict) and p.get("ok") == 0 for p in punkte)
+
+
+# ---------------------------------------------------------------------------
+# Garage (ESP32 an der Lichtschranke)
+# ---------------------------------------------------------------------------
+
+
+class GarageJaNein(GarageEntity, BinarySensorEntity):
+    """Ein dreiwertiger Wert des ESP: an, aus oder (noch) unbekannt."""
+
+    def __init__(self, coordinator: GarageCoordinator, key: str, name: str,
+                 klasse: BinarySensorDeviceClass | None, icon: str) -> None:
+        super().__init__(coordinator, key)
+        self._attr_name = name
+        self._attr_device_class = klasse
+        self._attr_icon = icon
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.ja(self._key) is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.ja(self._key)
+
+
+class GarageTor(GarageEntity, BinarySensorEntity):
+    """Das Garagentor, wie der ESP es von Home Assistant gelesen hat (an = offen).
+
+    Klingt doppelt - das Tor hat ja schon seine cover-Entitaet -, zeigt aber,
+    was der ESP glaubt: danach richtet sich die Lampe.
+    """
+
+    _attr_name = "Tor laut ESP"
+    _attr_device_class = BinarySensorDeviceClass.GARAGE_DOOR
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "tor")
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.daten.get("tor") in ("auf", "zu")
+
+    @property
+    def is_on(self) -> bool | None:
+        tor = self.daten.get("tor")
+        return None if tor not in ("auf", "zu") else tor == "auf"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"entitaet": self.daten.get("tor_entitaet"), "gelesen_vor_s": self.daten.get("tor_gelesen_s")}
+
+
+class GarageAutoVerbunden(GarageEntity, BinarySensorEntity):
+    """Der ESP im Auto ist per Funk zu hoeren - das Auto steht also wach vor oder in der Garage."""
+
+    _attr_name = "Auto-ESP verbunden"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_icon = "mdi:car-connected"
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "auto_zu_hoeren")
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.auto_zu_hoeren
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        d = self.daten
+        return {
+            "zuletzt_vor_s": d.get("auto_zuletzt_s"),
+            "pakete": d.get("auto_pakete"),
+            "aufgesperrt": d.get("auto_aufgesperrt"),
+            "funkkanal": d.get("funk_kanal"),
+        }
+
+
+class GarageAutoWert(GarageEntity, BinarySensorEntity):
+    """Ein Wert, den der Auto-ESP funkt - nur solange er zu hoeren ist."""
+
+    def __init__(self, coordinator: GarageCoordinator, key: str, name: str,
+                 klasse: BinarySensorDeviceClass | None, icon: str, umkehren: bool = False) -> None:
+        super().__init__(coordinator, key)
+        self._attr_name = name
+        self._attr_device_class = klasse
+        self._attr_icon = icon
+        self._umkehren = umkehren   # device_class lock: an heisst "entriegelt"
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.coordinator.auto_zu_hoeren and self.coordinator.ja(self._key) is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        w = self.coordinator.ja(self._key)
+        if w is None:
+            return None
+        return (not w) if self._umkehren else w
+
+
+class GarageLampe(GarageEntity, BinarySensorEntity):
+    """Die rote Lampe (logisch an, auch wenn sie am Ende des Nachlaufs blinkt)."""
+
+    _attr_name = "Rote Lampe"
+    _attr_device_class = BinarySensorDeviceClass.LIGHT
+    _attr_icon = "mdi:alarm-light"
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "lampe")
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self.daten.get("lampe"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"blinkt": bool(self.daten.get("lampe_blinkt")), "nachlauf_rest_s": self.daten.get("lampe_rest_s")}
+
+
+class GarageEreignisstrom(GarageEntity, BinarySensorEntity):
+    """Steht die Dauerverbindung, ueber die der ESP jede Aenderung sofort schickt?"""
+
+    _attr_name = "Ereignisstrom"
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "ereignisstrom")
+
+    @property
+    def is_on(self) -> bool:
+        return self.coordinator.events_verbunden

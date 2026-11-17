@@ -1,7 +1,7 @@
 """Sensoren der HA-Wecker-Integration."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -19,7 +19,8 @@ from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 
 from . import WeckerData
 from .const import DOMAIN
-from .entity import SaeuleEntity, WeckerEntity
+from .entity import GarageEntity, SaeuleEntity, WeckerEntity
+from .garage import AMPEL_ALLE, GarageCoordinator
 from .saeule import SaeuleCoordinator
 
 
@@ -34,6 +35,18 @@ async def async_setup_entry(
                 SaeuleDiagnoseSensor(obj),
                 RssiSensor(obj),
                 UptimeSensor(obj),
+            ]
+        )
+        return
+    if isinstance(obj, GarageCoordinator):
+        async_add_entities(
+            [
+                GarageAmpelSensor(obj),
+                GarageAutoZuletztSensor(obj),
+                GaragePaketeSensor(obj),
+                GarageZahl(obj, "funk_kanal", "Funkkanal", "mdi:radio-tower", None, None),
+                GarageZahl(obj, "wlan_rssi", "WLAN-Signal", None, SensorDeviceClass.SIGNAL_STRENGTH, SIGNAL_STRENGTH_DECIBELS_MILLIWATT),
+                GarageZahl(obj, "laufzeit_s", "Laufzeit", None, SensorDeviceClass.DURATION, "s"),
             ]
         )
         return
@@ -284,3 +297,97 @@ class SaeuleDiagnoseSensor(SaeuleEntity, SensorEntity):
                 if isinstance(p, dict)
             ],
         }
+
+
+# ---------------------------------------------------------------------------
+# Garage (ESP32 an der Lichtschranke)
+# ---------------------------------------------------------------------------
+
+
+class GarageAmpelSensor(GarageEntity, SensorEntity):
+    """Die Ampel, wie sie der Tacho im Auto zeichnet: Stopp, Frei, kein Strom oder aus.
+
+    Stopp = Lichtschranke durchtrennt, das Auto steht weit genug drin. Frei =
+    Schranke frei. Kein Strom = die 24 V der Schranke fehlen, kein Urteil. Aus =
+    Tor zu und kein Auto zu hoeren, die Schranke interessiert gerade niemanden.
+    """
+
+    _attr_name = "Ampel"
+    _attr_icon = "mdi:traffic-light"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = AMPEL_ALLE
+    _attr_translation_key = "ampel"
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "ampel")
+
+    @property
+    def native_value(self) -> str:
+        return self.coordinator.ampel
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        d = self.daten
+        return {
+            "grund": d.get("ampel_grund"),
+            "auto_drin": d.get("auto_drin"),
+            "tor": d.get("tor"),
+            "auto_zu_hoeren": d.get("auto_zu_hoeren"),
+            "strom": d.get("strom"),
+        }
+
+
+class GarageAutoZuletztSensor(GarageEntity, SensorEntity):
+    """Wann der Auto-ESP zuletzt zu hoeren war."""
+
+    _attr_name = "Auto zuletzt gehört"
+    _attr_icon = "mdi:car-clock"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "auto_zuletzt")
+
+    @property
+    def native_value(self) -> datetime | None:
+        vor = self.daten.get("auto_zuletzt_s")
+        if vor is None or isinstance(vor, bool) or not isinstance(vor, (int, float)):
+            return None
+        return dt_util.utcnow() - timedelta(seconds=float(vor))
+
+
+class GaragePaketeSensor(GarageEntity, SensorEntity):
+    """Funkpakete vom Auto seit dem Start des ESP."""
+
+    _attr_name = "Pakete vom Auto"
+    _attr_icon = "mdi:package-variant"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "auto_pakete")
+
+    @property
+    def native_value(self) -> int | None:
+        w = self.daten.get("auto_pakete")
+        return int(w) if isinstance(w, (int, float)) and not isinstance(w, bool) else None
+
+
+class GarageZahl(GarageEntity, SensorEntity):
+    """Eine Zahl aus /api/state, nur zur Diagnose."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: GarageCoordinator, key: str, name: str, icon: str | None,
+                 klasse: SensorDeviceClass | None, einheit: str | None) -> None:
+        super().__init__(coordinator, key)
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_device_class = klasse
+        self._attr_native_unit_of_measurement = einheit
+        if klasse == SensorDeviceClass.DURATION:
+            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    @property
+    def native_value(self) -> int | float | None:
+        w = self.daten.get(self._key)
+        return w if isinstance(w, (int, float)) and not isinstance(w, bool) else None

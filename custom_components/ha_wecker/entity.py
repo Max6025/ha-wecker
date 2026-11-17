@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import WeckerData
 from .const import DOMAIN, SIGNAL_UPDATE
+from .garage import GarageCoordinator
 from .saeule import SaeuleCoordinator
 
 
@@ -64,6 +65,30 @@ class SaeuleEntity(CoordinatorEntity[SaeuleCoordinator]):
             name=coordinator.entry.title or "Signalsäule",
             manufacturer="Maximilian Starnberg",
             model="Signalsäule (Arduino UNO R4 WiFi)",
+            sw_version=str(daten.get("version", "")),
+            configuration_url=coordinator.url or None,
+        )
+
+    @property
+    def daten(self) -> dict[str, Any]:
+        return self.coordinator.data or {}
+
+
+class GarageEntity(CoordinatorEntity[GarageCoordinator]):
+    """Entitaet des Geraets "Garage" (ESP32 an der Lichtschranke, VAN206 LS)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: GarageCoordinator, key: str) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_unique_id = f"{coordinator.mac}_{key}"
+        daten = coordinator.data or {}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.mac)},
+            name=coordinator.entry.title or "Garage",
+            manufacturer="Maximilian Starnberg",
+            model="Garagen-ESP an der Lichtschranke (ESP32)",
             sw_version=str(daten.get("version", "")),
             configuration_url=coordinator.url or None,
         )

@@ -1,11 +1,14 @@
 """HA Wecker - Weckerliste der Android-App und Signalsaeule in Home Assistant.
 
-Zwei Geraetetypen in einer Integration:
+Drei Geraetetypen in einer Integration:
 - Wecker: die App meldet ihren Stand per Webhook (kein Dienst im Hintergrund,
           kein lokaler Server, nichts zum Abfragen). An ihm haengt der
           Weckablauf, der Hauptlicht und Saeule steuert - siehe ablauf.py.
 - Saeule: Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell,
           Status mit Ansage, einzelne Leuchten, Selbstdiagnose.
+- Garage: der Garagen-ESP des Peugeot 206 (Lichtschranke, rote Lampe, Funk zum
+          Auto-ESP) - Ampel, Tor, Auto zu hoeren, verriegelt, Zuendung. Er
+          meldet sich selbst an, siehe garage.py.
 
 Bis November 2026 gab es eine dritte: die Relaisbox (ESP32). Sie ist draussen,
 die Saeule hat ihre Aufgabe uebernommen.
@@ -33,10 +36,12 @@ from .const import (
     SIGNAL_UPDATE,
     SIGNAL_WECKER_ALLE,
     STORAGE_VERSION,
+    TYP_GARAGE,
     TYP_SAEULE,
     TYP_WECKER,
 )
 from .ablauf import Weckablauf
+from .garage import GarageCoordinator
 from .saeule import SaeuleCoordinator
 from .strom import Stromplan
 
@@ -55,6 +60,11 @@ PLATFORMS_SAEULE: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
 ]
+PLATFORMS_GARAGE: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+]
 
 
 def entry_typ(entry: ConfigEntry) -> str:
@@ -66,6 +76,8 @@ def platforms_fuer(entry: ConfigEntry) -> list[Platform]:
     typ = entry_typ(entry)
     if typ == TYP_SAEULE:
         return PLATFORMS_SAEULE
+    if typ == TYP_GARAGE:
+        return PLATFORMS_GARAGE
     return PLATFORMS_WECKER
 
 
@@ -177,12 +189,22 @@ async def _setup_saeule(hass: HomeAssistant, entry: ConfigEntry) -> None:
     coordinator.async_start_events()
 
 
+async def _setup_garage(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    coordinator = GarageCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_GARAGE)
+    coordinator.async_start_events()
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Eintrag einrichten."""
     hass.data.setdefault(DOMAIN, {})
     typ = entry_typ(entry)
     if typ == TYP_SAEULE:
         await _setup_saeule(hass, entry)
+    elif typ == TYP_GARAGE:
+        await _setup_garage(hass, entry)
     else:
         await _setup_wecker(hass, entry)
 
@@ -197,7 +219,7 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Eintrag wieder abbauen."""
     obj = hass.data.get(DOMAIN, {}).get(entry.entry_id)
-    if isinstance(obj, SaeuleCoordinator):
+    if isinstance(obj, (SaeuleCoordinator, GarageCoordinator)):
         await obj.async_stop_events()
     if isinstance(obj, WeckerData):
         webhook.async_unregister(hass, obj.webhook_id)

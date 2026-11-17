@@ -3,12 +3,14 @@ from __future__ import annotations
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, PROBELAUF_VORLAUF_S, SIGNAL_ABLAUF
-from .entity import SaeuleEntity, WeckerEntity
+from .entity import GarageEntity, SaeuleEntity, WeckerEntity
+from .garage import GarageCoordinator
 from .saeule import SaeuleCoordinator
 
 
@@ -21,6 +23,9 @@ async def async_setup_entry(
         return
     if isinstance(obj, SaeuleCoordinator):
         async_add_entities([DiagnoseButton(obj), AllesAusButton(obj)])
+        return
+    if isinstance(obj, GarageCoordinator):
+        async_add_entities([GarageLampeTestButton(obj), GarageNeustartButton(obj)])
         return
     # Mehr hat der Wecker nicht: die App laeuft nicht im Hintergrund und
     # bietet nichts zum Abfragen.
@@ -96,3 +101,36 @@ class AbbrechenButton(WeckerEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self._data.ablauf.async_abbrechen()
+
+
+class GarageLampeTestButton(GarageEntity, ButtonEntity):
+    """Rote Lampe in der Garage zehn Sekunden an - zum Nachsehen, ob Relais und Leuchte leben."""
+
+    _attr_name = "Lampe testen"
+    _attr_icon = "mdi:alarm-light-outline"
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "lampe_test")
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_lampe_testen()
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err
+
+
+class GarageNeustartButton(GarageEntity, ButtonEntity):
+    """Den Garagen-ESP neu starten."""
+
+    _attr_name = "Neustart"
+    _attr_icon = "mdi:restart"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: GarageCoordinator) -> None:
+        super().__init__(coordinator, "neustart")
+
+    async def async_press(self) -> None:
+        try:
+            await self.coordinator.async_neustart()
+        except Exception as err:  # noqa: BLE001
+            raise HomeAssistantError(str(err)) from err

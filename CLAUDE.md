@@ -3,7 +3,10 @@
 Drei Teile, eine Integration: `custom_components/ha_wecker` (Home Assistant),
 `app/` (Android-Wecker-App), `firmware/signalsaeule/` (Arduino UNO R4 WiFi an
 einer Rittal-Signalsaeule). Die Relaisbox (ESP32-S3) ist am 14.11.2026 ganz
-entfernt worden - Integration, Firmware, Blueprint und Tests.
+entfernt worden - Integration, Firmware, Blueprint und Tests. Seit 2.5.0
+(17.11.2026) haengt als drittes Geraet die **Garage** dran: der Garagen-ESP des
+Peugeot 206 (`garage.py`); seine Firmware liegt nicht hier, sondern im Repo
+`van206` unter `firmware/ls` (Max6025/van206).
 Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 
 ## Regeln
@@ -209,6 +212,18 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   (Vordergrunddienst specialUse, nur in den Minuten vor dem Weckruf, Takt 20 s)
   mit `NotificationCompat.ProgressStyle` wie in der Kalender-App - braucht
   compileSdk 36, androidx.core 1.17 und AGP >= 8.9.1 (siehe Verlauf.kt).
+- **Garage: der Schritt `garage` im Config-Flow ist eine Schnittstelle, kein
+  Formular.** Der Garagen-ESP ruft ihn selbst ueber REST auf (`POST
+  /api/config/config_entries/flow` mit `handler: ha_wecker`, dann
+  `next_step_id: garage`, dann `name` und `host`). Feldnamen, Schrittname und
+  das `updates={CONF_HOST: host}` beim Abbruch `already_configured` (so zieht
+  eine neue IP nach) duerfen sich nicht aendern, ohne die Firmware
+  mitzuziehen. Der Test `test_garage_config_flow_wie_der_esp` geht genau
+  diesen Weg.
+- **Garage: Werte vom Auto sind dreiwertig.** `auto_verriegelt`, `auto_zuendung`,
+  `auto_rueckwaerts` sind `null`, solange der Auto-ESP nicht zu hoeren ist, und
+  die Entitaeten dann `unavailable` - nicht "aus". Ein verriegeltes Auto, das
+  gerade ausser Reichweite ist, wuerde sonst als entriegelt angezeigt.
 
 ## Pruefen
 

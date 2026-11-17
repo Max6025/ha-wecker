@@ -5,7 +5,8 @@
         "title": "HA Wecker – was soll hinzugefügt werden?",
         "menu_options": {
           "wecker": "Wecker (Android-App)",
-          "saeule": "Signalsäule (Arduino UNO R4 WiFi)"
+          "saeule": "Signalsäule (Arduino UNO R4 WiFi)",
+          "garage": "Garage (ESP32 an der Lichtschranke)"
         }
       },
       "wecker": {
@@ -22,17 +23,27 @@
           "name": "Name",
           "host": "Adresse"
         }
+      },
+      "garage": {
+        "title": "Garage einrichten",
+        "description": "Adresse des Garagen-ESP im Netz, z. B. van206-ls.local oder 192.168.1.110. Normalerweise ist dieser Schritt nicht nötig: der ESP meldet sich selbst an, sobald er Home Assistant erreicht, und hält seine Adresse auch selbst aktuell.",
+        "data": {
+          "name": "Name",
+          "host": "Adresse"
+        }
       }
     },
     "error": {
       "host_fehlt": "Bitte eine Adresse eingeben.",
       "nicht_erreichbar": "Unter dieser Adresse antwortet keine Signalsäule.",
-      "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule."
+      "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule.",
+      "keine_garage": "Unter dieser Adresse antwortet kein Garagen-ESP."
     },
     "abort": {
       "already_configured": "Dieses Gerät ist bereits eingerichtet.",
       "nicht_erreichbar": "Die gefundene Signalsäule antwortet nicht.",
-      "keine_saeule": "Die gefundene Signalsäule antwortet nicht."
+      "keine_saeule": "Die gefundene Signalsäule antwortet nicht.",
+      "keine_garage": "Unter dieser Adresse antwortet kein Garagen-ESP."
     },
     "flow_title": "{name}"
   },
@@ -54,6 +65,13 @@
         "data": {
           "host": "Adresse der Signalsäule"
         }
+      },
+      "garage": {
+        "title": "Garage",
+        "description": "Derzeit: {url}\n\nDer Garagen-ESP liest die Lichtschranke (steht der 206 weit genug drin?), schaltet die rote Lampe und hört per Funk den ESP im Auto. Die Ampel ist das, was der Tacho im Auto zeigt: Stopp (Schranke durchtrennt), Frei, kein Strom (24 V der Schranke fehlen) oder aus (Tor zu und kein Auto zu hören). Die Adresse zieht der ESP bei einem Wechsel selbst nach.",
+        "data": {
+          "host": "Adresse"
+        }
       }
     },
     "error": {
@@ -61,13 +79,23 @@
       "nicht_erreichbar": "Unter dieser Adresse antwortet keine Signalsäule.",
       "keine_saeule": "Unter dieser Adresse antwortet keine Signalsäule.",
       "ablauf_fehler": "Die Ablaufdatei ist nicht in Ordnung – siehe Beschreibung oben.",
-      "stromplan_fehler": "Der Stromplan ist nicht in Ordnung – siehe Beschreibung oben."
+      "stromplan_fehler": "Der Stromplan ist nicht in Ordnung – siehe Beschreibung oben.",
+      "keine_garage": "Unter dieser Adresse antwortet kein Garagen-ESP."
     }
   },
   "entity": {
     "sensor": {
       "next_alarm": {
         "name": "Nächster Wecker"
+      },
+      "ampel": {
+        "name": "Ampel",
+        "state": {
+          "stopp": "Stopp",
+          "frei": "Frei",
+          "kein_strom": "Kein Strom",
+          "aus": "Aus"
+        }
       }
     }
   },

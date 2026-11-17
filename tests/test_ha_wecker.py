@@ -65,7 +65,8 @@ def kein_ereignisstrom():
     """Der Ereignisstrom haelt eine Verbindung offen - im Test abschalten."""
     from unittest.mock import patch
 
-    with patch("custom_components.ha_wecker.saeule.SaeuleCoordinator.async_start_events"):
+    with patch("custom_components.ha_wecker.saeule.SaeuleCoordinator.async_start_events"), \
+         patch("custom_components.ha_wecker.garage.GarageCoordinator.async_start_events"):
         yield
 
 
@@ -1215,3 +1216,104 @@ async def test_vorlauf_bleibt_waehrend_des_nachlaufs_stehen(
     zustand = hass.states.get("switch.ha_wecker_weckablauf").attributes
     assert zustand["beendet_um"] == beendet
     assert len([e for e in zustand["protokoll"] if "ab dem Beenden" in e["text"]]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Garage (ESP32 an der Lichtschranke)
+# ---------------------------------------------------------------------------
+
+GARAGE_URL = "http://192.168.1.110"
+
+
+def garage_state(ampel="stopp", auto_drin=True, strom=True, tor="auf", auto=True,
+                 verriegelt=False, zuendung=True, rueckwaerts=False, lampe=True):
+    return {
+        "typ": "garage", "name": "Garage", "version": "ls-1.8", "mac": "24:6f:28:aa:bb:cc",
+        "ip": "192.168.1.110", "events_port": 8081,
+        "ampel": ampel, "ampel_grund": "Lichtschranke durchtrennt, Tor auf",
+        "auto_drin": auto_drin, "strom": strom, "lampe": lampe, "lampe_blinkt": False, "lampe_rest_s": 10,
+        "tor": tor, "tor_entitaet": "cover.garagentor", "tor_gelesen_s": 2,
+        "auto_zu_hoeren": auto, "auto_zuletzt_s": 1 if auto else None, "auto_pakete": 1234,
+        "auto_verriegelt": verriegelt if auto else None, "auto_zuendung": zuendung if auto else None,
+        "auto_rueckwaerts": rueckwaerts if auto else None, "auto_aufgesperrt": auto and not verriegelt,
+        "funk_kanal": 1, "wlan_rssi": -61, "laufzeit_s": 4200, "ha_ok": True, "ha_angemeldet": True,
+    }
+
+
+async def _setup_garage(hass: HomeAssistant, aioclient_mock, state=None) -> MockConfigEntry:
+    aioclient_mock.get(f"{GARAGE_URL}/api/state", json=state or garage_state())
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Garage", unique_id="24:6f:28:aa:bb:cc",
+        data={"typ": "garage", "name": "Garage", "host": "192.168.1.110"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_garage_entities(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup_garage(hass, aioclient_mock)
+
+    ampel = hass.states.get("sensor.garage_ampel")
+    assert ampel.state == "stopp"
+    assert ampel.attributes["tor"] == "auf"
+    assert hass.states.get("binary_sensor.garage_auto_in_der_garage").state == "on"
+    assert hass.states.get("binary_sensor.garage_auto_esp_verbunden").state == "on"
+    assert hass.states.get("binary_sensor.garage_auto_esp_verbunden").attributes["pakete"] == 1234
+    # device_class lock: "on" heisst entriegelt - das Auto ist nicht verriegelt
+    assert hass.states.get("binary_sensor.garage_auto_verriegelt").state == "on"
+    assert hass.states.get("binary_sensor.garage_zundung_des_autos").state == "on"
+    assert hass.states.get("binary_sensor.garage_ruckwartsgang").state == "off"
+    assert hass.states.get("binary_sensor.garage_lichtschranke_strom").state == "on"
+    assert hass.states.get("binary_sensor.garage_rote_lampe").state == "on"
+    assert hass.states.get("binary_sensor.garage_tor_laut_esp").state == "on"
+    assert hass.states.get("sensor.garage_pakete_vom_auto").state == "1234"
+    assert hass.states.get("sensor.garage_auto_zuletzt_gehort").state != "unknown"
+    assert hass.states.get("button.garage_lampe_testen") is not None
+    assert hass.states.get("button.garage_neustart") is not None
+    # Nichts von der Saeule oder vom Wecker haengt am Garagen-Geraet
+    assert hass.states.get("switch.garage_weckerlampe") is None
+    assert hass.states.get("select.garage_status") is None
+
+
+async def test_garage_ohne_auto(hass: HomeAssistant, aioclient_mock) -> None:
+    """Ohne Auto in Funkreichweite sind dessen Werte nicht verfuegbar, nicht etwa 'aus'."""
+    await _setup_garage(hass, aioclient_mock, garage_state(ampel="aus", auto=False, tor="zu", lampe=False, auto_drin=False))
+    assert hass.states.get("sensor.garage_ampel").state == "aus"
+    assert hass.states.get("binary_sensor.garage_auto_esp_verbunden").state == "off"
+    assert hass.states.get("binary_sensor.garage_auto_verriegelt").state == "unavailable"
+    assert hass.states.get("binary_sensor.garage_zundung_des_autos").state == "unavailable"
+    assert hass.states.get("sensor.garage_auto_zuletzt_gehort").state == "unknown"
+    assert hass.states.get("binary_sensor.garage_tor_laut_esp").state == "off"
+
+
+async def test_garage_lampe_testen(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup_garage(hass, aioclient_mock)
+    aioclient_mock.post(f"{GARAGE_URL}/api/lampe", json=garage_state(lampe=True))
+    await hass.services.async_call("button", "press", {"entity_id": "button.garage_lampe_testen"}, blocking=True)
+    await hass.async_block_till_done()
+    url = _letzter_aufruf(aioclient_mock)
+    assert url.path == "/api/lampe" and url.query["an"] == "1"
+
+
+async def test_garage_config_flow_wie_der_esp(hass: HomeAssistant, aioclient_mock) -> None:
+    """Genau die drei Schritte, die der ESP ueber die REST-Schnittstelle geht."""
+    aioclient_mock.get(f"{GARAGE_URL}/api/state", json=garage_state())
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    assert result["type"] == "menu"
+    assert "garage" in result["menu_options"]
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "garage"})
+    assert result["type"] == "form" and result["step_id"] == "garage"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Garage", "host": "192.168.1.110"})
+    assert result["type"] == "create_entry"
+    assert result["data"] == {"typ": "garage", "name": "Garage", "host": "192.168.1.110"}
+    await hass.async_block_till_done()
+    # Zweiter Anlauf mit neuer IP: kein zweites Geraet, nur die Adresse wird nachgezogen
+    aioclient_mock.get("http://192.168.1.111/api/state", json=garage_state())
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "garage"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"name": "Garage", "host": "192.168.1.111"})
+    assert result["type"] == "abort" and result["reason"] == "already_configured"
+    eintraege = [e for e in hass.config_entries.async_entries(DOMAIN) if e.data.get("typ") == "garage"]
+    assert len(eintraege) == 1 and eintraege[0].data["host"] == "192.168.1.111"

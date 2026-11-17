@@ -5,7 +5,8 @@
         "title": "HA Wecker – what do you want to add?",
         "menu_options": {
           "wecker": "Alarm clock (Android app)",
-          "saeule": "Signal tower (Arduino UNO R4 WiFi)"
+          "saeule": "Signal tower (Arduino UNO R4 WiFi)",
+          "garage": "Garage (ESP32 at the light barrier)"
         }
       },
       "wecker": {
@@ -22,17 +23,27 @@
           "name": "Name",
           "host": "Address"
         }
+      },
+      "garage": {
+        "title": "Set up garage",
+        "description": "Address of the garage ESP on the network, e.g. van206-ls.local or 192.168.1.110. Usually not needed: the ESP registers itself as soon as it reaches Home Assistant and keeps its address up to date.",
+        "data": {
+          "name": "Name",
+          "host": "Address"
+        }
       }
     },
     "error": {
       "host_fehlt": "Please enter an address.",
       "nicht_erreichbar": "No relay box answers at this address.",
-      "keine_saeule": "No signal tower answers at this address."
+      "keine_saeule": "No signal tower answers at this address.",
+      "keine_garage": "No garage ESP answers at this address."
     },
     "abort": {
       "already_configured": "This device is already configured.",
       "nicht_erreichbar": "The discovered relay box does not answer.",
-      "keine_saeule": "The signal tower found does not answer."
+      "keine_saeule": "The signal tower found does not answer.",
+      "keine_garage": "No garage ESP answers at this address."
     },
     "flow_title": "{name}"
   },
@@ -54,6 +65,13 @@
         "data": {
           "host": "Address of the signal tower"
         }
+      },
+      "garage": {
+        "title": "Garage",
+        "description": "Currently: {url}\n\nThe garage ESP reads the light barrier (is the 206 far enough in?), switches the red lamp and listens to the ESP in the car. The traffic light is what the dashboard in the car shows: stop (barrier interrupted), clear, no power (the barrier's 24 V are missing) or off (door closed and no car in range). The ESP updates its address itself.",
+        "data": {
+          "host": "Address"
+        }
       }
     },
     "error": {
@@ -61,13 +79,23 @@
       "nicht_erreichbar": "No relay box answers at this address.",
       "keine_saeule": "No signal tower answers at this address.",
       "ablauf_fehler": "The sequence file is invalid.",
-      "stromplan_fehler": "Der Stromplan ist nicht in Ordnung – siehe Beschreibung oben."
+      "stromplan_fehler": "Der Stromplan ist nicht in Ordnung – siehe Beschreibung oben.",
+      "keine_garage": "No garage ESP answers at this address."
     }
   },
   "entity": {
     "sensor": {
       "next_alarm": {
         "name": "Next alarm"
+      },
+      "ampel": {
+        "name": "Traffic light",
+        "state": {
+          "stopp": "Stop",
+          "frei": "Clear",
+          "kein_strom": "No power",
+          "aus": "Off"
+        }
       }
     }
   },
