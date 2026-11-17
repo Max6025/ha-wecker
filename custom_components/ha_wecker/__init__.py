@@ -202,6 +202,13 @@ async def _setup_garage(hass: HomeAssistant, entry: ConfigEntry) -> None:
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_GARAGE)
     coordinator.async_start_events()
+    # Eine Saeule in der Betriebsart "Ampel" haengt an diesem Coordinator. Wird
+    # der Garagen-Eintrag neu geladen, ist er ein neues Objekt - ohne diesen
+    # Anruf horchte die Saeule ins Leere und bliebe auf dem letzten Bild
+    # stehen (siehe ampel.py).
+    for obj in hass.data[DOMAIN].values():
+        if isinstance(obj, SaeuleCoordinator) and obj.ampel is not None:
+            obj.ampel.async_garage_neu()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

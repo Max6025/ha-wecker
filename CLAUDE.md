@@ -184,6 +184,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
 - **Blinken und Ampelbilder gelten nur im Ampelmodus.** Ausserhalb bleibt die
   Saeule, wie sie war: `LeuchteSwitch` gibt kein `blinken` mit, und in „auto"
   wirkt es ohnehin nicht.
+- **Nach einem Reload der Garage muss der Listener nachgezogen werden.** Der
+  Ampelmodus haengt mit `async_add_listener` am Garagen-Coordinator; wird der
+  Eintrag neu geladen, ist der ein neues Objekt, und die Saeule bliebe auf dem
+  letzten Bild stehen. Darum ruft `_setup_garage` am Ende
+  `ampel.async_garage_neu()` bei jeder Saeule. Am 17.11. beim Pruefen am Geraet
+  aufgefallen.
 - **Der Ampelmodus schreibt nur bei Aenderung.** `_bild` haelt, was zuletzt
   gestellt wurde; meldet die Garage denselben Wert noch einmal (sie schiebt
   jede Kleinigkeit ueber den Ereignisstrom), geht kein Befehl ans Geraet.

@@ -93,6 +93,7 @@ class Ampelmodus:
         self.fehler: str | None = None
         self._bild: dict[int, int] | None = None   # was zuletzt gestellt wurde
         self._ab_garage: Any = None           # Abmelder des Garagen-Listeners
+        self._gehoert: Any = None             # an welchem Coordinator er haengt
 
     # --- Die Garage ---------------------------------------------------
 
@@ -224,11 +225,31 @@ class Ampelmodus:
         g = self.garage()
         if g is None:
             return
+        self._gehoert = g
         self._ab_garage = g.async_add_listener(self._garage_gemeldet)
+
+    @callback
+    def async_garage_neu(self) -> None:
+        """Die Garage wurde (neu) eingerichtet - den Listener nachziehen.
+
+        Wird der Garagen-Eintrag neu geladen, ist sein Coordinator ein neues
+        Objekt: der alte Listener haengt an einem, das niemand mehr fragt, und
+        die Saeule bliebe auf dem letzten Bild stehen. Darum ruft das
+        Garagen-Setup diese Stelle (siehe __init__.py).
+        """
+        if not self.aktiv:
+            return
+        if self.garage() is self._gehoert and self._ab_garage is not None:
+            return
+        self._nicht_mehr_horchen()
+        self._horchen()
+        self._bild = None           # was dort steht, wissen wir nicht mehr
+        self.hass.async_create_task(self.async_nachziehen())
 
     @callback
     def _nicht_mehr_horchen(self) -> None:
         ab, self._ab_garage = self._ab_garage, None
+        self._gehoert = None
         if ab is not None:
             ab()
 

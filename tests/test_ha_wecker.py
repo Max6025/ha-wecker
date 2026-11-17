@@ -1460,6 +1460,30 @@ async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -
     assert len([p for p in pfade if p.startswith("/api/piep")]) == 1
 
 
+async def test_ampel_ueberlebt_ein_neuladen_der_garage(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Nach einem Reload der Garage haengt der Listener am neuen Coordinator."""
+    garage = await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    alt = hass.data[DOMAIN][garage.entry_id]
+    await hass.config_entries.async_reload(garage.entry_id)
+    await hass.async_block_till_done()
+    neu_coordinator = hass.data[DOMAIN][garage.entry_id]
+    assert neu_coordinator is not alt          # wirklich ein neues Objekt
+
+    # Und die Saeule folgt dem neuen: ein Wort aus der Garage wirkt wieder
+    vorher = len(_postpfade(aioclient_mock))
+    _garage_melden(hass, garage, ampel="frei", auto_drin=False)
+    await hass.async_block_till_done()
+    neu = _postpfade(aioclient_mock)[vorher:]
+    assert "/api/relais/1?an=1" in neu
+    assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
+
+
 async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock) -> None:
     """Antwortet der ESP nicht, fehlen ihm die 5 V: rot im Takt der gelben."""
     garage = await _setup_garage(hass, aioclient_mock)
