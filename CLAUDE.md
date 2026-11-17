@@ -163,6 +163,19 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   zieht sie ihr Bild nach (`_bild = None`, weil der Ablauf die Saeule
   umgestellt hat). Nicht an `laeuft` haengen: das ist auch wahr, waehrend nur
   der Vorlauf steht, und dann waere die Ampel den ganzen Tag stumm.
+- **Das Blinken macht die Saeule, nicht Home Assistant.** Seit 1.6.0 nimmt
+  `POST /api/relais/<nr>?an=1&blinken=1000` eine Periode in ms (halb an, halb
+  aus) - nur fuer die Stufen und nur in „manuell", denn „auto" hat seine
+  eigenen Bilder. Gebraucht wird es fuer die gestoerte Garagenampel: gelb
+  blinkt mit einem Hertz wie an einer Kreuzung, die Hinweisleuchte sehr
+  schnell dazu. Ueber HTTP im Sekundentakt zu schalten waere ein Zufallstakt.
+  `blinkenLoeschen()` raeumt es beim Wechsel auf Auto, bei einem Status, bei
+  „Alles aus" und beim stillen Start ab.
+- **Die Ampel bleibt still.** Kein Ton und keine Warnleuchte im Bild, auch
+  nicht bei der Stoerung (Max, 17.11.2026). Der Tongeber kommt genau einmal
+  beim Umschalten auf die Betriebsart. Eine nicht erreichbare Garage bekommt
+  dasselbe Stoerungsbild wie fehlender Strom am Tor: beide heissen „kein
+  Urteil".
 - **Der Ampelmodus schreibt nur bei Aenderung.** `_bild` haelt, was zuletzt
   gestellt wurde; meldet die Garage denselben Wert noch einmal (sie schiebt
   jede Kleinigkeit ueber den Ereignisstrom), geht kein Befehl ans Geraet.

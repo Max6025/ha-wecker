@@ -1441,8 +1441,27 @@ async def test_ampel_aus_laesst_nichts_leuchten(hass: HomeAssistant, aioclient_m
     ]
 
 
+async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -> None:
+    """Kein Strom am Tor: gelb blinkt im Sekundentakt, Hinweis sehr schnell."""
+    await _setup_garage(hass, aioclient_mock, garage_state(ampel="kein_strom", strom=False, auto_drin=False))
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    pfade = _postpfade(aioclient_mock)
+    assert "/api/relais/2?an=1&blinken=1000" in pfade    # gelb, ein Hertz
+    assert "/api/relais/4?an=1&blinken=160" in pfade     # Hinweis, sehr schnell
+    assert "/api/relais/1?an=0" in pfade                 # gruen aus
+    assert "/api/relais/3?an=0" in pfade                 # rot aus
+    # Still bleibt es: kein Ton im Bild, keine Warnleuchte
+    assert not [p for p in pfade if p.startswith("/api/relais/5")]
+    assert not [p for p in pfade if p.startswith("/api/relais/6")]
+    # Der Ton kommt genau einmal, beim Umschalten
+    assert len([p for p in pfade if p.startswith("/api/piep")]) == 1
+
+
 async def test_ampel_zeigt_abgerissene_garage(hass: HomeAssistant, aioclient_mock) -> None:
-    """Keine Antwort aus der Garage: nur die Hinweisleuchte oben."""
+    """Keine Antwort aus der Garage ist auch eine Stoerung - dasselbe Bild."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
     _saeule_posts(aioclient_mock)
@@ -1456,8 +1475,9 @@ async def test_ampel_zeigt_abgerissene_garage(hass: HomeAssistant, aioclient_moc
     await hass.async_block_till_done()
 
     neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/relais/4?an=1" in neu       # Hinweis
-    assert "/api/relais/3?an=0" in neu       # rot aus
+    assert "/api/relais/2?an=1&blinken=1000" in neu      # gelb blinkt
+    assert "/api/relais/4?an=1&blinken=160" in neu       # Hinweis sehr schnell
+    assert "/api/relais/3?an=0" in neu                   # rot aus
     assert hass.states.get("select.signalsaeule_betriebsart").attributes["ampel"] is None
 
 

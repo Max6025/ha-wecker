@@ -516,7 +516,9 @@ GET  /api/state                 kompletter Zustand als JSON
 GET  /api/live                  Kurzfassung fuer das Dashboard
 GET  /api/ping                  {"ok":true,"typ":"saeule"}
 GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
-POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
+POST /api/relais/<nr>?an=1|0[&blinken=ms]  eine Leuchte schalten
+                                (Stufe -> Manuell), "blinken" ist die
+                                Periode in ms (nur Stufen, nur Manuell)
 POST /api/modus?modus=auto|manuell
 POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
 POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
@@ -718,13 +720,30 @@ auf **Ampel**, zeigt die Signalsaeule, was der Garagen-ESP meldet (Abschnitt
 |--------------------------------|------------|
 | `stopp` (Auto steht richtig)   | rot        |
 | `frei`                         | gruen      |
-| `kein_strom` (nichts am Tor)   | orange     |
+| `kein_strom` (nichts am Tor)   | **gelb blinkt** im Sekundentakt, Hinweisleuchte blinkt sehr schnell dazu |
+| nicht zu erreichen             | dasselbe Stoerungsbild |
 | `aus`                          | nichts     |
-| nicht zu erreichen             | Hinweisleuchte oben, allein |
 
-Beim Umschalten gibt der Tongeber den Quittungston (`/api/piep`, siehe
+Die **Stoerung** ist nachgebaut, wie eine Ampel es an der Kreuzung macht: gelb
+blinkt mit einem Hertz. Die Hinweisleuchte blinkt sehr schnell dazu (160 ms),
+damit man eine Stoerung nicht mit dem Status „Achtung" verwechselt. Antwortet
+die Garage nicht, gilt dasselbe Bild - in beiden Faellen weiss niemand, wie
+das Auto steht, und genau das soll die Saeule sagen.
+
+Das Blinken macht die **Saeule** (ab Firmware 1.6.0, `POST
+/api/relais/<nr>?an=1&blinken=1000`), nicht Home Assistant: ein Ampeltakt aus
+dem Netz waere ein Zufallstakt. Die Periode gilt nur fuer die Stufen in der
+Betriebsart manuell und wird beim Wechsel auf Auto, bei „Alles aus" und beim
+stillen Start geloescht.
+
+**Still bleibt es.** Kein Ton, keine Blitz-Warnleuchte - auch bei der
+Stoerung nicht. Den Tongeber gibt es genau einmal: beim Umschalten auf diese
+Betriebsart.
+
+Beim Umschalten gibt der Tongeber einmal den Quittungston (`/api/piep`, siehe
 Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu
-sehen ist. Gehoert hat man es trotzdem.
+sehen ist. Gehoert hat man es trotzdem. Danach bleibt er stumm, was die Ampel
+auch meldet.
 
 **Nur in Home Assistant.** Die Saeule kennt die Garage nicht. Am Geraet steht
 sie in dieser Betriebsart auf `manuell`, und die Stufen werden einzeln

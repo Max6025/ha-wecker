@@ -5,9 +5,14 @@ auf Ampel, zeigt die Saeule, was der Garagen-ESP meldet (siehe garage.py):
 
     Auto steht richtig  (stopp)      -> rot
     Garage frei         (frei)       -> gruen
-    Kein Strom am Tor   (kein_strom) -> orange
+    Stoerung (kein_strom, oder die Garage antwortet nicht)
+                                     -> gelb blinkt im Sekundentakt, wie an
+                                        einer echten Kreuzung, und die
+                                        Hinweisleuchte blinkt sehr schnell dazu
     Ampel aus           (aus)        -> nichts
-    Garage nicht zu erreichen        -> nur die Hinweisleuchte oben
+
+Still bleibt das in jedem Fall: kein Ton, keine Blitz-Warnleuchte. Der
+Tongeber kommt nur einmal beim Umschalten auf diese Betriebsart.
 
 Diese Betriebsart gibt es nur in Home Assistant, nicht in der Saeule: sie
 kennt die Garage nicht. Am Geraet steht sie dabei auf "manuell" und die Stufen
@@ -36,6 +41,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
+    AMPEL_BLINK_GELB_MS,
+    AMPEL_BLINK_HINWEIS_MS,
     DOMAIN,
     FARBE_GRUEN,
     FARBE_HINWEIS,
@@ -46,17 +53,23 @@ from .garage import AMPEL_AUS, AMPEL_FREI, AMPEL_KEIN_STROM, AMPEL_STOPP
 
 _LOGGER = logging.getLogger(__name__)
 
-# Welche Farbe die Saeule bei welcher Ampel zeigt. Nach Farbe, nicht nach
-# Relaisnummer - die Saeule meldet sie selbst (ab Firmware 1.3.0).
-AMPEL_FARBE: dict[str, str | None] = {
-    AMPEL_STOPP: FARBE_ROT,
-    AMPEL_FREI: FARBE_GRUEN,
-    AMPEL_KEIN_STROM: FARBE_ORANGE,
-    AMPEL_AUS: None,
+# Welches Bild die Saeule bei welcher Ampel zeigt: Farbe und Blinkperiode in
+# Millisekunden (0 heisst dauernd). Nach Farbe, nicht nach Relaisnummer - die
+# Saeule meldet sie selbst (ab Firmware 1.3.0).
+#
+# Die Stoerung ist nachgebaut, wie eine Ampel es an der Kreuzung macht: gelb
+# blinkt im Sekundentakt. Die Hinweisleuchte blinkt sehr schnell dazu, damit
+# man eine Stoerung nicht mit "Achtung" verwechselt.
+AMPEL_STOERUNG: dict[str, int] = {
+    FARBE_ORANGE: AMPEL_BLINK_GELB_MS,
+    FARBE_HINWEIS: AMPEL_BLINK_HINWEIS_MS,
 }
-# Garage nicht zu erreichen: die Hinweisleuchte oben, allein. Ein eigenes Bild,
-# das mit keiner Ampelfarbe zu verwechseln ist.
-FARBE_STUMM = FARBE_HINWEIS
+AMPEL_BILD: dict[str, dict[str, int]] = {
+    AMPEL_STOPP: {FARBE_ROT: 0},
+    AMPEL_FREI: {FARBE_GRUEN: 0},
+    AMPEL_KEIN_STROM: AMPEL_STOERUNG,
+    AMPEL_AUS: {},
+}
 
 
 class Ampelmodus:
@@ -68,7 +81,7 @@ class Ampelmodus:
         self.aktiv = False
         self.pausiert = False          # der Weckablauf hat die Saeule
         self.fehler: str | None = None
-        self._bild: list[int] | None = None   # was zuletzt gestellt wurde
+        self._bild: dict[int, int] | None = None   # was zuletzt gestellt wurde
         self._ab_garage: Any = None           # Abmelder des Garagen-Listeners
 
     # --- Die Garage ---------------------------------------------------
@@ -143,22 +156,28 @@ class Ampelmodus:
 
     # --- Das Bild stellen ---------------------------------------------
 
-    def _bild_fuer(self, ampel: str | None) -> tuple[list[int], str]:
-        """(Nummern, die an sein sollen; was das Bild bedeutet)."""
+    def _bild_fuer(self, ampel: str | None) -> tuple[dict[int, int], str]:
+        """({Nummer: Blinkperiode in ms}; was das Bild bedeutet).
+
+        Antwortet die Garage nicht, ist das auch eine Stoerung - dasselbe
+        Bild wie bei fehlendem Strom am Tor. In beiden Faellen weiss niemand,
+        wie das Auto steht, und genau das soll die Saeule sagen.
+        """
         if ampel is None:
-            farbe, warum = FARBE_STUMM, "Garage nicht zu erreichen"
+            farben, warum = AMPEL_STOERUNG, "Garage nicht zu erreichen"
         else:
-            farbe = AMPEL_FARBE.get(ampel, None)
+            farben = AMPEL_BILD.get(ampel, {})
             warum = f"Ampel {ampel}"
-        if farbe is None:
-            return [], warum
-        nr = self.saeule.nummer_farbe(farbe)
-        if nr is None:
-            raise UpdateFailed(
-                f"Die Saeule meldet keine Leuchte \"{farbe}\" - "
-                "braucht Firmware 1.3.0 oder neuer"
-            )
-        return [nr], warum
+        bild: dict[int, int] = {}
+        for farbe, periode in farben.items():
+            nr = self.saeule.nummer_farbe(farbe)
+            if nr is None:
+                raise UpdateFailed(
+                    f"Die Saeule meldet keine Leuchte \"{farbe}\" - "
+                    "braucht Firmware 1.3.0 oder neuer"
+                )
+            bild[nr] = periode
+        return bild, warum
 
     async def async_nachziehen(self) -> None:
         """Das Ampelbild stellen, wenn es sich geaendert hat."""
@@ -181,6 +200,10 @@ class Ampelmodus:
         self._bild = an
         self.fehler = None
         _LOGGER.debug("Betriebsart Ampel: %s -> Leuchten %s", warum, an or "aus")
+
+    # Die Saeule blinkt selbst (Firmware 1.6.0): Home Assistant kann nicht im
+    # Sekundentakt schalten, und ein Ampeltakt aus dem Netz waere ein
+    # Zufallstakt.
 
     # --- Auf die Garage hoeren ----------------------------------------
 

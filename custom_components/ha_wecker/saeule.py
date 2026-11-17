@@ -228,11 +228,12 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         await self._post("/api/piep", {"muster": muster} if muster else {})
 
-    async def async_stufen_stellen(self, an: list[int]) -> None:
+    async def async_stufen_stellen(self, an: dict[int, int]) -> None:
         """Genau diese Stufen an, alle anderen aus - in Betriebsart manuell.
 
-        Fuer die Betriebsart "Ampel": die Saeule soll ein stehendes Bild
-        zeigen, keine Choreografie. Darum nicht ueber den Status, sondern
+        `an` bildet die Nummer auf die Blinkperiode in ms ab, 0 heisst
+        dauernd. Fuer die Betriebsart "Ampel": die Saeule soll ein ruhiges
+        Bild zeigen, keine Choreografie. Darum nicht ueber den Status, sondern
         Stufe fuer Stufe. Erst manuell, dann stellen - sonst raeumt die
         laufende Ansage gleich wieder ab, was hier gesetzt wurde.
         """
@@ -241,7 +242,7 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for r in self.leuchten(ROLLE_STUFE):
             nr = r.get("nr")
             if isinstance(nr, int):
-                await self.async_schalten(nr, nr in an)
+                await self.async_schalten(nr, nr in an, an.get(nr, 0))
 
     # --- Ereignisstrom -----------------------------------------------
 
@@ -316,8 +317,20 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Antwort ist der neue Zustand - direkt uebernehmen, ohne Abfrage
             self.async_set_updated_data(data)
 
-    async def async_schalten(self, nr: int, an: bool) -> None:
-        await self._post(f"/api/relais/{nr}", {"an": 1 if an else 0})
+    async def async_schalten(
+        self, nr: int, an: bool, blinken_ms: int = 0
+    ) -> None:
+        """Eine Leuchte schalten, auf Wunsch blinkend.
+
+        `blinken_ms` ist die Periode (halb an, halb aus) und gilt nur fuer die
+        Stufen in der Betriebsart manuell - die Saeule macht das Blinken
+        selbst, denn Home Assistant kann nicht im Sekundentakt schalten.
+        Braucht Firmware 1.6.0.
+        """
+        werte: dict[str, Any] = {"an": 1 if an else 0}
+        if an and blinken_ms:
+            werte["blinken"] = blinken_ms
+        await self._post(f"/api/relais/{nr}", werte)
 
     async def async_rolle_schalten(self, rolle: str, an: bool) -> None:
         """Den Ausgang dieser Rolle schalten (Warnleuchte, Tongeber)."""

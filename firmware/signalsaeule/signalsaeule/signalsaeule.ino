@@ -78,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.5.0";
+static const char* VERSION  = "1.6.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -147,6 +147,18 @@ static const uint8_t IDX_TON = 5;       // Index des Tongebers
 
 static bool istAn[ANZAHL];              // was gerade wirklich gesetzt ist
 static bool manuell[ANZAHL];            // Wunsch in der Betriebsart "manuell"
+// Blinken in der Betriebsart "manuell": Periode in ms je Stufe, 0 heisst
+// dauernd. Nur fuer die Stufen - die Betriebsart "auto" hat ihre eigenen
+// Bilder, und Warnleuchte und Tongeber blitzen bzw. piepen nach eigener
+// Logik. Gebraucht wird es fuer die Garagenampel: eine gestoerte Ampel
+// blinkt gelb, wie an einer echten Kreuzung.
+static const uint16_t BLINK_MIN_MS = 40;   // schneller flimmert es nur
+static uint16_t blinkMs[ANZAHL];
+static uint32_t blinkSeit[ANZAHL];
+
+static void blinkenLoeschen() {
+  for (uint8_t i = 0; i < ANZAHL; i++) blinkMs[i] = 0;
+}
 
 static int8_t leuchteIndex(int nr) {
   for (uint8_t i = 0; i < ANZAHL; i++) if (LEUCHTEN[i].nr == nr) return (int8_t)i;
@@ -508,7 +520,12 @@ static void lampenStellen() {
   setzen(IDX_TON, tonAn || piepAn);
 
   if (!autoModus) {
-    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, manuell[s]);
+    for (uint8_t s = 0; s < STUFEN; s++) {
+      bool soll = manuell[s];
+      if (soll && blinkMs[s] >= BLINK_MIN_MS)
+        soll = ((millis() - blinkSeit[s]) % blinkMs[s]) < (blinkMs[s] / 2);
+      setzen(s, soll);
+    }
     return;
   }
 
@@ -894,7 +911,9 @@ static String stateJson() {
     s += ",\"an\":" + String(sollAn(i) ? "true" : "false");       // logischer Zustand
     s += ",\"live\":" + String(istAn[i] ? "true" : "false");      // was gerade leuchtet
     s += ",\"pegel\":" + String(digitalRead(LEUCHTEN[i].pin));
-    s += ",\"muster\":\"" + String(sollAn(i) ? "dauer" : "aus") + "\"";
+    bool blinkt = (i < STUFEN) && !autoModus && !testAn && manuell[i] && blinkMs[i] >= BLINK_MIN_MS;
+    s += ",\"muster\":\"" + String(!sollAn(i) ? "aus" : (blinkt ? "blinken" : "dauer")) + "\"";
+    s += ",\"blink_ms\":" + String(blinkt ? blinkMs[i] : 0);
     s += ",\"rest_s\":-1}";
   }
   s += "]}";
@@ -1118,6 +1137,7 @@ static void httpBedienen() {
       if (neu != autoModus) {
         if (neu) {
           autoModus = true;
+          blinkenLoeschen();                    // gilt nur in "manuell"
           statusSetzen(status, true, true);     // Status noch einmal ansagen
         } else {
           // das laufende Bild einfrieren: sollAn() noch in Auto auswerten
@@ -1140,6 +1160,7 @@ static void httpBedienen() {
       bool warManuell = !autoModus || testAn;
       autoModus = true;
       testAn = false;
+      blinkenLoeschen();
       statusSetzen((Status)gefunden, true, warManuell);
       sendeJson(c, 200, stateJson());
     }
@@ -1165,6 +1186,11 @@ static void httpBedienen() {
           autoModus = false;
               }
         manuell[i] = an;
+        // "blinken" ist die Periode in ms, halb an und halb aus. Ohne Angabe
+        // oder beim Ausschalten leuchtet die Stufe wieder dauernd.
+        long periode = argWert(ziel, "blinken").toInt();
+        blinkMs[i] = (an && periode >= BLINK_MIN_MS) ? (uint16_t)periode : 0;
+        blinkSeit[i] = millis();
         testAn = false;
       }
       sendeJson(c, 200, stateJson());
@@ -1232,6 +1258,7 @@ static void httpBedienen() {
     piepIndex = 0;
     piepAn = false;
     autoModus = false;
+    blinkenLoeschen();
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
     sendeJson(c, 200, stateJson());
   } else {
@@ -1295,6 +1322,7 @@ void loop() {
       setzen(i, false);
     }
     warnAn = warnVomAlarm = warnVorAlarm = tonAn = false;
+    blinkenLoeschen();
     piepSchritte = 0;
     piepIndex = 0;
     piepAn = false;

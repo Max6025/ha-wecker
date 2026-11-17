@@ -32,6 +32,12 @@ FARBE_ORANGE = "orange"
 FARBE_ROT = "rot"
 FARBE_HINWEIS = "hinweis"
 
+# Betriebsart "Ampel" (siehe ampel.py): eine gestoerte Ampel blinkt gelb, wie
+# an einer echten Kreuzung, und die Hinweisleuchte blinkt sehr schnell dazu.
+# Zeiten in Millisekunden, je Periode (halb an, halb aus).
+AMPEL_BLINK_GELB_MS = 1000       # ein Hertz, der Takt einer Stoerungsampel
+AMPEL_BLINK_HINWEIS_MS = 160     # sehr schnell
+
 # Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
 GARAGE_ABFRAGE_S = 15
 
