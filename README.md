@@ -721,14 +721,19 @@ auf **Ampel**, zeigt die Signalsaeule, was der Garagen-ESP meldet (Abschnitt
 | `stopp` (Auto steht richtig)   | rot        |
 | `frei`                         | gruen      |
 | `kein_strom` (nichts am Tor)   | **gelb blinkt** im Sekundentakt, Hinweisleuchte blinkt sehr schnell dazu |
-| nicht zu erreichen             | dasselbe Stoerungsbild |
+| antwortet nicht                | **rot blinkt**, im Takt der gelben, sonst nichts |
 | `aus`                          | nichts     |
 
-Die **Stoerung** ist nachgebaut, wie eine Ampel es an der Kreuzung macht: gelb
-blinkt mit einem Hertz. Die Hinweisleuchte blinkt sehr schnell dazu (160 ms),
-damit man eine Stoerung nicht mit dem Status „Achtung" verwechselt. Antwortet
-die Garage nicht, gilt dasselbe Bild - in beiden Faellen weiss niemand, wie
-das Auto steht, und genau das soll die Saeule sagen.
+Die **Stoerung am Tor** ist nachgebaut, wie eine Ampel es an der Kreuzung
+macht: gelb blinkt mit einem Hertz. Die Hinweisleuchte blinkt sehr schnell
+dazu (160 ms), damit man es nicht mit dem Status „Achtung" verwechselt.
+
+**Antwortet der ESP gar nicht**, ist das ein anderer Fall und bekommt ein
+anderes Bild: dann fehlen ihm die 5 V, mit denen er selbst betrieben wird. Es
+steht also nicht einmal fest, dass die Garage ueberwacht wird - darum blinkt
+**rot**, allein, im ruhigen Takt der gelben und ohne Hinweisleuchte. Meldet er
+dagegen `kein_strom`, lebt er und sagt nur, dass der Lichtschranke die 24 V
+fehlen.
 
 Das Blinken macht die **Saeule** (ab Firmware 1.6.0, `POST
 /api/relais/<nr>?an=1&blinken=1000`), nicht Home Assistant: ein Ampeltakt aus

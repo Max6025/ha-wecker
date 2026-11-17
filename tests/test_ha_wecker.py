@@ -1460,8 +1460,8 @@ async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock) -
     assert len([p for p in pfade if p.startswith("/api/piep")]) == 1
 
 
-async def test_ampel_zeigt_abgerissene_garage(hass: HomeAssistant, aioclient_mock) -> None:
-    """Keine Antwort aus der Garage ist auch eine Stoerung - dasselbe Bild."""
+async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock) -> None:
+    """Antwortet der ESP nicht, fehlen ihm die 5 V: rot im Takt der gelben."""
     garage = await _setup_garage(hass, aioclient_mock)
     await _setup_saeule(hass, aioclient_mock)
     _saeule_posts(aioclient_mock)
@@ -1475,9 +1475,12 @@ async def test_ampel_zeigt_abgerissene_garage(hass: HomeAssistant, aioclient_moc
     await hass.async_block_till_done()
 
     neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/relais/2?an=1&blinken=1000" in neu      # gelb blinkt
-    assert "/api/relais/4?an=1&blinken=160" in neu       # Hinweis sehr schnell
-    assert "/api/relais/3?an=0" in neu                   # rot aus
+    assert "/api/relais/3?an=1&blinken=1000" in neu      # rot, im Takt der gelben
+    assert "/api/relais/2?an=0" in neu                   # gelb aus
+    assert "/api/relais/4?an=0" in neu                   # Hinweisleuchte aus
+    assert "/api/relais/1?an=0" in neu                   # gruen aus
+    # Kein schnelles Blinken irgendwo
+    assert not [p for p in neu if "blinken=160" in p]
     assert hass.states.get("select.signalsaeule_betriebsart").attributes["ampel"] is None
 
 

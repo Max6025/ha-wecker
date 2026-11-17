@@ -173,9 +173,17 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   „Alles aus" und beim stillen Start ab.
 - **Die Ampel bleibt still.** Kein Ton und keine Warnleuchte im Bild, auch
   nicht bei der Stoerung (Max, 17.11.2026). Der Tongeber kommt genau einmal
-  beim Umschalten auf die Betriebsart. Eine nicht erreichbare Garage bekommt
-  dasselbe Stoerungsbild wie fehlender Strom am Tor: beide heissen „kein
-  Urteil".
+  beim Umschalten auf die Betriebsart.
+- **Die zwei Stoerungen der Ampel nicht zusammenwerfen.** `kein_strom` heisst:
+  der ESP lebt und sagt, dass der Lichtschranke die 24 V fehlen - gelb blinkt
+  mit einem Hertz, Hinweisleuchte sehr schnell dazu. Antwortet er gar nicht,
+  fehlen ihm selbst die 5 V, und dann steht nicht einmal fest, dass die Garage
+  ueberwacht wird: rot blinkt, allein, im Takt der gelben und ohne
+  Hinweisleuchte (Max, 17.11.2026). Erst waren beide Faelle gleich gebaut,
+  das war falsch.
+- **Blinken und Ampelbilder gelten nur im Ampelmodus.** Ausserhalb bleibt die
+  Saeule, wie sie war: `LeuchteSwitch` gibt kein `blinken` mit, und in „auto"
+  wirkt es ohnehin nicht.
 - **Der Ampelmodus schreibt nur bei Aenderung.** `_bild` haelt, was zuletzt
   gestellt wurde; meldet die Garage denselben Wert noch einmal (sie schiebt
   jede Kleinigkeit ueber den Ereignisstrom), geht kein Befehl ans Geraet.

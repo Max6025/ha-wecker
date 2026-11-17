@@ -5,11 +5,18 @@ auf Ampel, zeigt die Saeule, was der Garagen-ESP meldet (siehe garage.py):
 
     Auto steht richtig  (stopp)      -> rot
     Garage frei         (frei)       -> gruen
-    Stoerung (kein_strom, oder die Garage antwortet nicht)
-                                     -> gelb blinkt im Sekundentakt, wie an
+    Kein Strom am Tor   (kein_strom) -> gelb blinkt im Sekundentakt, wie an
                                         einer echten Kreuzung, und die
                                         Hinweisleuchte blinkt sehr schnell dazu
+    Garage antwortet nicht           -> rot blinkt, im Takt der gelben
     Ampel aus           (aus)        -> nichts
+
+Die beiden Stoerungen sind auseinanderzuhalten, weil sie Verschiedenes
+heissen. Meldet der ESP "kein_strom", lebt er und sagt, dass der Lichtschranke
+die 24 V fehlen - eine gestoerte Ampel also, und die blinkt gelb. Antwortet er
+gar nicht, fehlen ihm selbst die 5 V: dann steht nicht einmal mehr fest, dass
+die Garage ueberhaupt ueberwacht wird, und die Saeule blinkt rot. Ohne
+Hinweisleuchte, im ruhigen Takt der gelben - nicht im schnellen.
 
 Still bleibt das in jedem Fall: kein Ton, keine Blitz-Warnleuchte. Der
 Tongeber kommt nur einmal beim Umschalten auf diese Betriebsart.
@@ -41,8 +48,8 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
-    AMPEL_BLINK_GELB_MS,
-    AMPEL_BLINK_HINWEIS_MS,
+    AMPEL_BLINK_MS,
+    AMPEL_BLINK_SCHNELL_MS,
     DOMAIN,
     FARBE_GRUEN,
     FARBE_HINWEIS,
@@ -61,9 +68,12 @@ _LOGGER = logging.getLogger(__name__)
 # blinkt im Sekundentakt. Die Hinweisleuchte blinkt sehr schnell dazu, damit
 # man eine Stoerung nicht mit "Achtung" verwechselt.
 AMPEL_STOERUNG: dict[str, int] = {
-    FARBE_ORANGE: AMPEL_BLINK_GELB_MS,
-    FARBE_HINWEIS: AMPEL_BLINK_HINWEIS_MS,
+    FARBE_ORANGE: AMPEL_BLINK_MS,
+    FARBE_HINWEIS: AMPEL_BLINK_SCHNELL_MS,
 }
+# Der ESP antwortet nicht - ihm fehlen die 5 V. Rot, allein, im Takt der
+# gelben. Nicht im schnellen Blinken, und ohne Hinweisleuchte.
+AMPEL_KEIN_ESP: dict[str, int] = {FARBE_ROT: AMPEL_BLINK_MS}
 AMPEL_BILD: dict[str, dict[str, int]] = {
     AMPEL_STOPP: {FARBE_ROT: 0},
     AMPEL_FREI: {FARBE_GRUEN: 0},
@@ -159,12 +169,12 @@ class Ampelmodus:
     def _bild_fuer(self, ampel: str | None) -> tuple[dict[int, int], str]:
         """({Nummer: Blinkperiode in ms}; was das Bild bedeutet).
 
-        Antwortet die Garage nicht, ist das auch eine Stoerung - dasselbe
-        Bild wie bei fehlendem Strom am Tor. In beiden Faellen weiss niemand,
-        wie das Auto steht, und genau das soll die Saeule sagen.
+        Antwortet die Garage nicht, fehlen dem ESP die 5 V - ein anderer
+        Fall als "kein Strom am Tor", und darum ein anderes Bild: rot blinkt
+        im Takt der gelben, ohne Hinweisleuchte.
         """
         if ampel is None:
-            farben, warum = AMPEL_STOERUNG, "Garage nicht zu erreichen"
+            farben, warum = AMPEL_KEIN_ESP, "Garage nicht zu erreichen"
         else:
             farben = AMPEL_BILD.get(ampel, {})
             warum = f"Ampel {ampel}"
