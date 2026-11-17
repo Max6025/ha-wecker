@@ -35,9 +35,10 @@ FARBE_HINWEIS = "hinweis"
 # Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
 GARAGE_ABFRAGE_S = 15
 
-# Quittungston beim Umschalten auf die Betriebsart "Ampel": zwei ganz kurze
-# Toene auf dem Tongeber der Saeule, kein Alarm.
-PIEP_ANZAHL = 2
+# Quittungston beim Umschalten auf die Betriebsart "Ampel". Das Muster steht
+# in der Firmware der Saeule (ab 1.5.0: 400 ms Ton, 500 ms Pause, 800 ms Ton),
+# nicht hier - Home Assistant ruft /api/piep ohne Angabe und bekommt damit,
+# was am Geraet eingestellt ist.
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 SIGNAL_WECKER_ALLE = DOMAIN + "_wecker_alle"     # irgendein Wecker hat sich gemeldet

@@ -64,7 +64,8 @@
                                     Nr. 6 ist der Tongeber
     POST /api/modus?modus=auto|manuell
     POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm  (-> auto)
-    POST /api/piep?anzahl=&an=&aus= kurzer Hinweiston auf dem Tongeber
+    POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
+                                      Ton und Pause (erste Zahl ist ein Ton)
   POST /api/test?an=1|0           Testmodus
     POST /api/diagnose              Selbstdiagnose starten
     POST /api/alarm/stop            alles aus, Betriebsart manuell
@@ -77,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.3.1";
+static const char* VERSION  = "1.5.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -208,17 +209,24 @@ static bool tonAn = false;
 // wieder aus - ein Quittungston, kein Alarm. Die Folge laeuft im Zeitgeber ab
 // (alle 10 ms), nicht in der Schleife: die steht beim Ausliefern einer Seite
 // auch mal eine Sekunde, und dann waere aus dem kurzen Piep ein Ton geworden.
-static const uint8_t  PIEP_ANZAHL_MAX = 5;
-// 70 ms waren am Geraet nicht zu hoeren: das Relais zieht erst an, und der
-// Tongenerator braucht einen Augenblick, bis er Luft bewegt. 200 ms sind eine
-// deutliche Quittung und immer noch kein Alarm (Max, 17.11.2026).
-static const uint16_t PIEP_AN_MS      = 200;   // so lange ein Ton
-static const uint16_t PIEP_AUS_MS     = 150;   // so lange die Pause dazwischen
-static volatile uint8_t  piepRest  = 0;        // noch so viele Halbschritte
-static volatile bool     piepAn    = false;    // Ton im laufenden Halbschritt
-static volatile uint32_t piepBis   = 0;        // bis wann er gilt (millis)
-static volatile uint16_t piepAnMs  = PIEP_AN_MS;
-static volatile uint16_t piepAusMs = PIEP_AUS_MS;
+// Die Folge steht als Liste von Halbschritten da (Dauer, Ton an oder aus),
+// nicht als Anzahl: so laesst sich ein Rhythmus geben, nicht nur ein
+// gleichmaessiges Klopfen. Max wollte "erst einer, Pause, dann zwei" - das
+// sind die Gruppen {1, 2} (17.11.2026). Kurze Toene waren am Geraet nicht zu
+// hoeren: das Relais zieht erst an, und der Tongenerator braucht einen
+// Augenblick, bis er Luft bewegt.
+static const uint8_t  PIEP_SCHRITTE_MAX = 16;
+static const uint16_t PIEP_SCHRITT_MAX_MS = 3000;   // kein Dauerton aus Versehen
+// Das Standardmuster: Dauern in ms, abwechselnd Ton und Pause, die erste Zahl
+// ist ein Ton. Am Ende steht kein Nachklang.
+static const uint16_t PIEP_MUSTER[] = {400, 500, 800};
+
+static volatile uint16_t piepDauer[PIEP_SCHRITTE_MAX];
+static volatile uint8_t  piepTon[PIEP_SCHRITTE_MAX];   // 1 Ton, 0 Pause
+static volatile uint8_t  piepSchritte = 0;     // so viele sind gefuellt
+static volatile uint8_t  piepIndex    = 0;     // welcher gerade laeuft
+static volatile bool     piepAn       = false; // Ton im laufenden Schritt
+static volatile uint32_t piepBis      = 0;     // bis wann er gilt (millis)
 static bool testAn = false;
 
 static unsigned long statusSeit = 0;
@@ -433,35 +441,47 @@ static bool diagAllesOk() {
 // Alarm und Warnleuchte zusammenbringen. Eingerastet heisst: die Ansage ist
 // durch und die Ruhephase auch - genau der Augenblick, in dem Rot und
 // Hinweisleuchte im Wechsel zu blinken anfangen.
-// Eine Folge kurzer Toene anstossen. Laeuft gerade schon eine, wird sie
-// ersetzt - zweimal hintereinander auf "Ampel" zu druecken soll nicht
-// zwei Folgen uebereinanderlegen.
-static void piepStarten(uint8_t anzahl, uint16_t anMs, uint16_t ausMs) {
+// Ein Muster anstossen: "dauern" sind Millisekunden, abwechselnd Ton und
+// Pause, die erste Zahl ist ein Ton. Damit ist jeder Rhythmus beschreibbar -
+// {400, 500, 800} heisst kurz, Pause, lang. Laeuft gerade schon eine Folge,
+// wird sie ersetzt: zweimal hintereinander auf "Ampel" zu druecken soll nicht
+// zwei Folgen uebereinanderlegen. Eine Pause am Ende wird weggelassen, die
+// hoert ohnehin niemand.
+static void piepMuster(const uint16_t* dauern, uint8_t anzahl) {
+  if (!dauern || anzahl == 0) return;
+  if (anzahl > PIEP_SCHRITTE_MAX) anzahl = PIEP_SCHRITTE_MAX;
+  if ((anzahl % 2) == 0) anzahl--;          // letzte Pause faellt weg
   if (anzahl == 0) return;
-  if (anzahl > PIEP_ANZAHL_MAX) anzahl = PIEP_ANZAHL_MAX;
+
   noInterrupts();
-  piepAnMs  = anMs ? anMs : PIEP_AN_MS;
-  piepAusMs = ausMs ? ausMs : PIEP_AUS_MS;
-  piepRest  = (uint8_t)(anzahl * 2 - 1);   // Ton, Pause, Ton ... ohne Pause am Ende
-  piepAn    = true;
-  piepBis   = millis() + piepAnMs;
+  for (uint8_t i = 0; i < anzahl; i++) {
+    uint16_t d = dauern[i];
+    if (d > PIEP_SCHRITT_MAX_MS) d = PIEP_SCHRITT_MAX_MS;
+    piepDauer[i] = d;
+    piepTon[i]   = (uint8_t)((i % 2) == 0);   // gerade Stellen sind Toene
+  }
+  piepSchritte = anzahl;
+  piepIndex    = 0;
+  piepAn       = true;                        // der erste Schritt ist ein Ton
+  piepBis      = millis() + piepDauer[0];
   interrupts();
 }
 
-// Den laufenden Halbschritt weiterzaehlen. Wird im Zeitgeber gerufen.
+// Den laufenden Schritt weiterzaehlen. Wird im Zeitgeber gerufen.
 static void piepPflegen() {
-  if (piepRest == 0) {
+  if (piepIndex >= piepSchritte) {
     piepAn = false;
     return;
   }
   if ((int32_t)(millis() - piepBis) < 0) return;
-  piepRest--;
-  if (piepRest == 0) {
+  piepIndex++;
+  if (piepIndex >= piepSchritte) {
     piepAn = false;
+    piepSchritte = 0;
     return;
   }
-  piepAn  = !piepAn;
-  piepBis = millis() + (piepAn ? piepAnMs : piepAusMs);
+  piepAn  = (piepTon[piepIndex] != 0);
+  piepBis = millis() + piepDauer[piepIndex];
 }
 
 static void alarmWarnPflegen() {
@@ -1150,13 +1170,27 @@ static void httpBedienen() {
       sendeJson(c, 200, stateJson());
     }
   } else if (pfad == "/api/piep") {
-    // Quittungston: ein paar ganz kurze Toene, danach ist der Ausgang wieder
-    // aus. Der Dauerton des Schalters bleibt davon unberuehrt.
-    long anzahl = argWert(ziel, "anzahl").toInt();
-    if (anzahl <= 0) anzahl = 2;
-    piepStarten((uint8_t)anzahl,
-                (uint16_t)argWert(ziel, "an").toInt(),
-                (uint16_t)argWert(ziel, "aus").toInt());
+    // Quittungston, danach ist der Ausgang wieder aus. Der Dauerton des
+    // Schalters bleibt davon unberuehrt. Ohne "muster" gilt PIEP_MUSTER.
+    uint16_t dauern[PIEP_SCHRITTE_MAX];
+    uint8_t  anzahl = 0;
+    String muster = argWert(ziel, "muster");
+    if (muster.length()) {
+      int von = 0;
+      while (von <= (int)muster.length() && anzahl < PIEP_SCHRITTE_MAX) {
+        int komma = muster.indexOf(',', von);
+        String teil = (komma < 0) ? muster.substring(von) : muster.substring(von, komma);
+        long wert = teil.toInt();
+        if (wert > 0) dauern[anzahl++] = (uint16_t)wert;
+        if (komma < 0) break;
+        von = komma + 1;
+      }
+    }
+    if (anzahl == 0) {
+      uint8_t n = (uint8_t)(sizeof(PIEP_MUSTER) / sizeof(PIEP_MUSTER[0]));
+      for (uint8_t i = 0; i < n && i < PIEP_SCHRITTE_MAX; i++) dauern[anzahl++] = PIEP_MUSTER[i];
+    }
+    piepMuster(dauern, anzahl);
     sendeJson(c, 200, stateJson());
   } else if (pfad == "/api/test") {
     bool an = wahr(argWert(ziel, "an"));
@@ -1194,7 +1228,8 @@ static void httpBedienen() {
     warnAn = false;
     warnVomAlarm = false;
     tonAn = false;
-    piepRest = 0;
+    piepSchritte = 0;
+    piepIndex = 0;
     piepAn = false;
     autoModus = false;
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
@@ -1260,7 +1295,8 @@ void loop() {
       setzen(i, false);
     }
     warnAn = warnVomAlarm = warnVorAlarm = tonAn = false;
-    piepRest = 0;
+    piepSchritte = 0;
+    piepIndex = 0;
     piepAn = false;
     statusSetzen(RUHE, false);   // Grundstellung ohne Ansage, aber dunkel
     wlanVerbinden();

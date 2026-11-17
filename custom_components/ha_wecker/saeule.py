@@ -29,7 +29,6 @@ from .const import (
     DOMAIN,
     MODUS_AUTO,
     MODUS_MANUELL,
-    PIEP_ANZAHL,
     ROLLE_STUFE,
     ROLLE_TON,
     ROLLE_WARN,
@@ -216,15 +215,18 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_alles_aus(self) -> None:
         await self._post("/api/alarm/stop", {})
 
-    async def async_piep(self, anzahl: int = PIEP_ANZAHL) -> None:
-        """Kurzer Quittungston auf dem Tongeber.
+    async def async_piep(self, muster: str | None = None) -> None:
+        """Quittungston auf dem Tongeber.
 
-        Die Saeule gibt die Folge selbst, nicht Home Assistant mit zwei
-        Schaltbefehlen und einer Pause dazwischen: so ist der Ton wirklich
-        kurz, auch wenn das Netz gerade langsam ist. Der Dauerton des
-        Schalters bleibt davon unberuehrt.
+        Die Saeule gibt die Folge selbst, nicht Home Assistant mit mehreren
+        Schaltbefehlen und Pausen dazwischen: so stimmen die Zeiten wirklich,
+        auch wenn das Netz gerade langsam ist. Ohne Angabe gilt das Muster,
+        das in der Firmware steht - das ist Absicht, denn gehoert wird es am
+        Geraet und nicht hier. `muster` nimmt Dauern in Millisekunden,
+        abwechselnd Ton und Pause ("400,500,800"). Der Dauerton des Schalters
+        bleibt unberuehrt.
         """
-        await self._post("/api/piep", {"anzahl": anzahl})
+        await self._post("/api/piep", {"muster": muster} if muster else {})
 
     async def async_stufen_stellen(self, an: list[int]) -> None:
         """Genau diese Stufen an, alle anderen aus - in Betriebsart manuell.

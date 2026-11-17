@@ -397,10 +397,15 @@ Booten um Viertel vor fuenf losschreit, weckt das halbe Haus. Nur die
 Selbstdiagnose laesst ihn kurz piepen - sie schaltet jeden Ausgang der Reihe
 nach fuer 0,4 Sekunden ein.
 
-**Kurzer Hinweiston (seit Firmware 1.3.0).** `POST /api/piep` gibt zwei kurze
-Toene (200 ms Ton, 150 ms Pause, 200 ms Ton) und laesst den Schalter
-darueber unberuehrt - eine Quittung, kein Alarm. `anzahl`, `an` und `aus`
-lassen sich mitgeben, mehr als fuenf Toene gibt die Saeule nicht. Die Folge
+**Hinweiston (seit Firmware 1.3.0, Muster seit 1.5.0).** `POST /api/piep`
+gibt einen Quittungston und laesst den Schalter darueber unberuehrt - eine
+Quittung, kein Alarm. Das Muster ist frei: `muster=400,500,800` sind Dauern in
+Millisekunden, **abwechselnd Ton und Pause**, die erste Zahl ist immer ein
+Ton. Also 0,4 s Ton, 0,5 s Pause, 0,8 s Ton - und genau das ist auch der
+Standard, wenn man nichts mitgibt. Bis zu sechzehn Werte, jeder hoechstens
+drei Sekunden; eine Pause am Ende wird weggelassen, die hoert ohnehin niemand.
+Damit ist jeder Rhythmus einstellbar, ohne die Firmware neu zu bauen - was
+sich beim Einstellen des Tons als das Entscheidende erwiesen hat. Die Folge
 laeuft im Zeitgeber (alle 10 ms), nicht in der Schleife: die steht beim
 Ausliefern einer Seite auch mal eine Sekunde, und dann waere aus dem kurzen
 Piep ein Ton geworden. Im JSON steht ein laufender Piep nicht - er ist kein
@@ -514,7 +519,8 @@ GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
 POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
 POST /api/modus?modus=auto|manuell
 POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
-POST /api/piep?anzahl=&an=&aus= kurzer Hinweiston auf dem Tongeber
+POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
+                                Ton und Pause (erste Zahl ist ein Ton)
 POST /api/test?an=1|0           Testmodus
 POST /api/diagnose              Selbstdiagnose starten
 POST /api/alarm/stop            alles aus, Betriebsart Manuell
@@ -716,7 +722,7 @@ auf **Ampel**, zeigt die Signalsaeule, was der Garagen-ESP meldet (Abschnitt
 | `aus`                          | nichts     |
 | nicht zu erreichen             | Hinweisleuchte oben, allein |
 
-Beim Umschalten gibt der Tongeber zwei kurze Toene (`/api/piep`, siehe
+Beim Umschalten gibt der Tongeber den Quittungston (`/api/piep`, siehe
 Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu
 sehen ist. Gehoert hat man es trotzdem.
 

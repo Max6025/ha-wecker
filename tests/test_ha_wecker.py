@@ -1385,7 +1385,7 @@ async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclie
 
     pfade = _postpfade(aioclient_mock)
     # Der Quittungston kommt vor dem Bild
-    assert pfade[0] == "/api/piep?anzahl=2"
+    assert pfade[0] == "/api/piep"
     # Erst manuell, dann Stufe fuer Stufe: nur Rot (Nr. 3) an
     assert "/api/modus?modus=manuell" in pfade
     assert "/api/relais/3?an=1" in pfade
@@ -1434,7 +1434,7 @@ async def test_ampel_aus_laesst_nichts_leuchten(hass: HomeAssistant, aioclient_m
     await _betriebsart(hass, "Ampel")
 
     pfade = _postpfade(aioclient_mock)
-    assert pfade[0] == "/api/piep?anzahl=2"          # gehoert hat man es trotzdem
+    assert pfade[0] == "/api/piep"                   # gehoert hat man es trotzdem
     assert [p for p in pfade if p.startswith("/api/relais/")] == [
         "/api/relais/1?an=0", "/api/relais/2?an=0",
         "/api/relais/3?an=0", "/api/relais/4?an=0",
