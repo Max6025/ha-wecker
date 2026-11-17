@@ -236,7 +236,7 @@ SAEULE_URL = "http://192.168.1.70"
 
 
 def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=None,
-                 warn_vom_alarm=False, ton=False):
+                 warn_vom_alarm=False, ton=False, mit_farbe=True):
     stufen = {
         "ruhe":     [True,  False, False, False],
         "hinweis":  [True,  False, False, True],
@@ -249,24 +249,28 @@ def saeule_state(modus="auto", status="ruhe", warn=False, test=False, diagnose=N
     if modus != "auto":
         stufen = [False, False, False, False]
     namen = ["Gruen", "Orange", "Rot", "Hinweis"]
+    farben = ["gruen", "orange", "rot", "hinweis"]
     relais = [
-        {"nr": i + 1, "gpio": 3 + i, "name": namen[i], "rolle": "stufe", "defekt": False,
+        {"nr": i + 1, "gpio": 3 + i, "name": namen[i], "rolle": "stufe",
+         "farbe": farben[i] if mit_farbe else None, "defekt": False,
          "an": stufen[i], "live": stufen[i], "pegel": int(stufen[i]),
          "muster": "dauer" if stufen[i] else "aus", "rest_s": -1}
         for i in range(4)
     ]
     relais.append(
-        {"nr": 5, "gpio": 2, "name": "Warnleuchte", "rolle": "warn", "defekt": False,
+        {"nr": 5, "gpio": 2, "name": "Warnleuchte", "rolle": "warn",
+         "farbe": "warn" if mit_farbe else None, "defekt": False,
          "an": warn, "live": warn, "pegel": int(warn),
          "muster": "dauer" if warn else "aus", "rest_s": -1}
     )
     relais.append(
-        {"nr": 6, "gpio": 7, "name": "Ton", "rolle": "ton", "defekt": False,
+        {"nr": 6, "gpio": 7, "name": "Ton", "rolle": "ton",
+         "farbe": "ton" if mit_farbe else None, "defekt": False,
          "an": ton, "live": ton, "pegel": int(ton),
          "muster": "dauer" if ton else "aus", "rest_s": -1}
     )
     return {
-        "name": "Signalsäule", "typ": "saeule", "version": "1.1.0",
+        "name": "Signalsäule", "typ": "saeule", "version": "1.3.0",
         "mac": "34:85:18:aa:bb:cc", "ip": "192.168.1.70", "rssi": -58,
         "uptime_s": 300, "events_port": 8081, "ram_frei": 21000,
         "phase": "betrieb", "modus": modus, "status": status,
@@ -1317,3 +1321,241 @@ async def test_garage_config_flow_wie_der_esp(hass: HomeAssistant, aioclient_moc
     assert result["type"] == "abort" and result["reason"] == "already_configured"
     eintraege = [e for e in hass.config_entries.async_entries(DOMAIN) if e.data.get("typ") == "garage"]
     assert len(eintraege) == 1 and eintraege[0].data["host"] == "192.168.1.111"
+
+
+# --- Betriebsart "Ampel": die Saeule zeigt die Garagenampel ------------------
+
+
+def _postpfade(aioclient_mock) -> list[str]:
+    """Pfad samt Query jedes POST an ein Geraet, in der Reihenfolge."""
+    pfade = []
+    for c in aioclient_mock.mock_calls:
+        if c[0].lower() != "post":
+            continue
+        url = c[1]
+        pfade.append(url.path + (f"?{url.query_string}" if url.query_string else ""))
+    return pfade
+
+
+def _saeule_posts(aioclient_mock, **kw) -> None:
+    """Die Antworten, die die Saeule auf die Befehle der Ampel gibt.
+
+    Der Piep antwortet noch mit dem Zustand von vorher - er stellt ja nichts
+    um. Erst der Modusbefehl bringt die Saeule auf manuell.
+    """
+    antwort = saeule_state(modus="manuell", **kw)
+    aioclient_mock.post(f"{SAEULE_URL}/api/piep", json=saeule_state(**kw))
+    aioclient_mock.post(f"{SAEULE_URL}/api/modus", json=antwort)
+    for nr in range(1, 7):
+        aioclient_mock.post(f"{SAEULE_URL}/api/relais/{nr}", json=antwort)
+
+
+def _garage_melden(hass: HomeAssistant, entry, **kw) -> None:
+    """Dem Garagen-Coordinator einen neuen Stand unterschieben."""
+    hass.data[DOMAIN][entry.entry_id].async_set_updated_data(garage_state(**kw))
+
+
+async def _betriebsart(hass: HomeAssistant, wahl: str) -> None:
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.signalsaeule_betriebsart", "option": wahl},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+async def test_ampel_fehlt_ohne_garage(hass: HomeAssistant, aioclient_mock) -> None:
+    """Ohne Garagen-ESP hat der Schalter nur Auto und Manuell."""
+    await _setup_saeule(hass, aioclient_mock)
+    st = hass.states.get("select.signalsaeule_betriebsart")
+    assert st.attributes["options"] == ["Auto", "Manuell"]
+    assert st.attributes["garage"] == "nicht eingerichtet"
+
+
+async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclient_mock) -> None:
+    """Auto steht drin: zwei kurze Toene, dann rot - und nur rot."""
+    await _setup_garage(hass, aioclient_mock)          # ampel = stopp
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+
+    st = hass.states.get("select.signalsaeule_betriebsart")
+    assert "Ampel" in st.attributes["options"]
+
+    await _betriebsart(hass, "Ampel")
+
+    pfade = _postpfade(aioclient_mock)
+    # Der Quittungston kommt vor dem Bild
+    assert pfade[0] == "/api/piep?anzahl=2"
+    # Erst manuell, dann Stufe fuer Stufe: nur Rot (Nr. 3) an
+    assert "/api/modus?modus=manuell" in pfade
+    assert "/api/relais/3?an=1" in pfade
+    assert "/api/relais/1?an=0" in pfade
+    assert "/api/relais/2?an=0" in pfade
+    assert "/api/relais/4?an=0" in pfade
+    # Die Warnleuchte und der Tongeber gehoeren zu keinem Bild
+    assert not [p for p in pfade if p.startswith("/api/relais/5")]
+    assert not [p for p in pfade if p.startswith("/api/relais/6")]
+
+    st = hass.states.get("select.signalsaeule_betriebsart")
+    assert st.state == "Ampel"
+    assert st.attributes["ampel"] == "stopp"
+    assert st.attributes["geraet"] == "manuell"
+    assert st.attributes["ampel_fehler"] is None
+
+
+async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock) -> None:
+    """Wird die Garage frei, wird die Saeule gruen - ohne Zutun."""
+    garage = await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    vorher = len(_postpfade(aioclient_mock))
+    _garage_melden(hass, garage, ampel="frei", auto_drin=False, lampe=False)
+    await hass.async_block_till_done()
+
+    neu = _postpfade(aioclient_mock)[vorher:]
+    assert "/api/relais/1?an=1" in neu      # gruen
+    assert "/api/relais/3?an=0" in neu      # rot aus
+    assert hass.states.get("select.signalsaeule_betriebsart").attributes["ampel"] == "frei"
+
+    # Dasselbe noch einmal gemeldet schaltet nicht wieder - das Bild steht schon
+    vorher = len(_postpfade(aioclient_mock))
+    _garage_melden(hass, garage, ampel="frei", auto_drin=False, lampe=False)
+    await hass.async_block_till_done()
+    assert _postpfade(aioclient_mock)[vorher:] == []
+
+
+async def test_ampel_aus_laesst_nichts_leuchten(hass: HomeAssistant, aioclient_mock) -> None:
+    """Ampel aus heisst dunkel - kein Ersatzbild."""
+    await _setup_garage(hass, aioclient_mock, garage_state(ampel="aus", auto=False, lampe=False))
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    pfade = _postpfade(aioclient_mock)
+    assert pfade[0] == "/api/piep?anzahl=2"          # gehoert hat man es trotzdem
+    assert [p for p in pfade if p.startswith("/api/relais/")] == [
+        "/api/relais/1?an=0", "/api/relais/2?an=0",
+        "/api/relais/3?an=0", "/api/relais/4?an=0",
+    ]
+
+
+async def test_ampel_zeigt_abgerissene_garage(hass: HomeAssistant, aioclient_mock) -> None:
+    """Keine Antwort aus der Garage: nur die Hinweisleuchte oben."""
+    garage = await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    vorher = len(_postpfade(aioclient_mock))
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    coordinator = hass.data[DOMAIN][garage.entry_id]
+    coordinator.async_set_update_error(UpdateFailed("weg"))
+    await hass.async_block_till_done()
+
+    neu = _postpfade(aioclient_mock)[vorher:]
+    assert "/api/relais/4?an=1" in neu       # Hinweis
+    assert "/api/relais/3?an=0" in neu       # rot aus
+    assert hass.states.get("select.signalsaeule_betriebsart").attributes["ampel"] is None
+
+
+async def test_ampel_endet_bei_status_von_hand(hass: HomeAssistant, aioclient_mock) -> None:
+    """Einen Status zu waehlen heisst: ich stelle selbst."""
+    garage = await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
+
+    await hass.services.async_call(
+        "select", "select_option",
+        {"entity_id": "select.signalsaeule_status", "option": "Alarm"}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
+
+    # Und die Garage schaltet jetzt nichts mehr
+    vorher = len(_postpfade(aioclient_mock))
+    _garage_melden(hass, garage, ampel="frei", auto_drin=False)
+    await hass.async_block_till_done()
+    assert _postpfade(aioclient_mock)[vorher:] == []
+
+
+async def test_ampel_endet_bei_stufe_von_hand_nicht_beim_ton(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Eine Stufe von Hand beendet die Ampel, Warnleuchte und Ton nicht."""
+    await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+
+    # Tongeber: gehoert zu keinem Bild, die Ampel bleibt
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_ton"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
+
+    # Warnleuchte: dasselbe
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_warnleuchte"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
+
+    # Eine Stufe dagegen beendet sie
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": "switch.signalsaeule_orange"}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
+
+
+async def test_ampel_ruht_waehrend_des_weckrufs(hass: HomeAssistant, aioclient_mock) -> None:
+    """Der Weckruf hat Vorrang und gibt die Ampel danach wieder frei."""
+    garage = await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock)
+    entry = await _setup(hass)
+    _saeule_posts(aioclient_mock)
+    aioclient_mock.post(f"{SAEULE_URL}/api/status", json=saeule_state(status="alarm"))
+    await _betriebsart(hass, "Ampel")
+
+    ablauf = hass.data[DOMAIN][entry.entry_id].ablauf
+    saeule = ablauf.saeule()
+
+    # Ein Schritt des Weckablaufs fasst die Saeule an
+    await ablauf._saeule({"status": "alarm"})
+    assert saeule.ampel.pausiert is True
+    assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
+
+    # Jetzt wird die Garage frei - das darf den Weckruf nicht stoeren
+    vorher = len(_postpfade(aioclient_mock))
+    _garage_melden(hass, garage, ampel="frei", auto_drin=False)
+    await hass.async_block_till_done()
+    assert _postpfade(aioclient_mock)[vorher:] == []
+
+    # Am Ende des Laufs zieht die Ampel ihr Bild nach
+    from homeassistant.util import dt as dt_util
+
+    ablauf._fertig(dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert saeule.ampel.pausiert is False
+    neu = _postpfade(aioclient_mock)[vorher:]
+    assert "/api/relais/1?an=1" in neu       # gruen, die Garage ist frei
+    assert any(n["was"] == "Betriebsart Ampel" for n in ablauf.protokoll)
+
+
+async def test_ampel_braucht_die_farben_der_firmware(hass: HomeAssistant, aioclient_mock) -> None:
+    """Eine alte Firmware ohne Farben: kein Bild, aber eine klare Auskunft."""
+    await _setup_garage(hass, aioclient_mock)
+    await _setup_saeule(hass, aioclient_mock, saeule_state(mit_farbe=False))
+    _saeule_posts(aioclient_mock, mit_farbe=False)
+    await _betriebsart(hass, "Ampel")
+
+    st = hass.states.get("select.signalsaeule_betriebsart")
+    assert st.state == "Ampel"
+    assert "1.3.0" in st.attributes["ampel_fehler"]
+    assert not [p for p in _postpfade(aioclient_mock) if p.startswith("/api/relais/")]

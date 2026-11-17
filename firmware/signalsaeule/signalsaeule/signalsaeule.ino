@@ -64,7 +64,8 @@
                                     Nr. 6 ist der Tongeber
     POST /api/modus?modus=auto|manuell
     POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm  (-> auto)
-    POST /api/test?an=1|0           Testmodus
+    POST /api/piep?anzahl=&an=&aus= kurzer Hinweiston auf dem Tongeber
+  POST /api/test?an=1|0           Testmodus
     POST /api/diagnose              Selbstdiagnose starten
     POST /api/alarm/stop            alles aus, Betriebsart manuell
 */
@@ -76,7 +77,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.2.0";
+static const char* VERSION  = "1.3.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -101,6 +102,10 @@ struct Leuchte {
   uint8_t pin;
   const char* name;
   Rolle rolle;
+  // Welche Farbe wirklich im Gehaeuse steckt. Steht im JSON, damit Home
+  // Assistant die Ampel der Garage nachzeichnen kann, ohne Relaisnummern
+  // zu raten: es fragt nach "rot", nicht nach Nummer drei.
+  const char* farbe;
 };
 
 struct DiagPunkt {
@@ -127,12 +132,12 @@ WiFiServer sseServer(SSE_PORT);
 // an der Verdrahtung etwas aendert - die Entitaeten in Home Assistant haengen
 // daran.
 static Leuchte LEUCHTEN[] = {
-  {1, 3, "Gruen",       R_STUFE},
-  {2, 4, "Orange",      R_STUFE},
-  {3, 5, "Rot",         R_STUFE},
-  {4, 6, "Hinweis",     R_STUFE},
-  {5, 2, "Warnleuchte", R_WARN },
-  {6, 7, "Ton",         R_TON  },
+  {1, 3, "Gruen",       R_STUFE, "gruen"  },
+  {2, 4, "Orange",      R_STUFE, "orange" },
+  {3, 5, "Rot",         R_STUFE, "rot"    },
+  {4, 6, "Hinweis",     R_STUFE, "hinweis"},
+  {5, 2, "Warnleuchte", R_WARN,  "warn"   },
+  {6, 7, "Ton",         R_TON,   "ton"    },
 };
 static const uint8_t ANZAHL = sizeof(LEUCHTEN) / sizeof(LEUCHTEN[0]);
 static const uint8_t STUFEN = 4;        // Index 0..3 sind die Stufen der Saeule
@@ -199,6 +204,18 @@ static bool warnVorAlarm = false;
 // Der Tongeber: piept, solange Strom drauf ist. Bewusst nicht im Flash
 // gemerkt - nach einem Stromausfall ist er aus.
 static bool tonAn = false;
+// Kurzer Hinweiston: der Tongeber piept ein paar Mal ganz kurz und ist danach
+// wieder aus - ein Quittungston, kein Alarm. Die Folge laeuft im Zeitgeber ab
+// (alle 10 ms), nicht in der Schleife: die steht beim Ausliefern einer Seite
+// auch mal eine Sekunde, und dann waere aus dem kurzen Piep ein Ton geworden.
+static const uint8_t  PIEP_ANZAHL_MAX = 5;
+static const uint16_t PIEP_AN_MS      = 70;    // so lange ein Ton
+static const uint16_t PIEP_AUS_MS     = 110;   // so lange die Pause dazwischen
+static volatile uint8_t  piepRest  = 0;        // noch so viele Halbschritte
+static volatile bool     piepAn    = false;    // Ton im laufenden Halbschritt
+static volatile uint32_t piepBis   = 0;        // bis wann er gilt (millis)
+static volatile uint16_t piepAnMs  = PIEP_AN_MS;
+static volatile uint16_t piepAusMs = PIEP_AUS_MS;
 static bool testAn = false;
 
 static unsigned long statusSeit = 0;
@@ -413,6 +430,37 @@ static bool diagAllesOk() {
 // Alarm und Warnleuchte zusammenbringen. Eingerastet heisst: die Ansage ist
 // durch und die Ruhephase auch - genau der Augenblick, in dem Rot und
 // Hinweisleuchte im Wechsel zu blinken anfangen.
+// Eine Folge kurzer Toene anstossen. Laeuft gerade schon eine, wird sie
+// ersetzt - zweimal hintereinander auf "Ampel" zu druecken soll nicht
+// zwei Folgen uebereinanderlegen.
+static void piepStarten(uint8_t anzahl, uint16_t anMs, uint16_t ausMs) {
+  if (anzahl == 0) return;
+  if (anzahl > PIEP_ANZAHL_MAX) anzahl = PIEP_ANZAHL_MAX;
+  noInterrupts();
+  piepAnMs  = anMs ? anMs : PIEP_AN_MS;
+  piepAusMs = ausMs ? ausMs : PIEP_AUS_MS;
+  piepRest  = (uint8_t)(anzahl * 2 - 1);   // Ton, Pause, Ton ... ohne Pause am Ende
+  piepAn    = true;
+  piepBis   = millis() + piepAnMs;
+  interrupts();
+}
+
+// Den laufenden Halbschritt weiterzaehlen. Wird im Zeitgeber gerufen.
+static void piepPflegen() {
+  if (piepRest == 0) {
+    piepAn = false;
+    return;
+  }
+  if ((int32_t)(millis() - piepBis) < 0) return;
+  piepRest--;
+  if (piepRest == 0) {
+    piepAn = false;
+    return;
+  }
+  piepAn  = !piepAn;
+  piepBis = millis() + (piepAn ? piepAnMs : piepAusMs);
+}
+
 static void alarmWarnPflegen() {
   bool soll = autoModus && !testAn && status == ALARM && eingerastet();
   if (soll && !warnVomAlarm) {
@@ -432,7 +480,9 @@ static void lampenStellen() {
   // Warnleuchte und Tongeber: eigene Schalter, unabhaengig von der
   // Betriebsart - darum vor allen Rueckkehrpunkten dieser Funktion
   setzen(IDX_WARN, warnAn);
-  setzen(IDX_TON, tonAn);
+  // Der Dauerton des Schalters und der kurze Hinweiston teilen sich den
+  // Ausgang. Nur der Schalter steht im JSON - ein Piep ist kein Zustand.
+  setzen(IDX_TON, tonAn || piepAn);
 
   if (!autoModus) {
     for (uint8_t s = 0; s < STUFEN; s++) setzen(s, manuell[s]);
@@ -623,6 +673,7 @@ static void taktISR(timer_callback_args_t*) {
   spurSchreiben();                     // auch Startablauf und Diagnose mitschreiben
   if (phase != PH_BETRIEB) return;     // den Startablauf stellt die Schleife
   if (diagLaeuft()) return;            // die Diagnose auch
+  piepPflegen();
   alarmWarnPflegen();
   lampenStellen();
 }
@@ -815,6 +866,7 @@ static String stateJson() {
     s += ",\"gpio\":" + String(LEUCHTEN[i].pin);
     s += ",\"name\":" + jsonText(LEUCHTEN[i].name);
     s += ",\"rolle\":\"" + String(ROLLE_ID[LEUCHTEN[i].rolle]) + "\"";
+    s += ",\"farbe\":\"" + String(LEUCHTEN[i].farbe) + "\"";
     s += ",\"defekt\":false";
     s += ",\"an\":" + String(sollAn(i) ? "true" : "false");       // logischer Zustand
     s += ",\"live\":" + String(istAn[i] ? "true" : "false");      // was gerade leuchtet
@@ -1094,6 +1146,15 @@ static void httpBedienen() {
       }
       sendeJson(c, 200, stateJson());
     }
+  } else if (pfad == "/api/piep") {
+    // Quittungston: ein paar ganz kurze Toene, danach ist der Ausgang wieder
+    // aus. Der Dauerton des Schalters bleibt davon unberuehrt.
+    long anzahl = argWert(ziel, "anzahl").toInt();
+    if (anzahl <= 0) anzahl = 2;
+    piepStarten((uint8_t)anzahl,
+                (uint16_t)argWert(ziel, "an").toInt(),
+                (uint16_t)argWert(ziel, "aus").toInt());
+    sendeJson(c, 200, stateJson());
   } else if (pfad == "/api/test") {
     bool an = wahr(argWert(ziel, "an"));
     if (an != testAn) {
@@ -1130,6 +1191,8 @@ static void httpBedienen() {
     warnAn = false;
     warnVomAlarm = false;
     tonAn = false;
+    piepRest = 0;
+    piepAn = false;
     autoModus = false;
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
     sendeJson(c, 200, stateJson());
@@ -1194,6 +1257,8 @@ void loop() {
       setzen(i, false);
     }
     warnAn = warnVomAlarm = warnVorAlarm = tonAn = false;
+    piepRest = 0;
+    piepAn = false;
     statusSetzen(RUHE, false);   // Grundstellung ohne Ansage, aber dunkel
     wlanVerbinden();
     if (START_ANIMATION) {

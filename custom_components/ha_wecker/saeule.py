@@ -29,6 +29,7 @@ from .const import (
     DOMAIN,
     MODUS_AUTO,
     MODUS_MANUELL,
+    PIEP_ANZAHL,
     ROLLE_STUFE,
     ROLLE_TON,
     ROLLE_WARN,
@@ -79,6 +80,10 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._events_task: asyncio.Task | None = None
         self.events_verbunden = False
         self.test_aktiv = False      # Schalter "Testmodus"
+        # Betriebsart "Ampel" - siehe ampel.py. Sie steht nicht hier, weil sie
+        # die Garage braucht und saeule.py die nicht kennen soll; __init__.py
+        # haengt sie ein.
+        self.ampel: Any = None
 
     # --- Adresse ------------------------------------------------------
 
@@ -173,6 +178,25 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return nr
         return None
 
+    def nummer_farbe(self, farbe: str) -> int | None:
+        """Nummer des Ausgangs mit dieser Farbe; None, wenn es ihn nicht gibt.
+
+        Die Farbe meldet die Saeule selbst (ab Firmware 1.3.0). Die Ampel der
+        Garage braucht genau das: "rot" und "gruen", nicht Nummer drei und
+        Nummer eins. Eine aeltere Firmware meldet keine Farbe - dann findet
+        sich keine, und wer danach fragt, bekommt sauber nichts.
+        """
+        for r in self.leuchten():
+            if str(r.get("farbe") or "") == farbe:
+                nr = r.get("nr")
+                if isinstance(nr, int):
+                    return nr
+        return None
+
+    def stufen_farben(self) -> list[str]:
+        """Die Farben, die die Saeule als Stufen meldet - fuer die Diagnose."""
+        return [str(r.get("farbe") or "") for r in self.leuchten(ROLLE_STUFE)]
+
     # --- Befehle ------------------------------------------------------
 
     async def async_modus(self, auto: bool) -> None:
@@ -191,6 +215,31 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_alles_aus(self) -> None:
         await self._post("/api/alarm/stop", {})
+
+    async def async_piep(self, anzahl: int = PIEP_ANZAHL) -> None:
+        """Kurzer Quittungston auf dem Tongeber.
+
+        Die Saeule gibt die Folge selbst, nicht Home Assistant mit zwei
+        Schaltbefehlen und einer Pause dazwischen: so ist der Ton wirklich
+        kurz, auch wenn das Netz gerade langsam ist. Der Dauerton des
+        Schalters bleibt davon unberuehrt.
+        """
+        await self._post("/api/piep", {"anzahl": anzahl})
+
+    async def async_stufen_stellen(self, an: list[int]) -> None:
+        """Genau diese Stufen an, alle anderen aus - in Betriebsart manuell.
+
+        Fuer die Betriebsart "Ampel": die Saeule soll ein stehendes Bild
+        zeigen, keine Choreografie. Darum nicht ueber den Status, sondern
+        Stufe fuer Stufe. Erst manuell, dann stellen - sonst raeumt die
+        laufende Ansage gleich wieder ab, was hier gesetzt wurde.
+        """
+        if self.modus != MODUS_MANUELL:
+            await self.async_modus(False)
+        for r in self.leuchten(ROLLE_STUFE):
+            nr = r.get("nr")
+            if isinstance(nr, int):
+                await self.async_schalten(nr, nr in an)
 
     # --- Ereignisstrom -----------------------------------------------
 

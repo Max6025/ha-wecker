@@ -340,9 +340,16 @@ Klemmleiste an der Saeule (Stand 16.11.2026, Cat-Kabel):
 | 5 | Ton | orange |
 
 Die Nummern in `/api/state` (1 gruen bis 4 Hinweis, 5 Warnleuchte, 6 Ton)
-bleiben stabil - die Entitaeten in Home Assistant haengen daran.
+bleiben stabil - die Entitaeten in Home Assistant haengen daran. Ab Firmware
+**1.3.0** steht bei jedem Ausgang zusaetzlich seine `farbe` (`gruen`, `orange`,
+`rot`, `hinweis`, `warn`, `ton`). Wer eine bestimmte Farbe will, fragt danach
+und nicht nach der Nummer - die Garagenampel in Abschnitt 6c tut genau das.
 
-**Betriebsarten.** In **Auto** treibt der Status die Saeule. Ein Wechsel wird
+**Betriebsarten.** Drei: **Auto**, **Manuell** und **Ampel**. Die ersten zwei
+kennt die Saeule selbst, die dritte nur Home Assistant - sie steht weiter
+unten in Abschnitt 6c.
+
+In **Auto** treibt der Status die Saeule. Ein Wechsel wird
 immer gleich angesagt: alle vier Stufen laufen von unten nach oben dazu (bei
 einem Wechsel nach unten umgekehrt), dann raeumt die Saeule von oben nach unten
 wieder ab und laesst nur die Lampe des neuen Status stehen, die erst eine
@@ -389,6 +396,17 @@ er auch nicht: **nach einem Stromausfall ist er aus.** Eine Saeule, die beim
 Booten um Viertel vor fuenf losschreit, weckt das halbe Haus. Nur die
 Selbstdiagnose laesst ihn kurz piepen - sie schaltet jeden Ausgang der Reihe
 nach fuer 0,4 Sekunden ein.
+
+**Kurzer Hinweiston (seit Firmware 1.3.0).** `POST /api/piep` gibt zwei ganz
+kurze Toene (70 ms Ton, 110 ms Pause, 70 ms Ton) und laesst den Schalter
+darueber unberuehrt - eine Quittung, kein Alarm. `anzahl`, `an` und `aus`
+lassen sich mitgeben, mehr als fuenf Toene gibt die Saeule nicht. Die Folge
+laeuft im Zeitgeber (alle 10 ms), nicht in der Schleife: die steht beim
+Ausliefern einer Seite auch mal eine Sekunde, und dann waere aus dem kurzen
+Piep ein Ton geworden. Im JSON steht ein laufender Piep nicht - er ist kein
+Zustand. Home Assistant gibt diesen Ton beim Umschalten auf die Betriebsart
+**Ampel** (Abschnitt 6c), und auf der Seite der Saeule gibt es den Knopf
+„Kurz piepen".
 
 **Stiller Start (seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
@@ -496,6 +514,7 @@ GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
 POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
 POST /api/modus?modus=auto|manuell
 POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
+POST /api/piep?anzahl=&an=&aus= kurzer Hinweiston auf dem Tongeber
 POST /api/test?an=1|0           Testmodus
 POST /api/diagnose              Selbstdiagnose starten
 POST /api/alarm/stop            alles aus, Betriebsart Manuell
@@ -680,6 +699,61 @@ die Aufgabe sofort und laesst sie bis zum ersten echten Warten durchlaufen.
 Als `_schalten` am Ende noch neu plante, lief das synchron in die Planung
 zurueck - einmal im Kreis fuer jeden Schaltvorgang, bis der Stapel voll war.
 Deshalb plant jetzt nur der Timer-Rueckruf, nie das Schalten selbst.
+
+---
+
+## 6c. Betriebsart „Ampel" (die Saeule zeigt die Garagenampel)
+
+Ein dritter Platz im Schalter **Betriebsart** neben Auto und Manuell. Steht er
+auf **Ampel**, zeigt die Signalsaeule, was der Garagen-ESP meldet (Abschnitt
+8) - im Zimmer sieht man also, ob der 206 richtig in der Garage steht:
+
+| Garage meldet                  | Saeule     |
+|--------------------------------|------------|
+| `stopp` (Auto steht richtig)   | rot        |
+| `frei`                         | gruen      |
+| `kein_strom` (nichts am Tor)   | orange     |
+| `aus`                          | nichts     |
+| nicht zu erreichen             | Hinweisleuchte oben, allein |
+
+Beim Umschalten gibt der Tongeber zwei ganz kurze Toene (`/api/piep`, siehe
+Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu
+sehen ist. Gehoert hat man es trotzdem.
+
+**Nur in Home Assistant.** Die Saeule kennt die Garage nicht. Am Geraet steht
+sie in dieser Betriebsart auf `manuell`, und die Stufen werden einzeln
+gestellt - ein **stehendes Bild**, keine Choreografie. Genau das soll eine
+Ampel sein: ruhig und auf einen Blick zu lesen. Darum auch nicht ueber den
+Status: `stoerung` waere zwar rot, liesse aber die Hinweisleuchte im
+Viertelsekundentakt mitblinken. Gefragt wird nach der **Farbe**, die die Saeule
+ab Firmware 1.3.0 selbst meldet, nicht nach der Relaisnummer. Eine aeltere
+Firmware meldet keine Farben; dann bleibt die Saeule dunkel und das Attribut
+`ampel_fehler` sagt, warum. Der Platz „Ampel" steht ueberhaupt nur im Schalter,
+wenn es den Garagen-ESP in Home Assistant wirklich gibt.
+
+**Was die Betriebsart beendet.** Dreierlei:
+
+- ein anderer Platz im Schalter (Auto oder Manuell),
+- ein **Status** oder eine **Stufe** von Hand - wer selbst stellt, will selbst
+  stellen. Dieselbe Regel gilt in der Firmware fuer Auto und Manuell. Die
+  Warnleuchte und der Tongeber beenden sie **nicht**: die gehoeren zu keinem
+  Bild,
+- jeder **Neustart**, der von Home Assistant und der der Saeule. Der
+  Ampelmodus wird bewusst nicht gemerkt. Die Saeule geht abends vom Netz
+  (Abschnitt 6b) und kommt morgens um Viertel vor fuenf still wieder hoch -
+  wuerde der Ampelmodus das ueberdauern, stuende sie auf Rot, lange bevor der
+  Wecker klingelt. Das ist genau das, was der stille Start verhindern soll.
+
+**Der Weckruf hat Vorrang.** Fasst der Weckablauf die Saeule an, ruht die
+Betriebsart bis zum Ende des Laufs und zieht danach das Ampelbild nach. Beides
+steht im Protokoll des Weckablaufs („ruht bis zum Ende des Laufs", „laeuft
+wieder"). Waehrend sie ruht, schaltet auch ein Wort aus der Garage nichts.
+
+Die Attribute am Schalter **Betriebsart** sagen, was los ist: `ampel` (der
+Wert aus der Garage), `ampel_pausiert`, `ampel_fehler`, `garage` und `geraet`
+(worauf die Saeule selbst steht, also `auto` oder `manuell`).
+
+Code: `custom_components/ha_wecker/ampel.py`.
 
 ---
 

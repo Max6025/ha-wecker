@@ -483,9 +483,19 @@ class Weckablauf:
             )
             self.hass.async_create_task(self._aufraeumen())
         self.notiz("Fertig", "Probelauf beendet" if war_probe else "Ablauf beendet", "ok")
+        self._ampel_weiter()
         # Gleich den naechsten Vorlauf planen, sonst wartet er auf die naechste
         # Meldung der App - und die kommt vielleicht erst beim Klingeln.
         self._wecker_geaendert()
+
+    @callback
+    def _ampel_weiter(self) -> None:
+        """Die Betriebsart "Ampel" wieder laufen lassen, falls sie ruhte."""
+        coordinator = self.saeule()
+        ampel = getattr(coordinator, "ampel", None) if coordinator else None
+        if ampel is not None and ampel.aktiv and ampel.pausiert:
+            self.notiz("Betriebsart Ampel", "laeuft wieder", "ok")
+            self.hass.async_create_task(ampel.async_weiter())
 
     def _faellig(self, schritt: dict[str, Any]):
         @callback
@@ -548,6 +558,7 @@ class Weckablauf:
         self.notiz("Abbruch", "Ablauf gestoppt" if war else "nichts lief", "ok")
         if war:
             await self._aufraeumen()
+        self._ampel_weiter()
         self.melden()
 
     # --- Schritte ausfuehren ------------------------------------------
@@ -596,6 +607,13 @@ class Weckablauf:
         if coordinator is None:
             self.notiz("Signalsaeule", "nicht eingerichtet", "uebersprungen")
             return
+        # Der Weckruf hat Vorrang: steht die Saeule auf der Garagenampel, ruht
+        # die Betriebsart jetzt und zieht ihr Bild erst am Ende des Laufs
+        # wieder nach (siehe ampel.py).
+        ampel = getattr(coordinator, "ampel", None)
+        if ampel is not None and ampel.aktiv and not ampel.pausiert:
+            ampel.pausieren()
+            self.notiz("Betriebsart Ampel", "ruht bis zum Ende des Laufs", "ok")
         try:
             if "status" in wunsch:
                 await coordinator.async_status(str(wunsch["status"]))

@@ -48,6 +48,19 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   sucht sie ueber `nummer_fuer(rolle)`; fehlt der Ausgang (aeltere Firmware
   ohne Tongeber), gibt es einen Fehler im Protokoll statt eines Schaltbefehls
   an eine geratene Nummer. Vorher stand im Ablauf `async_schalten(5, ...)`.
+  Dasselbe gilt fuer die Farbe: die Saeule meldet seit 1.3.0 bei jedem
+  Ausgang `farbe` (`gruen`, `orange`, `rot`, `hinweis`, `warn`, `ton`), und
+  `nummer_farbe("rot")` fragt danach. Wer eine bestimmte Farbe braucht - die
+  Garagenampel tut das -, fragt nach der Farbe, nie nach Nummer drei.
+- **Der kurze Hinweiston kommt aus der Saeule, nicht aus Home Assistant.**
+  `POST /api/piep` (1.3.0) gibt die Folge selbst, nicht zwei Schaltbefehle
+  mit einer Pause dazwischen: so ist der Ton wirklich kurz, auch wenn das Netz
+  gerade langsam ist. Die Folge laeuft im Zeitgeber, nicht in `loop()` - die
+  steht beim Ausliefern einer Seite ueber eine Sekunde, und dann waere aus dem
+  Piep ein Ton geworden. `piepAn` teilt sich den Ausgang mit `tonAn`
+  (`setzen(IDX_TON, tonAn || piepAn)`), steht aber **nicht** im JSON: ein
+  Piep ist kein Zustand. Der stille Start und `/api/alarm/stop` raeumen eine
+  laufende Folge ab.
 - **Kommt nie ein Beenden, raeumt das Sicherheitsnetz auf.** `_fertig()`
   erkennt am noch leeren `beendet_um`, dass der Weckruf-Teil ohne Beenden
   ausgelaufen ist, und ruft `_aufraeumen()` (Ton aus, Saeule auf Ruhe, Licht
@@ -120,6 +133,28 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Schlummern und im Sicherheitsnetz auch wieder ab - aber nur, wenn er ihn
   selbst angestellt hat (`_ton_von_uns`). Sonst schaltete ein Weckruf den von
   Hand gedrueckten Knopf aus.
+- **Die Betriebsart „Ampel" gibt es nur in Home Assistant** (`ampel.py`, seit
+  17.11.2026). Die Saeule kennt die Garage nicht; am Geraet steht sie dabei
+  auf `manuell` und die Stufen werden einzeln gestellt - ein stehendes Bild,
+  keine Choreografie. Nicht ueber den Status gehen: `stoerung` waere rot,
+  liesse aber die Hinweisleuchte mitblinken, und eine Ampel soll ruhig sein.
+  Drei Dinge beenden sie: ein anderer Platz im Schalter, ein Status oder eine
+  **Stufe** von Hand (Warnleuchte und Tongeber nicht - die gehoeren zu keinem
+  Bild), und jeder Neustart.
+- **Der Ampelmodus wird bewusst nicht gemerkt.** Kein `RestoreEntity`, kein
+  Store. Die Saeule geht abends vom Netz und kommt um 4:55 still wieder hoch;
+  wuerde der Ampelmodus das ueberdauern, stuende sie auf Rot, lange bevor der
+  Wecker klingelt - genau das, was der stille Start verhindern soll. Wer das
+  aendern will, muss erst diese Falle loesen.
+- **Der Weckruf hat Vorrang vor der Ampel.** `_saeule()` ruft
+  `ampel.pausieren()`, sobald ein Schritt die Saeule anfasst; `_fertig()` und
+  `async_abbrechen()` geben sie mit `_ampel_weiter()` wieder frei, und dann
+  zieht sie ihr Bild nach (`_bild = None`, weil der Ablauf die Saeule
+  umgestellt hat). Nicht an `laeuft` haengen: das ist auch wahr, waehrend nur
+  der Vorlauf steht, und dann waere die Ampel den ganzen Tag stumm.
+- **Der Ampelmodus schreibt nur bei Aenderung.** `_bild` haelt, was zuletzt
+  gestellt wurde; meldet die Garage denselben Wert noch einmal (sie schiebt
+  jede Kleinigkeit ueber den Ereignisstrom), geht kein Befehl ans Geraet.
 - **Eine geaenderte Weckzeit muss den Vorlauf nachziehen.** Stand der Vorlauf
   schon, blieb `laeuft` gesetzt und `_wecker_geaendert` plante nicht neu: am
   16.11. stellte Max abends 05:00 auf 04:50 um, der Stromplan zog mit (die

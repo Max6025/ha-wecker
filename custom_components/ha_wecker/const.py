@@ -14,6 +14,10 @@ CONF_HOST = "host"
 SAEULE_ABFRAGE_S = 15
 MODUS_AUTO = "auto"
 MODUS_MANUELL = "manuell"
+# Dritte Betriebsart, die es nur in Home Assistant gibt: die Saeule zeichnet
+# die Ampel der Garage nach (siehe ampel.py). Am Geraet selbst steht sie
+# dabei auf "manuell" - die Stufen werden einzeln gestellt.
+MODUS_AMPEL = "ampel"
 STATUS_STANDARD = "ruhe"
 # Rolle eines Ausgangs in /api/state: "stufe" gehoert zur Saeule und folgt dem
 # Status, "warn" ist die Blitz-Warnleuchte, "ton" der Tongeber - die beiden
@@ -21,9 +25,19 @@ STATUS_STANDARD = "ruhe"
 ROLLE_STUFE = "stufe"
 ROLLE_WARN = "warn"
 ROLLE_TON = "ton"
+# Farbe eines Ausgangs, wie die Saeule sie ab Firmware 1.3.0 meldet. Damit
+# findet die Integration "rot", ohne die Relaisnummer zu kennen.
+FARBE_GRUEN = "gruen"
+FARBE_ORANGE = "orange"
+FARBE_ROT = "rot"
+FARBE_HINWEIS = "hinweis"
 
 # Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
 GARAGE_ABFRAGE_S = 15
+
+# Quittungston beim Umschalten auf die Betriebsart "Ampel": zwei ganz kurze
+# Toene auf dem Tongeber der Saeule, kein Alarm.
+PIEP_ANZAHL = 2
 
 SIGNAL_UPDATE = DOMAIN + "_update_{}"
 SIGNAL_WECKER_ALLE = DOMAIN + "_wecker_alle"     # irgendein Wecker hat sich gemeldet

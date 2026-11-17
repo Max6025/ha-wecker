@@ -129,9 +129,15 @@ td.z{width:18px} td.n{width:34%}
         und Hinweis im Wechsel blinken, und beim Verlassen wieder auf ihren
         Stand von vorher.</div>
       <div class="warn schalter" style="margin-top:10px" id="tonschalter"></div>
+      <div class="schalter" style="margin-top:10px">
+        <button onclick="piep()">Kurz piepen</button>
+      </div>
       <div class="hinweis">Der Tongeber piept, solange Strom drauf ist. Er hängt
         an gar nichts – kein Status, kein Testmodus, kein Startablauf nimmt ihn
-        mit – und wird auch nicht gemerkt: nach einem Stromausfall ist er aus.</div>
+        mit – und wird auch nicht gemerkt: nach einem Stromausfall ist er aus.
+        „Kurz piepen“ gibt zwei ganz kurze Töne als Quittung und lässt den
+        Schalter darüber unberührt – denselben Ton gibt Home Assistant, wenn die
+        Säule auf die Garagenampel umgestellt wird.</div>
     </div>
 
     <div class="karte">
@@ -171,6 +177,7 @@ function modus(m) { tu('/api/modus?modus=' + m); }
 function statusWahl(s) { tu('/api/status?status=' + s); }
 function schalte(nr, an) { tu('/api/relais/' + nr + '?an=' + (an ? 1 : 0)); }
 function test() { tu('/api/test?an=' + (z.test ? 0 : 1)); }
+function piep() { tu('/api/piep?anzahl=2'); }
 function diagnose() { tu('/api/diagnose'); }
 
 function bauen() {

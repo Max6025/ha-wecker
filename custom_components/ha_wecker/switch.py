@@ -68,6 +68,7 @@ class _SaeuleLeuchte(SaeuleEntity, SwitchEntity):
         return {
             "nr": self.nr,
             "pin": r.get("gpio"),
+            "farbe": r.get("farbe"),
             "leuchtet_jetzt": bool(r.get("live")),
             "pegel": r.get("pegel"),
         }
@@ -92,6 +93,16 @@ class LeuchteSwitch(_SaeuleLeuchte):
         super().__init__(coordinator, nr, "leuchte")
         r = coordinator.relais(nr) or {}
         self._attr_name = str(r.get("name") or f"Leuchte {nr}")
+
+    async def _schalten(self, an: bool) -> None:
+        # Eine Stufe von Hand zu schalten heisst: ich stelle selbst. Dann
+        # beendet das auch die Betriebsart "Ampel", sonst zieht sie beim
+        # naechsten Wort aus der Garage ihr Bild wieder darueber. Die
+        # Warnleuchte und der Tongeber tun das nicht - sie gehoeren zu keinem
+        # Bild (siehe ampel.py).
+        if self.coordinator.ampel is not None:
+            self.coordinator.ampel.verlassen()
+        await super()._schalten(an)
 
     @property
     def icon(self) -> str:

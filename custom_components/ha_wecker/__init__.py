@@ -4,8 +4,10 @@ Drei Geraetetypen in einer Integration:
 - Wecker: die App meldet ihren Stand per Webhook (kein Dienst im Hintergrund,
           kein lokaler Server, nichts zum Abfragen). An ihm haengt der
           Weckablauf, der Hauptlicht und Saeule steuert - siehe ablauf.py.
-- Saeule: Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell,
-          Status mit Ansage, einzelne Leuchten, Selbstdiagnose.
+- Saeule: Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell/
+          Ampel, Status mit Ansage, einzelne Leuchten, Selbstdiagnose. In der
+          Betriebsart "Ampel" zeichnet sie die Garagenampel nach, siehe
+          ampel.py.
 - Garage: der Garagen-ESP des Peugeot 206 (Lichtschranke, rote Lampe, Funk zum
           Auto-ESP) - Ampel, Tor, Auto zu hoeren, verriegelt, Zuendung. Er
           meldet sich selbst an, siehe garage.py.
@@ -41,6 +43,7 @@ from .const import (
     TYP_WECKER,
 )
 from .ablauf import Weckablauf
+from .ampel import Ampelmodus
 from .garage import GarageCoordinator
 from .saeule import SaeuleCoordinator
 from .strom import Stromplan
@@ -184,6 +187,10 @@ async def _setup_saeule(hass: HomeAssistant, entry: ConfigEntry) -> None:
     coordinator = SaeuleCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
+    # Die Betriebsart "Ampel" braucht die Garage aus einem anderen Eintrag.
+    # Sie faengt immer aus - absichtlich, siehe ampel.py.
+    coordinator.ampel = Ampelmodus(hass, coordinator)
+    entry.async_on_unload(coordinator.ampel.async_stop)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_SAEULE)
     # Jede Aenderung kommt sofort ueber den Ereignisstrom
     coordinator.async_start_events()

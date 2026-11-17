@@ -8,6 +8,11 @@ Betriebsart "Manuell": der Status gilt nicht, stattdessen schaltet man die
 Leuchten einzeln ueber die Schalter. Waehlt man dort doch einen Status, stellt
 die Saeule selbst auf Auto zurueck - ein Status waehlen heisst, sie soll ihn
 fahren.
+
+Betriebsart "Ampel": die Saeule zeigt die Ampel der Garage - rot, wenn der 206
+richtig drinsteht, gruen wenn frei. Beim Umschalten gibt der Tongeber zwei
+ganz kurze Toene. Diese Betriebsart gibt es nur hier, nicht in der Saeule;
+am Geraet steht sie dabei auf "manuell". Alles dazu in ampel.py.
 """
 from __future__ import annotations
 
@@ -19,11 +24,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MODUS_AUTO
+from .const import DOMAIN, MODUS_AMPEL, MODUS_AUTO, MODUS_MANUELL
 from .entity import SaeuleEntity
 from .saeule import SaeuleCoordinator
 
-BETRIEBSART = {MODUS_AUTO: "Auto", "manuell": "Manuell"}
+BETRIEBSART = {MODUS_AUTO: "Auto", MODUS_MANUELL: "Manuell", MODUS_AMPEL: "Ampel"}
 
 
 async def async_setup_entry(
@@ -36,27 +41,70 @@ async def async_setup_entry(
 
 
 class BetriebsartSelect(SaeuleEntity, SelectEntity):
-    """Auto oder Manuell - der Schalter ganz oben."""
+    """Auto, Manuell oder Ampel - der Schalter ganz oben."""
 
     _attr_name = "Betriebsart"
-    _attr_options = list(BETRIEBSART.values())
 
     def __init__(self, coordinator: SaeuleCoordinator) -> None:
         super().__init__(coordinator, "betriebsart")
 
     @property
+    def options(self) -> list[str]:
+        """Ampel steht nur da, wenn es den Garagen-ESP wirklich gibt."""
+        ampel = self.coordinator.ampel
+        namen = [BETRIEBSART[MODUS_AUTO], BETRIEBSART[MODUS_MANUELL]]
+        if ampel is not None and (ampel.garage() is not None or ampel.aktiv):
+            namen.append(BETRIEBSART[MODUS_AMPEL])
+        return namen
+
+    @property
+    def _ampelmodus(self) -> bool:
+        ampel = self.coordinator.ampel
+        return bool(ampel is not None and ampel.aktiv)
+
+    @property
     def icon(self) -> str:
+        if self._ampelmodus:
+            return "mdi:traffic-light"
         return "mdi:robot" if self.coordinator.auto else "mdi:hand-back-right"
 
     @property
     def current_option(self) -> str | None:
+        """Ampel steht ueber dem, was das Geraet meldet.
+
+        Die Saeule selbst kennt die Betriebsart nicht - sie steht dabei auf
+        "manuell". Was hier zaehlt, ist, wer die Stufen stellt.
+        """
+        if self._ampelmodus:
+            return BETRIEBSART[MODUS_AMPEL]
         return BETRIEBSART.get(self.coordinator.modus)
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        ampel = self.coordinator.ampel
+        attr: dict[str, Any] = {"geraet": self.coordinator.modus}
+        if ampel is not None:
+            attr.update(ampel.attribute())
+        return attr
+
     async def async_select_option(self, option: str) -> None:
+        ampel = self.coordinator.ampel
         try:
-            await self.coordinator.async_modus(option == BETRIEBSART[MODUS_AUTO])
+            if option == BETRIEBSART[MODUS_AMPEL]:
+                if ampel is None:
+                    raise HomeAssistantError("Die Betriebsart \"Ampel\" gibt es hier nicht")
+                await ampel.async_an()
+            else:
+                # Erst die Betriebsart beenden, dann umstellen: sonst zieht
+                # sie das Ampelbild gleich wieder nach.
+                if ampel is not None:
+                    ampel.verlassen()
+                await self.coordinator.async_modus(option == BETRIEBSART[MODUS_AUTO])
+        except HomeAssistantError:
+            raise
         except Exception as err:  # noqa: BLE001
             raise HomeAssistantError(str(err)) from err
+        self.async_write_ha_state()
 
 
 class StatusSelect(SaeuleEntity, SelectEntity):
@@ -88,6 +136,11 @@ class StatusSelect(SaeuleEntity, SelectEntity):
         kennung = self.coordinator.status_id(option)
         if kennung is None:
             raise HomeAssistantError(f"Unbekannter Status: {option}")
+        # Einen Status zu waehlen heisst, die Saeule soll ihn fahren - und
+        # nicht die Garagenampel. Dieselbe Regel wie in der Firmware, die bei
+        # einem Status von Manuell auf Auto zurueckstellt.
+        if self.coordinator.ampel is not None:
+            self.coordinator.ampel.verlassen()
         try:
             await self.coordinator.async_status(kennung)
         except Exception as err:  # noqa: BLE001
