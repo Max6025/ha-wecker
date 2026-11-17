@@ -752,7 +752,10 @@ gelb.
 Das Blinken macht die **Saeule** (ab Firmware 1.6.0, `POST
 /api/relais/<nr>?an=1&blinken=1000`), nicht Home Assistant: ein Ampeltakt aus
 dem Netz waere ein Zufallstakt. Gesetzt wird das Bild in einem Zug ueber
-`POST /api/stufen` (ab 1.7.0) - vier einzelne Anfragen sieht man flackern. Die Periode gilt nur fuer die Stufen in der
+`POST /api/stufen` (ab 1.7.0) - vier einzelne Anfragen sieht man flackern.
+Dieser Ruf uebernimmt das laufende Bild **nicht** (ab 1.7.1): er setzt ja alle
+vier Stufen selbst. Sonst stand das alte Bild noch einen HTTP-Ruf lang -
+schaltete man aus dem Status „Stoerung" auf die Ampel, blitzte Rot auf. Die Periode gilt nur fuer die Stufen in der
 Betriebsart manuell und wird beim Wechsel auf Auto, bei „Alles aus" und beim
 stillen Start geloescht.
 

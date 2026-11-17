@@ -78,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.7.0";
+static const char* VERSION  = "1.7.1";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -1168,12 +1168,14 @@ static void httpBedienen() {
     // Das ganze Bild in einem Zug. Stufe fuer Stufe zu schalten heisst vier
     // Anfragen, und zwischen der ersten und der letzten flackert es - fuer
     // eine Ampel ist das nichts. Jede Farbe, die nicht dabeisteht, geht aus.
-    if (autoModus) {
-      for (uint8_t s2 = 0; s2 < STUFEN; s2++) manuell[s2] = sollAn(s2);
-      autoModus = false;
-    }
-    testAn = false;
+    // Anders als beim einzelnen Relais wird das laufende Bild hier *nicht*
+    // uebernommen: diese Anfrage setzt ohnehin alle vier Stufen. Wer es doch
+    // uebernahm, sah das alte Bild noch einen HTTP-Ruf lang stehen - beim
+    // Umschalten auf die Ampel aus einem roten Status heraus blitzte Rot auf,
+    // bevor die Eroeffnung begann.
     noInterrupts();
+    autoModus = false;
+    testAn = false;
     for (uint8_t i = 0; i < STUFEN; i++) {
       String wert = argWert(ziel, LEUCHTEN[i].farbe);
       bool dabei = wert.length() > 0;

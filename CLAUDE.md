@@ -168,6 +168,12 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Farbe, die nicht dabeisteht, geht aus. Vier einzelne Anfragen hintereinander
   sieht man flackern, und bei der Eroeffnung (gruen, rot, gruen) waere das
   nicht hinnehmbar.
+- **`/api/stufen` uebernimmt das laufende Bild nicht** (1.7.1). Anders als
+  `/api/relais/<nr>`, das nur eine Stufe setzt und darum wissen muss, wie die
+  anderen stehen. Wer es doch uebernahm, sah das alte Bild noch einen
+  HTTP-Ruf lang: beim Umschalten auf die Ampel aus dem Status „stoerung"
+  heraus blitzte Rot 150 ms auf, bevor die Eroeffnung begann. Am Geraet mit
+  `/api/spur` gemessen.
 - **Die Eroeffnung der Ampel laeuft nebenher, nicht im Dienstruf.** Drei
   Sekunden lang einen `select.select_option` haengen zu lassen geht nicht,
   darum eine Task (`_eroeffnen`). Waehrend sie laeuft (`eroeffnet`) schreibt
