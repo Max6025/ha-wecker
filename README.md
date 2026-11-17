@@ -763,12 +763,25 @@ stillen Start geloescht.
 Stoerung nicht. Den Tongeber gibt es genau einmal: beim Umschalten auf diese
 Betriebsart.
 
-**Beim Einschalten fahert sie einmal vor**, wie eine Verkehrsampel bei der
+**Geschaltet wird wie an einer deutschen Ampel.** Wechsellichtzeichen nach
+StVO, Zeiten nach RiLSA fuer 50 km/h:
+
+| Von   | ueber                        | nach  |
+|-------|------------------------------|-------|
+| gruen | **gelb**, 3 s                | rot   |
+| rot   | **rot und gelb zusammen**, 1 s | gruen |
+
+Rot und Gelb zugleich ist das, was die deutsche Ampel von den meisten anderen
+unterscheidet. Ohne diese Zwischenphasen springt die Saeule unvermittelt um -
+mit ihnen sieht man dem Bild an, wohin es geht. Zu einer **Stoerung** und aus
+einer Stoerung heraus wird nicht ueberblendet: die soll sofort zu sehen sein.
+
+**Beim Einschalten fahert sie einmal vor**, wie eine Ampel bei der
 Inbetriebnahme: die mittlere blinkt eine Sekunde gelb (250 ms Takt), dann
-gruen, rot, gruen - je 0,6 Sekunden - und danach steht das Bild, das wirklich
-gilt. Ist in dem Moment eine **Stoerung**, entfaellt das: dann soll man sie
-sofort sehen und nicht erst nach drei Sekunden Theater. Kommt die Stoerung
-mitten in der Eroeffnung, bricht sie ab.
+einmal die volle Folge - gruen, gelb, rot, rot+gelb, gruen - und danach das
+Bild, das wirklich gilt, auch dorthin ueber die richtige Zwischenphase. Steht
+das Auto in der Garage, sind das elf Sekunden. Ist in dem Moment eine
+**Stoerung**, entfaellt das ganz; kommt sie mitten hinein, bricht die Folge ab.
 
 Beim Umschalten gibt der Tongeber einmal den Quittungston (`/api/piep`, siehe
 Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu
@@ -809,7 +822,7 @@ wieder"). Waehrend sie ruht, schaltet auch ein Wort aus der Garage nichts.
 Die Attribute am Schalter **Betriebsart** sagen, was los ist: `lage` und
 `lage_text` (was die Saeule zeigt: `besetzt`, `frei`, `kein_strom`,
 `kein_esp`), `ampel` (was der ESP seiner eigenen Lampe sagt - nur zur
-Information), `ampel_pausiert`, `ampel_eroeffnet`, `ampel_fehler`, `garage`
+Information), `ampel_pausiert`, `ampel_schaltet` (eine Phasenfolge laeuft), `ampel_fehler`, `garage`
 und `geraet` (worauf die Saeule selbst steht, also `auto` oder `manuell`).
 
 Code: `custom_components/ha_wecker/ampel.py`.

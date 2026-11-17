@@ -36,6 +36,14 @@ FARBE_HINWEIS = "hinweis"
 # (halb an, halb aus).
 AMPEL_BLINK_MS = 1000            # ein Hertz, der Takt einer Stoerungsampel
 AMPEL_BLINK_SCHNELL_MS = 160     # sehr schnell, nur die Hinweisleuchte
+AMPEL_START_BLINK_MS = 250       # gelb blinkt bei der Inbetriebnahme
+# Die Zwischenphasen einer deutschen Ampel (Wechsellichtzeichen nach StVO),
+# Zeiten nach RiLSA fuer 50 km/h: gruen -> gelb -> rot, rot -> rot+gelb ->
+# gruen. Rot und Gelb zugleich ist das, was die deutsche Ampel von den
+# meisten anderen unterscheidet.
+AMPEL_GELB_MS = 3000             # Gelbzeit
+AMPEL_ROT_GELB_MS = 1000         # Rot und Gelb zusammen
+AMPEL_STEHT_MS = 1000            # so lange steht ein Vollbild beim Vorfahren
 
 # Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
 GARAGE_ABFRAGE_S = 15

@@ -174,12 +174,19 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   HTTP-Ruf lang: beim Umschalten auf die Ampel aus dem Status „stoerung"
   heraus blitzte Rot 150 ms auf, bevor die Eroeffnung begann. Am Geraet mit
   `/api/spur` gemessen.
-- **Die Eroeffnung der Ampel laeuft nebenher, nicht im Dienstruf.** Drei
-  Sekunden lang einen `select.select_option` haengen zu lassen geht nicht,
-  darum eine Task (`_eroeffnen`). Waehrend sie laeuft (`eroeffnet`) schreibt
-  der Ampelmodus kein Bild - sonst funkte ein Wort aus der Garage mitten
-  hinein. Eine Stoerung laesst sie ganz entfallen oder bricht sie ab: die
-  soll sofort zu sehen sein.
+- **Die Ampel schaltet deutsch: gruen -> gelb -> rot, rot -> rot+gelb ->
+  gruen.** Nicht nur bei der Eroeffnung, sondern bei jedem Wechsel
+  (`uebergang()`); Rot und Gelb zugleich ist das Kennzeichen der deutschen
+  Ampel. Zeiten nach RiLSA fuer 50 km/h: Gelb 3 s, Rot-Gelb 1 s. Zu einer
+  Stoerung und aus einer heraus wird nicht ueberblendet - es gibt keine Phase,
+  die dazu passt, und eine Stoerung soll sofort zu sehen sein.
+- **Phasenfolgen laufen nebenher, nicht im Dienstruf.** Sekundenlang einen
+  `select.select_option` haengen zu lassen geht nicht, darum eine Task
+  (`_folge_fahren`). Waehrend sie laeuft (`schaltet`) schreibt der Ampelmodus
+  kein Bild - sonst funkte ein Wort aus der Garage mitten hinein; am Ende
+  zieht die Folge selbst nach. Der Weckablauf bricht sie ab (`pausieren`).
+  Im Test die Zeiten verkuerzen (Fixture `schnelle_phasen`), sonst dauert
+  jeder Ampeltest ueber zehn Sekunden.
 - **Was der Ampelmodus aendert, muss er selbst melden.** `melden()` ruft
   `async_update_listeners()` am Saeulen-Coordinator. Ohne das stand der
   Schalter auf dem Stand vom Augenblick des Dienstrufs - ein Fehler, der
