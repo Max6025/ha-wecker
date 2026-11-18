@@ -233,16 +233,25 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Fuer die Betriebsart "Ampel": ein stehendes Bild, keine Choreografie,
         darum nicht ueber den Status. Stufe fuer Stufe, weil die Saeule nichts
-        anderes anbietet - zwischen der ersten und der letzten Anfrage sieht
-        man es leicht flackern. Das ist der Preis dafuer, dass in der Firmware
-        nichts Eigenes fuer die Ampel steht (siehe ampel.py).
+        anderes anbietet - und dabei **erst an, dann aus**: schaltet man
+        zuerst ab, steht die Saeule zwei Anfragen lang dunkel da (gemessen
+        570 ms), und das sieht man. So leuchtet stattdessen einen Augenblick
+        eine Leuchte zu viel, was beim wichtigsten Wechsel - gelb auf rot -
+        sogar genau das richtige Zwischenbild ergibt.
         """
         if self.modus != MODUS_MANUELL:
             await self.async_modus(False)
-        for r in self.leuchten(ROLLE_STUFE):
-            nr, farbe = r.get("nr"), str(r.get("farbe") or "")
-            if isinstance(nr, int):
-                await self.async_schalten(nr, farbe in farben)
+        stufen = [
+            (r["nr"], str(r.get("farbe") or ""))
+            for r in self.leuchten(ROLLE_STUFE)
+            if isinstance(r.get("nr"), int)
+        ]
+        for nr, farbe in stufen:
+            if farbe in farben:
+                await self.async_schalten(nr, True)
+        for nr, farbe in stufen:
+            if farbe not in farben:
+                await self.async_schalten(nr, False)
 
     # --- Ereignisstrom -----------------------------------------------
 

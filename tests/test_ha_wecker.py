@@ -1358,6 +1358,7 @@ def _bilder(aioclient_mock, ab: int = 0) -> list[set[str]]:
     """
     bilder: list[set[str]] = []
     offen: set[str] = set()
+    gesetzt: set[int] = set()
     for pfad in _postpfade(aioclient_mock)[ab:]:
         m = re.match(r"/api/relais/(\d+)\?an=([01])", pfad)
         if not m:
@@ -1370,8 +1371,10 @@ def _bilder(aioclient_mock, ab: int = 0) -> list[set[str]]:
             offen.add(farbe)
         else:
             offen.discard(farbe)
-        if nr == max(STUFE_FARBE):          # nach der letzten Stufe steht es
+        gesetzt.add(nr)
+        if gesetzt >= set(STUFE_FARBE):     # alle vier beruehrt: Bild steht
             bilder.append(set(offen))
+            gesetzt.clear()
     return bilder
 
 
