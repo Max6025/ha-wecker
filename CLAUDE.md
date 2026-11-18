@@ -152,11 +152,15 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   Bild), der Knopf „Alles aus" und jeder Neustart. „Alles aus" gehoert dazu,
   weil sonst das naechste Wort aus der Garage die Saeule gleich wieder
   anschaltete und der Knopf wirkungslos waere.
-- **Der Ampelmodus wird bewusst nicht gemerkt.** Kein `RestoreEntity`, kein
-  Store. Die Saeule geht abends vom Netz und kommt um 4:55 still wieder hoch;
-  wuerde der Ampelmodus das ueberdauern, stuende sie auf Rot, lange bevor der
-  Wecker klingelt - genau das, was der stille Start verhindern soll. Wer das
-  aendern will, muss erst diese Falle loesen.
+- **Der Ampelmodus endet, sobald die Saeule nicht mehr antwortet** - und wird
+  nicht gemerkt (kein `RestoreEntity`, kein Store). Beides zielt auf dasselbe:
+  die Saeule geht abends um 21 Uhr vom Netz und kommt um 4:55 still wieder
+  hoch. Wuerde der Ampelmodus das ueberdauern, schriebe er sein Bild einfach
+  weiter und sie stuende auf Rot, lange bevor der Wecker klingelt - genau das,
+  was der stille Start verhindern soll. Darum haengt `_saeule_gemeldet` am
+  Saeulen-Coordinator und beendet die Betriebsart bei
+  `not last_update_success`. Lieber einmal zu oft aus: ein Griff an den
+  Schalter stellt sie wieder an, ein rotes Zimmer um Viertel vor fuenf nicht.
 - **Der Weckruf hat Vorrang vor der Ampel.** `_saeule()` ruft
   `ampel.pausieren()`, sobald ein Schritt die Saeule anfasst; `_fertig()` und
   `async_abbrechen()` geben sie mit `_ampel_weiter()` wieder frei, und dann

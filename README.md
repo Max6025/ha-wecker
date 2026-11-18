@@ -819,11 +819,14 @@ wenn es den Garagen-ESP in Home Assistant wirklich gibt.
   stellen. Dieselbe Regel gilt in der Firmware fuer Auto und Manuell. Die
   Warnleuchte und der Tongeber beenden sie **nicht**: die gehoeren zu keinem
   Bild,
-- jeder **Neustart**, der von Home Assistant und der der Saeule. Der
-  Ampelmodus wird bewusst nicht gemerkt. Die Saeule geht abends vom Netz
-  (Abschnitt 6b) und kommt morgens um Viertel vor fuenf still wieder hoch -
-  wuerde der Ampelmodus das ueberdauern, stuende sie auf Rot, lange bevor der
-  Wecker klingelt. Das ist genau das, was der stille Start verhindern soll.
+- **die Saeule selbst, wenn sie nicht mehr antwortet.** Abends um 21 Uhr
+  nimmt ihr der Stromplan den Strom (Abschnitt 6b), morgens um 4:55 bekommt
+  sie ihn zurueck und kommt still hoch. Wuerde der Ampelmodus das
+  ueberdauern, schriebe er sein Bild einfach weiter, und sie stuende auf Rot,
+  lange bevor der Wecker klingelt - genau das, was der stille Start
+  verhindern soll. Ein **Neustart** von Home Assistant beendet ihn ohnehin:
+  gemerkt wird er bewusst nicht. Wer die Ampel tagsueber will, stellt sie also
+  einmal am Tag ein.
 
 **Der Weckruf hat Vorrang.** Fasst der Weckablauf die Saeule an, ruht die
 Betriebsart bis zum Ende des Laufs und zieht danach das Ampelbild nach. Beides

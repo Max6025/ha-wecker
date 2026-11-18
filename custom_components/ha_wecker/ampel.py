@@ -67,10 +67,13 @@ Vier Dinge beenden die Betriebsart:
   - dieselbe Regel gilt in der Firmware fuer Auto und Manuell). Warnleuchte
   und Tongeber nicht, die gehoeren zu keinem Bild,
 - der Knopf "Alles aus",
-- jeder Neustart: der Ampelmodus wird bewusst nicht gemerkt. Die Saeule geht
-  abends vom Netz (siehe strom.py) und kommt morgens still wieder hoch; wuerde
-  der Ampelmodus das ueberdauern, stuende sie um Viertel vor fuenf auf Rot,
-  lange bevor der Wecker klingelt.
+- **die Saeule selbst, wenn sie vom Netz geht.** Abends um 21 Uhr nimmt ihr
+  der Stromplan den Strom (siehe strom.py), morgens um 4:55 bekommt sie ihn
+  zurueck und kommt still hoch. Wuerde der Ampelmodus das ueberdauern, stuende
+  sie um Viertel vor fuenf auf Rot, lange bevor der Wecker klingelt - genau
+  das, was der stille Start verhindern soll. Darum endet er, sobald die Saeule
+  nicht mehr antwortet. Ein Neustart von Home Assistant beendet ihn ohnehin:
+  gemerkt wird er bewusst nicht.
 
 Der Weckruf hat Vorrang. Fasst der Weckablauf die Saeule an, ruht der
 Ampelmodus bis zum Ende des Laufs und zieht danach das Ampelbild nach.
@@ -175,6 +178,7 @@ class Ampelmodus:
         self._folge: asyncio.Task | None = None    # laufende Phasenfolge
         self._ab_garage: Any = None           # Abmelder des Garagen-Listeners
         self._gehoert: Any = None             # an welchem Coordinator er haengt
+        self._ab_saeule: Any = None           # Abmelder des Saeulen-Listeners
 
     @callback
     def melden(self) -> None:
@@ -238,6 +242,7 @@ class Ampelmodus:
         self.pausiert = False
         self._bild = None
         self._horchen()
+        self._saeule_beobachten()
         # Der Ton kommt vor dem Bild: das Umschalten soll man hoeren, auch
         # wenn gerade nichts Neues zu sehen ist.
         try:
@@ -275,6 +280,34 @@ class Ampelmodus:
         self._bild = None
         self._folge_abbrechen()
         self._nicht_mehr_horchen()
+        self._saeule_loslassen()
+
+    # --- Die Saeule geht abends vom Netz ------------------------------
+
+    @callback
+    def _saeule_beobachten(self) -> None:
+        if self._ab_saeule is None:
+            self._ab_saeule = self.saeule.async_add_listener(self._saeule_gemeldet)
+
+    @callback
+    def _saeule_loslassen(self) -> None:
+        ab, self._ab_saeule = self._ab_saeule, None
+        if ab is not None:
+            ab()
+
+    @callback
+    def _saeule_gemeldet(self) -> None:
+        """Antwortet die Saeule nicht mehr, endet die Betriebsart.
+
+        Sonst stuende sie morgens um 4:55 auf Rot, sobald die Steckdose
+        angeht - der Ampelmodus wuerde einfach weiterschreiben. Lieber einmal
+        zu oft aus: ein Griff an den Schalter stellt ihn wieder an, ein
+        rotes Zimmer um Viertel vor fuenf laesst sich nicht zurueckholen.
+        """
+        if self.aktiv and not self.saeule.last_update_success:
+            _LOGGER.debug("Betriebsart Ampel endet: die Saeule antwortet nicht mehr")
+            self.verlassen()
+            self.melden()
 
     # --- Der Weckruf hat Vorrang --------------------------------------
 
@@ -434,6 +467,7 @@ class Ampelmodus:
     def async_stop(self) -> None:
         self._folge_abbrechen()
         self._nicht_mehr_horchen()
+        self._saeule_loslassen()
 
     # --- Anzeige ------------------------------------------------------
 

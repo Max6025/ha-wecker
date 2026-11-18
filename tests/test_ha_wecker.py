@@ -1659,6 +1659,29 @@ async def test_ampel_endet_bei_stufe_von_hand_nicht_beim_ton(
     assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
 
 
+async def test_ampel_endet_wenn_die_saeule_vom_netz_geht(
+    hass: HomeAssistant, aioclient_mock, schnelle_phasen
+) -> None:
+    """Abends nimmt der Stromplan der Saeule den Strom - dann endet die Ampel.
+
+    Sonst stuende sie morgens um 4:55 auf Rot, sobald die Steckdose angeht.
+    """
+    await _setup_garage(hass, aioclient_mock)
+    saeule = await _setup_saeule(hass, aioclient_mock)
+    _saeule_posts(aioclient_mock)
+    await _betriebsart(hass, "Ampel")
+    assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
+
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    hass.data[DOMAIN][saeule.entry_id].async_set_update_error(UpdateFailed("stromlos"))
+    await hass.async_block_till_done()
+
+    coordinator = hass.data[DOMAIN][saeule.entry_id]
+    assert coordinator.ampel.aktiv is False
+    assert hass.states.get("select.signalsaeule_betriebsart").state != "Ampel"
+
+
 async def test_ampel_endet_bei_alles_aus(hass: HomeAssistant, aioclient_mock, schnelle_phasen) -> None:
     """Alles aus heisst alles aus - sonst waere der Knopf wirkungslos."""
     garage = await _setup_garage(hass, aioclient_mock)
