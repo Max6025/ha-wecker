@@ -413,6 +413,34 @@ Zustand. Home Assistant gibt diesen Ton beim Umschalten auf die Betriebsart
 **Ampel** (Abschnitt 6c), und auf der Seite der Saeule gibt es den Knopf
 „Kurz piepen".
 
+**Selbstanmeldung (seit Firmware 1.12.0).** Die Saeule traegt sich selbst in
+Home Assistant ein - wie der Garagen-ESP (Abschnitt 8). Sie ruft nach jedem
+Start und danach einmal taeglich den Einrichtungsablauf der Integration auf
+und meldet ihre Adresse; ein zweiter Anlauf legt kein zweites Geraet an,
+sondern zieht nur die Adresse nach. Grund: Die Adresse kommt vom Router und
+hat schon zweimal gewechselt - stand in Home Assistant die alte, war die
+Saeule dort nicht erreichbar, und das faellt erst auf, wenn der Weckruf ohne
+sie laeuft. `POST /api/anmelden` stoesst es von Hand an, `ha_anmeldung` in
+`/api/state` sagt, wie es ausging.
+
+Zugang: `HA_HOST`, `HA_PORT` und `HA_TOKEN` in `arduino_secrets.h` (Vorlage
+daneben). Die **lokale** Adresse, nicht die oeffentliche - der Sketch spricht
+nur HTTP. Der Token braucht Verwalterrechte.
+
+Drei Dinge waren dabei zu loesen, alle am Geraet gemessen:
+
+- **Eine Verbindung fuer alle drei Schritte.** Drei einzelne hintereinander
+  scheiterten reproduzierbar beim dritten Mal; das WLAN-Modul gibt den Socket
+  nicht schnell genug frei, und laengere Pausen halfen nicht.
+- **Die Antwort am Stueck lesen.** `connected()` meldet beim R4 schon „zu",
+  waehrend die Antwort noch unterwegs ist - zeilenweises Lesen lieferte einen
+  leeren Rumpf, und eine saubere Antwort galt als abgelehnt.
+- **Beim Warten weiter bedienen.** Der Einrichtungsablauf prueft, ob unter der
+  gemeldeten Adresse wirklich eine Signalsaeule antwortet - und fragt dazu die
+  Saeule, waehrend die auf seine Antwort wartet. Mit `delay()` lief genau diese
+  Anfrage auf und das Formular kam mit einem Fehler zurueck. Die Wartezeit
+  wird deshalb mit `httpBedienen()` gefuellt.
+
 **Der Fehler, der die Saeule stumm im Netz stehen liess (behoben in 1.8.0).**
 `wlanVerbinden()` wartet nach `WiFi.begin()` zehn Sekunden auf die Verbindung
 und startete die Server nur, wenn sie in dieser Zeit zustande kam. Kam sie

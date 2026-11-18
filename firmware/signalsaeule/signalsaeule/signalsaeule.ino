@@ -78,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.9.0";
+static const char* VERSION  = "1.12.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -789,6 +789,164 @@ static void startStellen() {
 
 // ------------------------------------------------------------------- WLAN
 
+// ------------------------------------------------- Anmeldung bei Home Assistant
+
+// Die Saeule traegt sich selbst in Home Assistant ein: die Integration
+// "HA Wecker" bekommt ueber ihre Einrichtungs-Schnittstelle - dieselbe, die
+// die Oberflaeche benutzt - ein Geraet "Signalsaeule" mit unserer Adresse.
+// Laeuft nach jedem Start und danach einmal am Tag; ein zweiter Anlauf legt
+// kein zweites Geraet an, sondern zieht nur die Adresse nach.
+//
+// Grund: Die Adresse kommt vom Router und hat schon zweimal gewechselt. Stand
+// in Home Assistant die alte, war die Saeule dort nicht erreichbar - und das
+// faellt erst auf, wenn der Weckruf ohne sie laeuft. Der Garagen-ESP macht es
+// seit ls-1.8 genauso.
+//
+// Angesprochen wird Home Assistant lokal ueber HTTP (HA_HOST/HA_PORT in
+// arduino_secrets.h), nicht ueber die oeffentliche Adresse: HTTPS kann dieser
+// Sketch nicht, und es muss auch nicht ueber das Internet gehen.
+static const unsigned long ANMELDUNG_TAG_MS    = 86400000UL;  // einmal taeglich
+static const unsigned long ANMELDUNG_PAUSE_MS  = 3600000UL;   // nach Fehlschlag
+static unsigned long anmeldungZuletzt = 0;     // 0 = noch nie versucht
+static unsigned long anmeldungPause   = 0;
+static bool anmeldungOk = false;
+static String anmeldungText = "noch nicht versucht";
+static String anmeldungRoh;     // letzte Antwort, zum Nachsehen bei Fehlern
+static int anmeldungSchritt = 0;
+static bool anmeldungLaeuft = false;   // gegen Rekursion, siehe warten()
+
+// Ein POST an Home Assistant. Gibt den HTTP-Code zurueck (0 = kein Kontakt)
+// und legt den Rumpf in "antwort" ab. Blockiert die Schleife ein paar
+// hundert Millisekunden - das ist in Ordnung, die Lampen stellt der Zeitgeber.
+// Eine Anfrage auf einer offenen Verbindung. Der Einrichtungsablauf besteht
+// aus drei Schritten, und die laufen alle ueber dieselbe Verbindung: drei
+// einzelne Verbindungen hintereinander scheiterten reproduzierbar beim
+// dritten Mal (Code 0), weil das WLAN-Modul des R4 den Socket nicht schnell
+// genug freigibt - laengere Pausen halfen nicht. Mit keep-alive gibt es das
+// Problem nicht, und Home Assistant kann es.
+// Warten, ohne taub zu werden. Waehrend der Anmeldung fragt Home Assistant
+// die Saeule ab - der Einrichtungsablauf prueft, ob unter der gemeldeten
+// Adresse wirklich eine Signalsaeule antwortet. Wer hier nur delay() macht,
+// laesst genau diese Anfrage auflaufen und bekommt das Formular mit einem
+// Fehler zurueck. Also wird die Wartezeit mit httpBedienen() gefuellt.
+static void httpBedienen();   // vorab
+static void warten(unsigned long ms) {
+  const unsigned long bis = millis() + ms;
+  while (millis() < bis) {
+    if (WiFi.status() == WL_CONNECTED) httpBedienen();
+    delay(1);
+  }
+}
+
+static int haSchritt(WiFiClient& c, const String& pfad, const String& body, String& antwort) {
+  antwort = "";
+  if (!c.connected()) return 0;
+  c.print("POST " + pfad + " HTTP/1.1\r\n");
+  c.print("Host: " HA_HOST "\r\n");
+  c.print("Authorization: Bearer " HA_TOKEN "\r\n");
+  c.print("Content-Type: application/json\r\n");
+  c.print("Connection: keep-alive\r\n");
+  c.print("Content-Length: " + String(body.length()) + "\r\n\r\n");
+  c.print(body);
+
+  // Kopf bis zur Leerzeile, dann genau Content-Length Bytes. Zeichenweise,
+  // weil connected() beim R4 schon "zu" meldet, waehrend noch Daten kommen.
+  String kopf;
+  kopf.reserve(400);
+  const unsigned long bis = millis() + 9000;
+  while (millis() < bis && kopf.indexOf("\r\n\r\n") < 0 && kopf.length() < 900) {
+    if (c.available()) kopf += (char)c.read();
+    else warten(2);
+  }
+  int code = 0;
+  const int leer = kopf.indexOf(' ');
+  if (leer > 0) code = kopf.substring(leer + 1, leer + 4).toInt();
+
+  long laenge = -1;
+  int cl = kopf.indexOf("Content-Length:");
+  if (cl < 0) cl = kopf.indexOf("content-length:");
+  if (cl >= 0) laenge = kopf.substring(cl + 15, kopf.indexOf('\n', cl)).toInt();
+
+  if (laenge > 0) {
+    antwort.reserve(laenge < 1200 ? laenge + 1 : 1200);
+    while (millis() < bis && (long)antwort.length() < laenge && antwort.length() < 1200) {
+      if (c.available()) antwort += (char)c.read();
+      else warten(2);
+    }
+  } else {
+    // Keine Laengenangabe (chunked): einsammeln, bis eine Weile nichts kommt
+    unsigned long letzte = millis();
+    while (millis() < bis && antwort.length() < 1200) {
+      if (c.available()) { antwort += (char)c.read(); letzte = millis(); }
+      else if (millis() - letzte > 500) break;
+      else warten(2);
+    }
+  }
+  anmeldungRoh = "Code " + String(code) + " Rumpf[" + antwort.substring(0, 80) + "]";
+  return code;
+}
+
+// Einen Wert aus einer JSON-Antwort holen, ohne Parser: "name":"wert"
+static String jsonWert(const String& quelle, const char* name) {
+  String such = String("\"") + name + "\":\"";
+  int p = quelle.indexOf(such);
+  if (p < 0) return "";
+  p += such.length();
+  int e = quelle.indexOf('"', p);
+  return e < 0 ? "" : quelle.substring(p, e);
+}
+
+static void anmeldungMerken(bool ok, const String& text) {
+  anmeldungOk = ok;
+  anmeldungText = text;
+  anmeldungZuletzt = millis() ? millis() : 1;
+  anmeldungPause = ok ? ANMELDUNG_TAG_MS : ANMELDUNG_PAUSE_MS;
+  Serial.print("Anmeldung: ");
+  Serial.println(text);
+}
+
+static void haAnmelden() {
+  if (WiFi.status() != WL_CONNECTED || anmeldungLaeuft) return;
+  if (anmeldungZuletzt != 0 && millis() - anmeldungZuletzt < anmeldungPause) return;
+  anmeldungLaeuft = true;
+
+  WiFiClient c;
+  c.setConnectionTimeout(5000);
+  if (!c.connect(HA_HOST, HA_PORT)) { anmeldungLaeuft = false; anmeldungMerken(false, "Home Assistant nicht erreichbar"); return; }
+
+  String antwort;
+  anmeldungSchritt = 1;
+  int code = haSchritt(c, "/api/config/config_entries/flow", "{\"handler\":\"ha_wecker\"}", antwort);
+  if (code == 401) { c.stop(); anmeldungLaeuft = false; anmeldungMerken(false, "Token abgelehnt (401)"); return; }
+  if (code != 200) { c.stop(); anmeldungLaeuft = false; anmeldungMerken(false, "Antwort " + String(code) + " auf den Einrichtungsablauf"); return; }
+
+  const String flow = jsonWert(antwort, "flow_id");
+  if (!flow.length()) { c.stop(); anmeldungLaeuft = false; anmeldungMerken(false, "keine flow_id in der Antwort"); return; }
+  const String pfad = "/api/config/config_entries/flow/" + flow;
+
+  anmeldungSchritt = 2;
+  code = haSchritt(c, pfad, "{\"next_step_id\":\"saeule\"}", antwort);
+  if (code != 200 || antwort.indexOf("\"step_id\":\"saeule\"") < 0) {
+    c.stop();
+    anmeldungLaeuft = false;
+    anmeldungMerken(false, "HA Wecker kennt keine Signalsaeule (Antwort " + String(code) + ")");
+    return;
+  }
+
+  const String ip = WiFi.localIP().toString();
+  anmeldungSchritt = 3;
+  code = haSchritt(c, pfad, "{\"name\":\"Signalsaeule\",\"host\":\"" + ip + "\"}", antwort);
+  c.stop();
+  anmeldungLaeuft = false;
+  const bool neu = antwort.indexOf("\"type\":\"create_entry\"") >= 0;
+  const bool schon = antwort.indexOf("already_configured") >= 0;
+  if (code == 200 && (neu || schon)) {
+    anmeldungMerken(true, ip + (neu ? " - Geraet neu angelegt" : " - Adresse steht"));
+    return;
+  }
+  anmeldungMerken(false, "abgelehnt (" + String(code) + "): " + antwort.substring(0, 60));
+}
+
 // Laufen die Server schon? Sie duerfen genau einmal gestartet werden, und sie
 // MUESSEN gestartet werden, sobald eine Verbindung steht - egal wann sie
 // zustande kam. Daran hing ein Fehler, der die Saeule stumm im Netz stehen
@@ -807,6 +965,7 @@ static void serverSicherstellen() {
   serverLaeuft = true;
   Serial.print("Server laeuft, IP ");
   Serial.println(WiFi.localIP());
+  anmeldungZuletzt = 0;     // nach jedem Verbinden einmal anmelden
 }
 
 static void wlanVerbinden() {
@@ -835,8 +994,12 @@ static void wlanVerbinden() {
 static String jsonText(const char* s) {
   String out = "\"";
   for (const char* p = s; *p; p++) {
-    if (*p == '"' || *p == '\\') out += '\\';
-    out += *p;
+    if (*p == '"' || *p == '\\') { out += '\\'; out += *p; }
+    else if (*p == '\n') out += "\\n";
+    else if (*p == '\r') out += "\\r";
+    else if (*p == '\t') out += "\\t";
+    else if ((unsigned char)*p < 0x20) out += ' ';   // sonst zerbricht das JSON
+    else out += *p;
   }
   out += '"';
   return out;
@@ -902,6 +1065,10 @@ static String stateJson() {
   }
   s += "]}";
 
+  s += ",\"ha_anmeldung\":{\"ok\":" + String(anmeldungOk ? "true" : "false");
+  s += ",\"text\":" + jsonText(anmeldungText.c_str());
+  s += ",\"schritt\":" + String(anmeldungSchritt);
+  s += ",\"roh\":" + jsonText(anmeldungRoh.c_str()) + "}";
   s += ",\"relais\":[";
   for (uint8_t i = 0; i < ANZAHL; i++) {
     if (i) s += ",";
@@ -1163,6 +1330,10 @@ static void httpBedienen() {
       statusSetzen((Status)gefunden, true, warManuell);
       sendeJson(c, 200, stateJson());
     }
+  } else if (pfad == "/api/anmelden") {
+    anmeldungZuletzt = 0;          // Sperre aufheben, sofort versuchen
+    haAnmelden();
+    sendeJson(c, 200, stateJson());
   } else if (pfad == "/api/stufen") {
     // Alle vier Stufen in einem Zug, damit ein Phasenwechsel wirklich
     // gleichzeitig geschieht. Stufe fuer Stufe ueber vier Anfragen sieht man
@@ -1355,6 +1526,7 @@ void loop() {
 
   if (WiFi.status() == WL_CONNECTED) {
     serverSicherstellen();        // kostet nichts, wenn er schon laeuft
+    haAnmelden();                 // beim ersten Mal, danach einmal taeglich
     httpBedienen();
     ssePflegen();
   } else {

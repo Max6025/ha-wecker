@@ -167,6 +167,15 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   zieht sie ihr Bild nach (`_bild = None`, weil der Ablauf die Saeule
   umgestellt hat). Nicht an `laeuft` haengen: das ist auch wahr, waehrend nur
   der Vorlauf steht, und dann waere die Ampel den ganzen Tag stumm.
+- **Die Saeule meldet sich selbst in Home Assistant an** (1.12.0, wie der
+  Garagen-ESP). Drei Fallen, alle am Geraet gemessen: drei einzelne
+  Verbindungen hintereinander scheitern beim dritten Mal (Socket wird nicht
+  schnell genug frei) - also keep-alive ueber eine Verbindung; `connected()`
+  meldet schon „zu", waehrend Daten unterwegs sind - also am Stueck lesen und
+  danach an `\r\n\r\n` trennen; und der Einrichtungsablauf fragt die Saeule ab,
+  waehrend sie auf seine Antwort wartet - also die Wartezeit mit
+  `httpBedienen()` fuellen (`warten()`), sonst laeuft genau diese Anfrage auf.
+  `anmeldungLaeuft` schuetzt dabei vor Rekursion.
 - **Die Server MUESSEN starten, sobald das WLAN steht - egal wann.** Der
   schwerste Fehler dieses Projekts: `wlanVerbinden()` startete `server` und
   `sseServer` nur, wenn die Verbindung in seinen zehn Wartesekunden zustande
