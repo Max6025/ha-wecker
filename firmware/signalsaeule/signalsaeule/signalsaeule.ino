@@ -34,7 +34,9 @@
   angeht. Darum bleibt beim Einschalten alles dunkel: keine Startanimation,
   keine Matrix, kein gemerkter Status. Erst was Home Assistant schickt - der
   Vorlauf eine Minute vor dem Weckruf - laesst etwas leuchten. Vorher darf in
-  einem Schlafzimmer nichts angehen. `START_ANIMATION` dreht das zurueck.
+  einem Schlafzimmer nichts angehen. Ausserhalb dieses Fensters fuehrt sie
+  beim Start normal vor und steht danach auf Auto. Die Uhrzeit holt sie sich
+  per NTP (RUHE_VON_UHR / RUHE_BIS_UHR).
 
   Betriebsart
 
@@ -78,7 +80,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.12.0";
+static const char* VERSION  = "1.13.1";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -115,13 +117,65 @@ struct DiagPunkt {
   char text[52];
 };
 
-enum Phase { PH_START, PH_WLAN, PH_BETRIEB };
+enum Phase { PH_START, PH_WLAN, PH_VORFUEHREN, PH_BETRIEB };
+
+// Nachtruhe: in diesem Fenster kommt die Saeule still hoch - keine Leuchte,
+// keine Matrix, Betriebsart manuell. Draussen fuehrt sie beim Start vor und
+// steht danach auf Auto. Der Wecker klingelt um fuenf, die Steckdose geht um
+// 4:55 an: in einem Schlafzimmer darf da nichts leuchten.
+static const uint8_t RUHE_VON_UHR = 3;
+static const uint8_t RUHE_BIS_UHR = 7;
 
 // Die Betriebsphase liest auch die Zeitgeber-Unterbrechung, darum steht sie
 // hier oben bei den uebrigen Grundgroessen.
 static Phase phase = PH_START;
 static uint32_t schleifeBegann = 0;
 static uint16_t schleifeMax = 0;        // laengster Schleifendurchlauf in ms
+
+#include <time.h>
+
+// Die Uhrzeit holt das WLAN-Modul selbst per NTP; WiFi.getTime() gibt sie als
+// Sekunden seit 1970 in UTC. Die Zeitzone rechnen wir dazu - eine Zeitzonen-
+// datenbank hat der Arduino nicht.
+static unsigned long zeitEpoch = 0;      // zuletzt geholte Zeit (UTC), 0 = keine
+static int8_t zeitStunde = -1;           // lokale Stunde, -1 = unbekannt
+
+// Letzter Sonntag im Maerz bzw. Oktober (gilt 1900-2099).
+static int letzterSonntag(int jahr, bool maerz) {
+  return 31 - ((maerz ? (5 * jahr / 4 + 4) : (5 * jahr / 4 + 1)) % 7);
+}
+
+// Sommerzeit in Mitteleuropa: letzter Sonntag im Maerz 01:00 UTC bis letzter
+// Sonntag im Oktober 01:00 UTC.
+static bool istSommerzeit(const struct tm& g) {
+  const int jahr = g.tm_year + 1900, monat = g.tm_mon + 1;
+  if (monat < 3 || monat > 10) return false;
+  if (monat > 3 && monat < 10) return true;
+  const int wechsel = letzterSonntag(jahr, monat == 3);
+  if (g.tm_mday > wechsel) return monat == 3;
+  if (g.tm_mday < wechsel) return monat == 10;
+  return (monat == 3) ? (g.tm_hour >= 1) : (g.tm_hour < 1);
+}
+
+// Zeit holen und die lokale Stunde merken. Klappt es nicht, bleibt sie
+// unbekannt - und unbekannt heisst still (siehe nachtruhe()).
+static void zeitHolen() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  const unsigned long t = WiFi.getTime();
+  if (t < 1700000000UL) return;          // nichts Brauchbares (vor 2023)
+  zeitEpoch = t;
+  const time_t tt = (time_t)t;
+  struct tm g;
+  gmtime_r(&tt, &g);
+  zeitStunde = (int8_t)((g.tm_hour + (istSommerzeit(g) ? 2 : 1)) % 24);
+}
+
+// Soll die Saeule still hochkommen? Im Zweifel ja: lieber einmal zu oft
+// dunkel als einmal um Viertel vor fuenf hell.
+static bool nachtruhe() {
+  if (zeitStunde < 0) return true;
+  return zeitStunde >= RUHE_VON_UHR && zeitStunde < RUHE_BIS_UHR;
+}
 
 ArduinoLEDMatrix matrix;
 WiFiServer server(80);
@@ -746,7 +800,7 @@ static const bool START_MIT_BLITZ = true;     // die Warnleuchte zuckt einmal mi
 // Still starten: die Saeule steht in einem Schlafzimmer an einer Steckdose,
 // die um Viertel vor fuenf angeht. Auf true gestellt laeuft stattdessen das
 // Lauflicht mit den zwei Blitzen - gut zum Vorfuehren, nichts fuer die Nacht.
-static const bool START_ANIMATION = false;
+
 
 static void startStellen() {
   unsigned long t = millis() - startSeit;
@@ -806,7 +860,11 @@ static void startStellen() {
 // arduino_secrets.h), nicht ueber die oeffentliche Adresse: HTTPS kann dieser
 // Sketch nicht, und es muss auch nicht ueber das Internet gehen.
 static const unsigned long ANMELDUNG_TAG_MS    = 86400000UL;  // einmal taeglich
-static const unsigned long ANMELDUNG_PAUSE_MS  = 3600000UL;   // nach Fehlschlag
+// Nach einem Fehlschlag bald wieder versuchen: der erste Versuch faellt oft
+// auf den Augenblick, in dem das WLAN gerade erst steht oder Home Assistant
+// neu startet. Eine Stunde zu warten hiesse, den ganzen Tag nicht angemeldet
+// zu sein.
+static const unsigned long ANMELDUNG_PAUSE_MS  = 120000UL;    // zwei Minuten
 static unsigned long anmeldungZuletzt = 0;     // 0 = noch nie versucht
 static unsigned long anmeldungPause   = 0;
 static bool anmeldungOk = false;
@@ -1065,6 +1123,8 @@ static String stateJson() {
   }
   s += "]}";
 
+  s += ",\"stunde\":" + String(zeitStunde);
+  s += ",\"nachtruhe\":" + String(nachtruhe() ? "true" : "false");
   s += ",\"ha_anmeldung\":{\"ok\":" + String(anmeldungOk ? "true" : "false");
   s += ",\"text\":" + jsonText(anmeldungText.c_str());
   s += ",\"schritt\":" + String(anmeldungSchritt);
@@ -1481,25 +1541,15 @@ void loop() {
   schleifeBegann = millis();
 
   if (phase == PH_START) {
-    if (!START_ANIMATION) {
-      phase = PH_WLAN;          // still: gar nichts vorfuehren
-      return;
-    }
-    startStellen();
-    if (millis() - startSeit >= ST_ENDE) {
-      for (uint8_t i = 0; i < ANZAHL; i++) setzen(i, false);
-      phase = PH_WLAN;
-    }
+    // Erst gar nichts: ob vorgefuehrt wird, entscheidet die Uhrzeit, und die
+    // gibt es erst mit dem WLAN. Bis dahin bleibt die Saeule dunkel - in der
+    // falschen Richtung zu irren waere ein helles Zimmer um Viertel vor fuenf.
+    phase = PH_WLAN;
     return;
   }
 
   if (phase == PH_WLAN) {
-    // Ab hier stellt der Zeitgeber die Lampen; der laeuft auch weiter,
-    // waehrend WiFi.begin() blockiert (das dauert gut dreizehn Sekunden).
-    phase = PH_BETRIEB;
-    // Still anfangen: Betriebsart manuell, alles aus. Kein gemerkter Status
-    // wird aufgenommen - sonst stuende die Saeule um Viertel vor fuenf auf
-    // Gruen, lange bevor der Wecker klingelt.
+    // Alles aus, bevor irgendetwas anderes passiert.
     autoModus = false;
     for (uint8_t i = 0; i < ANZAHL; i++) {
       manuell[i] = false;
@@ -1510,17 +1560,44 @@ void loop() {
     piepIndex = 0;
     piepAn = false;
     statusSetzen(RUHE, false);   // Grundstellung ohne Ansage, aber dunkel
+    matrix.beginDraw();
+    matrix.clear();
+    matrix.endDraw();
+
+    // Das WLAN blockiert hier gut zehn Sekunden; der Zeitgeber laeuft weiter.
     wlanVerbinden();
-    if (START_ANIMATION) {
+    zeitHolen();
+
+    if (nachtruhe()) {
+      // Zwischen drei und sieben still: keine Vorfuehrung, keine Matrix,
+      // Betriebsart manuell. So bleibt es, bis der Weckablauf etwas sagt.
+      matrixBild = 0xFF;
+      phase = PH_BETRIEB;
+      return;
+    }
+
+    // Sonst die normale Vorfuehrung - die stellt die Schleife, nicht der
+    // Zeitgeber, darum eine eigene Phase.
+    startSeit = millis();
+    phase = PH_VORFUEHREN;
+    return;
+  }
+
+  if (phase == PH_VORFUEHREN) {
+    startStellen();
+    if (millis() - startSeit >= ST_ENDE) {
+      for (uint8_t i = 0; i < ANZAHL; i++) setzen(i, false);
       // Startbild: das letzte Glied der Adresse, damit man sie am Geraet sieht
       if (WiFi.status() == WL_CONNECTED) matrixAdresse(WiFi.localIP()[3]);
       else                               matrixZahl("--");
-    } else {
-      matrix.beginDraw();
-      matrix.clear();
-      matrix.endDraw();
+      matrixBild = 0xFF;        // danach wieder das Abbild der Saeule
+      // Ausserhalb der Nachtruhe steht die Saeule danach auf Auto - der
+      // Weckablauf und die Betriebsart finden sie so vor, wie man sie
+      // erwartet. Von Hand laesst sich das jederzeit umstellen.
+      autoModus = true;
+      statusSetzen(RUHE, true);
+      phase = PH_BETRIEB;
     }
-    matrixBild = 0xFF;          // danach wieder das Abbild der Saeule
     return;
   }
 

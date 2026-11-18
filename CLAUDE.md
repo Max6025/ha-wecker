@@ -127,6 +127,14 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   laesst das hinter `VUSB_LDO_ENABLE` aus, aber das allein ist nicht der Grund.
   `(bool)Serial` (`tud_cdc_connected()`) bleibt dauerhaft true, auch ohne
   offenen Port. Darum gibt es in `/api/state` kein `usb` mehr.
+- **Der stille Start gilt nur zwischen 3 und 7 Uhr** (1.13.0, Max am
+  18.11.2026). Ausserhalb fuehrt die Saeule beim Einschalten normal vor und
+  steht danach auf **Auto** - das ist der Zustand, in dem Weckablauf und
+  Betriebsart sie erwarten. Die Uhrzeit kommt per NTP (`WiFi.getTime()`,
+  MEZ/MESZ selbst gerechnet). Ohne Zeit gilt **still**: lieber einmal zu oft
+  dunkel als einmal um Viertel vor fuenf hell. Darum entscheidet die Phase
+  `PH_WLAN` erst nach `wlanVerbinden()` und `zeitHolen()`, ob `PH_VORFUEHREN`
+  kommt - vorher bleibt alles aus.
 - **Saeule: stiller Start, und darum kein Gedaechtnis mehr.** Seit 1.2.0
   kommt die Saeule dunkel hoch: keine Startanimation, keine Matrix, Betriebsart
   manuell, alle Ausgaenge aus. Grund ist die Steckdose, die um 4:45 angeht -

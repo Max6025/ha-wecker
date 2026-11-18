@@ -451,7 +451,20 @@ Saeule, jeder Schritt mit „nicht erreichbar" im Protokoll. Jetzt zieht
 `serverSicherstellen()` den Start der Server nach, aus der Schleife heraus,
 sobald eine Verbindung steht.
 
-**Stiller Start (seit Firmware 1.2.0).** Die Saeule haengt an einer
+**Stiller Start nur nachts (seit Firmware 1.13.0).** Zwischen **3 und 7 Uhr**
+kommt die Saeule still hoch: keine Leuchte, keine Matrix, Betriebsart Manuell.
+Ausserhalb dieses Fensters fuehrt sie beim Einschalten normal vor (Lauflicht,
+Adresse auf der Matrix) und steht danach auf **Auto** mit Status Ruhe - von
+Hand laesst sich das jederzeit umstellen. Die Uhrzeit holt sie sich per NTP
+ueber das WLAN-Modul und rechnet MEZ/MESZ selbst dazu; `stunde` und
+`nachtruhe` in `/api/state` sagen, womit sie rechnet.
+
+Bekommt sie keine Zeit (kein WLAN, NTP stumm), gilt **still**. Lieber einmal
+zu oft dunkel als einmal um Viertel vor fuenf hell: die Steckdose geht um 4:55
+an, der Wecker klingelt um fuenf. Darum ist auch die Reihenfolge so herum -
+erst WLAN und Uhrzeit, dann die Entscheidung, ob vorgefuehrt wird.
+
+**Stiller Start (die Technik dahinter, seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,
 kein gemerkter Status. Die Saeule kommt in der Betriebsart *Manuell* mit allen
