@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 
+import re
+
 import pytest
 from homeassistant.const import CONF_WEBHOOK_ID
 from homeassistant.core import HomeAssistant, callback
@@ -1344,6 +1346,35 @@ def schnelle_phasen():
         yield
 
 
+STUFE_FARBE = {1: "gruen", 2: "orange", 3: "rot", 4: "hinweis"}
+
+
+def _bilder(aioclient_mock, ab: int = 0) -> list[set[str]]:
+    """Die Stufenbilder, die nacheinander gestellt wurden, nach Farbe.
+
+    Die Integration setzt die vier Stufen der Reihe nach (die Saeule kann
+    nicht mehr); dieser Helfer macht daraus wieder Bilder, damit die Tests
+    nicht von der Reihenfolge einzelner Anfragen abhaengen.
+    """
+    bilder: list[set[str]] = []
+    offen: set[str] = set()
+    for pfad in _postpfade(aioclient_mock)[ab:]:
+        m = re.match(r"/api/relais/(\d+)\?an=([01])", pfad)
+        if not m:
+            continue
+        nr, an = int(m.group(1)), m.group(2) == "1"
+        farbe = STUFE_FARBE.get(nr)
+        if farbe is None:
+            continue
+        if an:
+            offen.add(farbe)
+        else:
+            offen.discard(farbe)
+        if nr == max(STUFE_FARBE):          # nach der letzten Stufe steht es
+            bilder.append(set(offen))
+    return bilder
+
+
 def _postpfade(aioclient_mock) -> list[str]:
     """Pfad samt Query jedes POST an ein Geraet, in der Reihenfolge."""
     pfade = []
@@ -1392,16 +1423,17 @@ async def test_ampel_eroeffnung_fahrt_einmal_vor(
     _saeule_posts(aioclient_mock)
     await _betriebsart(hass, "Ampel")
 
-    assert _postpfade(aioclient_mock) == [
-        "/api/piep",
-        "/api/stufen?orange=250",          # Inbetriebnahme: gelb blinkt
-        "/api/stufen?gruen=0",
-        "/api/stufen?orange=0",            # gruen -> gelb -> rot
-        "/api/stufen?rot=0",
-        "/api/stufen?rot=0&orange=0",      # rot -> rot+gelb -> gruen
-        "/api/stufen?gruen=0",
-        "/api/stufen?orange=0",            # und von dort zum echten Bild,
-        "/api/stufen?rot=0",               # auch ueber die Zwischenphase
+    assert _bilder(aioclient_mock) == [
+        {"orange"},                 # Inbetriebnahme
+        {"rot"},
+        {"rot", "orange"},          # rot -> rot+gelb -> gruen
+        {"gruen"},
+        {"orange"},                 # gruen -> gelb -> rot
+        {"rot"},
+        {"rot", "orange"},
+        {"gruen"},
+        {"orange"},                 # und von dort zum echten Bild,
+        {"rot"},                    # auch ueber die Zwischenphase
     ]
 
 
@@ -1427,10 +1459,11 @@ async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclie
     pfade = _postpfade(aioclient_mock)
     # Der Quittungston kommt vor dem Bild
     assert pfade[0] == "/api/piep"
-    # Das ganze Bild in einem Zug: nur Rot, dauernd
-    assert pfade[-1] == "/api/stufen?rot=0"
+    # Zuletzt steht Rot, und nur Rot
+    assert _bilder(aioclient_mock)[-1] == {"rot"}
     # Die Warnleuchte und der Tongeber gehoeren zu keinem Bild
-    assert not [p for p in pfade if p.startswith("/api/relais/")]
+    assert not [p for p in pfade if p.startswith("/api/relais/5")]
+    assert not [p for p in pfade if p.startswith("/api/relais/6")]
 
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.state == "Ampel"
@@ -1451,8 +1484,7 @@ async def test_ampel_folgt_der_garage(hass: HomeAssistant, aioclient_mock, schne
     await hass.async_block_till_done()
 
     # Rot auf Gruen geht ueber Rot und Gelb zusammen - das ist das Deutsche daran
-    neu = _postpfade(aioclient_mock)[vorher:]
-    assert neu == ["/api/stufen?rot=0&orange=0", "/api/stufen?gruen=0"]
+    assert _bilder(aioclient_mock, vorher) == [{"rot", "orange"}, {"gruen"}]
     assert hass.states.get("select.signalsaeule_betriebsart").attributes["lage"] == "frei"
 
     # Dasselbe noch einmal gemeldet schaltet nicht wieder - das Bild steht schon
@@ -1481,9 +1513,8 @@ async def test_ampel_folgt_dem_platz_nicht_der_lampe(
     _saeule_posts(aioclient_mock)
     await _betriebsart(hass, "Ampel")
 
-    pfade = _postpfade(aioclient_mock)
-    assert pfade[0] == "/api/piep"
-    assert pfade[-1] == "/api/stufen?rot=0"          # rot, dauernd
+    assert _postpfade(aioclient_mock)[0] == "/api/piep"
+    assert _bilder(aioclient_mock)[-1] == {"rot"}
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.attributes["lage"] == "besetzt"
     assert st.attributes["ampel"] == "aus"           # was der ESP seiner Lampe sagt
@@ -1498,9 +1529,8 @@ async def test_ampel_ohne_urteil_blinkt_gelb(hass: HomeAssistant, aioclient_mock
     _saeule_posts(aioclient_mock)
     await _betriebsart(hass, "Ampel")
 
-    pfade = _postpfade(aioclient_mock)
-    assert "/api/stufen?orange=1000&hinweis=160" in pfade   # lieber gelb blinken
-    assert not [p for p in pfade if "gruen" in p]           # als faelschlich gruen
+    # Lieber eine Stoerung zeigen als faelschlich gruen
+    assert _bilder(aioclient_mock) == [{"orange", "hinweis"}]
 
 
 async def test_ampel_gruen_auf_rot_ueber_gelb(
@@ -1518,8 +1548,7 @@ async def test_ampel_gruen_auf_rot_ueber_gelb(
     _garage_melden(hass, garage, ampel="stopp", auto_drin=True)
     await hass.async_block_till_done()
 
-    neu = _postpfade(aioclient_mock)[vorher:]
-    assert neu == ["/api/stufen?orange=0", "/api/stufen?rot=0"]
+    assert _bilder(aioclient_mock, vorher) == [{"orange"}, {"rot"}]
 
 
 async def test_ampel_stoerung_ohne_ueberblenden(
@@ -1537,8 +1566,7 @@ async def test_ampel_stoerung_ohne_ueberblenden(
     _garage_melden(hass, garage, ampel="kein_strom", strom=False, auto_drin=False)
     await hass.async_block_till_done()
 
-    neu = _postpfade(aioclient_mock)[vorher:]
-    assert neu == ["/api/stufen?orange=1000&hinweis=160"]
+    assert _bilder(aioclient_mock, vorher) == [{"orange", "hinweis"}]
 
 
 async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock, schnelle_phasen) -> None:
@@ -1548,11 +1576,9 @@ async def test_ampel_stoerung_blinkt_gelb(hass: HomeAssistant, aioclient_mock, s
     _saeule_posts(aioclient_mock)
     await _betriebsart(hass, "Ampel")
 
-    pfade = _postpfade(aioclient_mock)
-    # Gelb mit einem Hertz, Hinweisleuchte sehr schnell - in einem Zug
-    assert "/api/stufen?orange=1000&hinweis=160" in pfade
-    # Eine Stoerung kommt sofort, ohne Eroeffnung
-    assert pfade == ["/api/piep", "/api/stufen?orange=1000&hinweis=160"]
+    # Gelb und die Hinweisleuchte oben, ohne Eroeffnung: eine Stoerung sofort
+    assert _bilder(aioclient_mock) == [{"orange", "hinweis"}]
+    assert _postpfade(aioclient_mock)[0] == "/api/piep"
 
 
 async def test_ampel_ueberlebt_ein_neuladen_der_garage(
@@ -1574,8 +1600,7 @@ async def test_ampel_ueberlebt_ein_neuladen_der_garage(
     vorher = len(_postpfade(aioclient_mock))
     _garage_melden(hass, garage, ampel="frei", auto_drin=False)
     await hass.async_block_till_done()
-    neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/stufen?gruen=0" in neu
+    assert {"gruen"} in _bilder(aioclient_mock, vorher)
     assert hass.states.get("select.signalsaeule_betriebsart").state == "Ampel"
 
 
@@ -1593,8 +1618,8 @@ async def test_ampel_ohne_esp_blinkt_rot(hass: HomeAssistant, aioclient_mock, sc
     coordinator.async_set_update_error(UpdateFailed("weg"))
     await hass.async_block_till_done()
 
-    neu = _postpfade(aioclient_mock)[vorher:]
-    assert neu == ["/api/stufen?rot=1000"]               # rot, im Takt der gelben
+    # Rot und die Hinweisleuchte oben, ohne Ueberblenden
+    assert _bilder(aioclient_mock, vorher) == [{"rot", "hinweis"}]
     assert hass.states.get("select.signalsaeule_betriebsart").attributes["lage"] == "kein_esp"
 
 
@@ -1701,8 +1726,7 @@ async def test_ampel_ruht_waehrend_des_weckrufs(hass: HomeAssistant, aioclient_m
     ablauf._fertig(dt_util.utcnow())
     await hass.async_block_till_done()
     assert saeule.ampel.pausiert is False
-    neu = _postpfade(aioclient_mock)[vorher:]
-    assert "/api/stufen?gruen=0" in neu      # gruen, die Garage ist frei
+    assert {"gruen"} in _bilder(aioclient_mock, vorher)   # die Garage ist frei
     assert any(n["was"] == "Betriebsart Ampel" for n in ablauf.protokoll)
 
 

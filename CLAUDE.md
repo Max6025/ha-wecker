@@ -163,17 +163,28 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   zieht sie ihr Bild nach (`_bild = None`, weil der Ablauf die Saeule
   umgestellt hat). Nicht an `laeuft` haengen: das ist auch wahr, waehrend nur
   der Vorlauf steht, und dann waere die Ampel den ganzen Tag stumm.
-- **Das Ampelbild in einem Zug setzen, nicht Stufe fuer Stufe.** `POST
-  /api/stufen?gruen=&orange=&rot=&hinweis=` (1.7.0) setzt alle vier; jede
-  Farbe, die nicht dabeisteht, geht aus. Vier einzelne Anfragen hintereinander
-  sieht man flackern, und bei der Eroeffnung (gruen, rot, gruen) waere das
-  nicht hinnehmbar.
-- **`/api/stufen` uebernimmt das laufende Bild nicht** (1.7.1). Anders als
-  `/api/relais/<nr>`, das nur eine Stufe setzt und darum wissen muss, wie die
-  anderen stehen. Wer es doch uebernahm, sah das alte Bild noch einen
-  HTTP-Ruf lang: beim Umschalten auf die Ampel aus dem Status „stoerung"
-  heraus blitzte Rot 150 ms auf, bevor die Eroeffnung begann. Am Geraet mit
-  `/api/spur` gemessen.
+- **Die Server MUESSEN starten, sobald das WLAN steht - egal wann.** Der
+  schwerste Fehler dieses Projekts: `wlanVerbinden()` startete `server` und
+  `sseServer` nur, wenn die Verbindung in seinen zehn Wartesekunden zustande
+  kam, und kehrte bei bestehender Verbindung oben gleich um. Kam die
+  Verbindung kurz nach dem Warten von selbst, lief die Saeule mit IP, aber
+  ohne Server - stumm, bis zum Stromausfall. Am 18.11. lief der Weckruf
+  deshalb ohne Saeule. Seit 1.8.0 zieht `serverSicherstellen()` das aus der
+  Schleife nach. Nie wieder einen Serverstart an den Erfolg eines einzelnen
+  Verbindungsversuchs haengen.
+- **Nie Speicher anfordern, waehrend die Unterbrechungen gesperrt sind.**
+  `/api/stufen` rief `argWert()` viermal innerhalb von `noInterrupts()` - und
+  jeder Aufruf baut drei Arduino-`String`s auf dem Heap. Der 100-Hz-Zeitgeber
+  faellt dabei aus, und malloc mit gesperrten Unterbrechungen kann haengen.
+  Der Endpunkt ist wieder draussen; wenn er zurueckkommt, erst alle Werte
+  lesen und dann kurz sperren.
+- **Was in der Firmware fuer die Ampel stand, ist am 18.11. wieder heraus**
+  (`/api/stufen`, Blinken je Stufe). Max: die Saeule startete zeitweise nicht
+  mehr, erst muss das sitzen. Die Betriebsart „Ampel" stellt die Stufen
+  seither einzeln und zeigt Stoerungen ohne Blinken (Farbe plus
+  Hinweisleuchte). Vor einem neuen Anlauf: Startverhalten belegen, nicht
+  behaupten - `scratchpad/starttest.sh` faehrt acht Neustarts und prueft jedes
+  Mal die Erreichbarkeit.
 - **Die Ampel schaltet deutsch: gruen -> gelb -> rot, rot -> rot+gelb ->
   gruen.** Nicht nur bei der Eroeffnung, sondern bei jedem Wechsel
   (`uebergang()`); Rot und Gelb zugleich ist das Kennzeichen der deutschen

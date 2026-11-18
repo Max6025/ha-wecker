@@ -228,18 +228,21 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         await self._post("/api/piep", {"muster": muster} if muster else {})
 
-    async def async_stufen_stellen(self, bild: dict[str, int]) -> None:
-        """Das ganze Stufenbild in einem Zug setzen (Betriebsart manuell).
+    async def async_stufen_stellen(self, farben: set[str]) -> None:
+        """Genau diese Farben an, die anderen Stufen aus (Betriebsart manuell).
 
-        `bild` bildet die Farbe auf die Blinkperiode in ms ab, 0 heisst
-        dauernd; was nicht darin steht, geht aus. Fuer die Betriebsart
-        "Ampel": die Saeule soll ein ruhiges Bild zeigen, keine Choreografie -
-        darum nicht ueber den Status. Und in einem Ruf, nicht Stufe fuer
-        Stufe: vier Anfragen hintereinander sieht man flackern. Braucht
-        Firmware 1.7.0.
+        Fuer die Betriebsart "Ampel": ein stehendes Bild, keine Choreografie,
+        darum nicht ueber den Status. Stufe fuer Stufe, weil die Saeule nichts
+        anderes anbietet - zwischen der ersten und der letzten Anfrage sieht
+        man es leicht flackern. Das ist der Preis dafuer, dass in der Firmware
+        nichts Eigenes fuer die Ampel steht (siehe ampel.py).
         """
-        werte = {farbe: periode for farbe, periode in bild.items()}
-        await self._post("/api/stufen", werte)
+        if self.modus != MODUS_MANUELL:
+            await self.async_modus(False)
+        for r in self.leuchten(ROLLE_STUFE):
+            nr, farbe = r.get("nr"), str(r.get("farbe") or "")
+            if isinstance(nr, int):
+                await self.async_schalten(nr, farbe in farben)
 
     # --- Ereignisstrom -----------------------------------------------
 
@@ -314,20 +317,8 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Antwort ist der neue Zustand - direkt uebernehmen, ohne Abfrage
             self.async_set_updated_data(data)
 
-    async def async_schalten(
-        self, nr: int, an: bool, blinken_ms: int = 0
-    ) -> None:
-        """Eine Leuchte schalten, auf Wunsch blinkend.
-
-        `blinken_ms` ist die Periode (halb an, halb aus) und gilt nur fuer die
-        Stufen in der Betriebsart manuell - die Saeule macht das Blinken
-        selbst, denn Home Assistant kann nicht im Sekundentakt schalten.
-        Braucht Firmware 1.6.0.
-        """
-        werte: dict[str, Any] = {"an": 1 if an else 0}
-        if an and blinken_ms:
-            werte["blinken"] = blinken_ms
-        await self._post(f"/api/relais/{nr}", werte)
+    async def async_schalten(self, nr: int, an: bool) -> None:
+        await self._post(f"/api/relais/{nr}", {"an": 1 if an else 0})
 
     async def async_rolle_schalten(self, rolle: str, an: bool) -> None:
         """Den Ausgang dieser Rolle schalten (Warnleuchte, Tongeber)."""

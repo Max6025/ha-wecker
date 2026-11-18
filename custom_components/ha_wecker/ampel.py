@@ -7,10 +7,15 @@ garage.py):
     Auto steht in der Garage   -> rot
     Garage frei                -> gruen
     Kein Strom an der Lichtschranke
-                               -> gelb blinkt im Sekundentakt, wie an einer
-                                  echten Kreuzung, und die Hinweisleuchte
-                                  blinkt sehr schnell dazu
-    ESP antwortet nicht        -> rot blinkt, im Takt der gelben
+                               -> gelb und die Hinweisleuchte oben
+    ESP antwortet nicht        -> rot und die Hinweisleuchte oben
+
+Die Stoerungen blinken nicht mehr. Das Blinken konnte nur die Saeule selbst,
+und was in ihrer Firmware fuer die Ampel stand, ist am 18.11.2026 wieder
+heraus - sie startete zeitweise nicht mehr zuverlaessig, und erst muss das
+sitzen. Die Hinweisleuchte oben unterscheidet eine Stoerung weiter von den
+beiden ruhigen Bildern. Sobald der Start bewiesen stabil ist, kann das
+Blinken zurueck.
 
 **Nicht** an der Ampel des ESP (`ampel` in /api/state): die gehoert zur Lampe
 in der Garage und ist zum Einparken gedacht. Sie geht aus, sobald das Tor zu
@@ -81,12 +86,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
-    AMPEL_BLINK_MS,
-    AMPEL_BLINK_SCHNELL_MS,
     AMPEL_GELB_MS,
     AMPEL_ROT_GELB_MS,
     AMPEL_STEHT_MS,
-    AMPEL_START_BLINK_MS,
     DOMAIN,
     FARBE_GRUEN,
     FARBE_HINWEIS,
@@ -105,26 +107,22 @@ LAGE_KEIN_ESP = "kein_esp"
 # Bei diesen Lagen wird weder ueberblendet noch vorgefahren
 LAGE_STOERUNG = (LAGE_KEIN_STROM, LAGE_KEIN_ESP)
 
-# Die Bilder einer Ampel: Farbe -> Blinkperiode in ms, 0 heisst dauernd. Nach
-# Farbe, nicht nach Relaisnummer - die Saeule meldet sie selbst (ab 1.3.0).
-BILD_ROT: dict[str, int] = {FARBE_ROT: 0}
-BILD_GELB: dict[str, int] = {FARBE_ORANGE: 0}
-BILD_ROT_GELB: dict[str, int] = {FARBE_ROT: 0, FARBE_ORANGE: 0}
-BILD_GRUEN: dict[str, int] = {FARBE_GRUEN: 0}
+# Die Bilder einer Ampel, als Menge der Farben, die brennen. Nach Farbe, nicht
+# nach Relaisnummer - die Saeule meldet sie selbst (ab Firmware 1.3.0).
+BILD_ROT = frozenset({FARBE_ROT})
+BILD_GELB = frozenset({FARBE_ORANGE})
+BILD_ROT_GELB = frozenset({FARBE_ROT, FARBE_ORANGE})
+BILD_GRUEN = frozenset({FARBE_GRUEN})
 
-AMPEL_BILD: dict[str, dict[str, int]] = {
+AMPEL_BILD: dict[str, frozenset[str]] = {
     LAGE_BESETZT: BILD_ROT,
     LAGE_FREI: BILD_GRUEN,
-    # Eine gestoerte Ampel blinkt gelb, wie an der Kreuzung. Die
-    # Hinweisleuchte blinkt sehr schnell dazu, damit man es nicht mit dem
-    # Status "Achtung" verwechselt.
-    LAGE_KEIN_STROM: {
-        FARBE_ORANGE: AMPEL_BLINK_MS,
-        FARBE_HINWEIS: AMPEL_BLINK_SCHNELL_MS,
-    },
-    # Der ESP antwortet nicht - ihm fehlen die 5 V. Rot, allein, im Takt der
-    # gelben. Nicht im schnellen Blinken, und ohne Hinweisleuchte.
-    LAGE_KEIN_ESP: {FARBE_ROT: AMPEL_BLINK_MS},
+    # Die beiden Stoerungen: die Hinweisleuchte oben unterscheidet sie von den
+    # ruhigen Bildern, die Farbe unter ihr sagt, welche es ist. Gelb, wenn der
+    # ESP lebt und nur der Lichtschranke die 24 V fehlen; rot, wenn er selbst
+    # nicht antwortet und niemand mehr weiss, wie der Platz steht.
+    LAGE_KEIN_STROM: frozenset({FARBE_ORANGE, FARBE_HINWEIS}),
+    LAGE_KEIN_ESP: frozenset({FARBE_ROT, FARBE_HINWEIS}),
 }
 
 LAGE_TEXT: dict[str, str] = {
@@ -135,12 +133,16 @@ LAGE_TEXT: dict[str, str] = {
 }
 
 # Ein Schritt ist (Bild, wie lange es steht in ms).
-Schritt = tuple[dict[str, int], int]
+Schritt = tuple[frozenset[str], int]
 
-# Die Eroeffnung: gelb blinkt, dann einmal die volle Folge durch. Was danach
-# wirklich gilt, haengt der Ampelmodus mit der richtigen Zwischenphase an.
+# Die Eroeffnung: einmal die volle Folge durch, wie eine Ampel bei der
+# Inbetriebnahme. Was danach wirklich gilt, haengt der Ampelmodus mit der
+# richtigen Zwischenphase an. Das Gelbblinken davor fiel mit den Ampelteilen
+# in der Firmware weg; dafuer beginnt die Folge mit einem ruhigen Gelb.
 AMPEL_START: tuple[Schritt, ...] = (
-    ({FARBE_ORANGE: AMPEL_START_BLINK_MS}, 1000),   # Inbetriebnahme
+    (BILD_GELB, AMPEL_STEHT_MS),       # Inbetriebnahme
+    (BILD_ROT, AMPEL_STEHT_MS),
+    (BILD_ROT_GELB, AMPEL_ROT_GELB_MS),
     (BILD_GRUEN, AMPEL_STEHT_MS),
     (BILD_GELB, AMPEL_GELB_MS),
     (BILD_ROT, AMPEL_STEHT_MS),
@@ -149,7 +151,7 @@ AMPEL_START: tuple[Schritt, ...] = (
 )
 
 
-def uebergang(von: dict[str, int] | None, nach: dict[str, int]) -> tuple[Schritt, ...]:
+def uebergang(von: frozenset[str] | None, nach: frozenset[str]) -> tuple[Schritt, ...]:
     """Die Zwischenphasen zwischen zwei Ampelbildern, deutsch.
 
     Gruen auf Rot geht ueber Gelb, Rot auf Gruen ueber Rot und Gelb zusammen.
@@ -173,7 +175,7 @@ class Ampelmodus:
         self.aktiv = False
         self.pausiert = False          # der Weckablauf hat die Saeule
         self.fehler: str | None = None
-        self._bild: dict[str, int] | None = None   # was zuletzt gestellt wurde
+        self._bild: frozenset[str] | None = None   # was zuletzt gestellt wurde
         self._folge: asyncio.Task | None = None    # laufende Phasenfolge
         self._ab_garage: Any = None           # Abmelder des Garagen-Listeners
         self._gehoert: Any = None             # an welchem Coordinator er haengt
@@ -246,6 +248,16 @@ class Ampelmodus:
             await self.saeule.async_piep()
         except Exception as err:  # noqa: BLE001 - ein stummer Piep ist kein Grund
             _LOGGER.debug("Quittungston ging nicht: %s", err)
+        try:
+            # Kann die Saeule ueberhaupt, was gebraucht wird? Sonst gar nicht
+            # erst vorfahren - sie wuerde die Folge stumm abarbeiten und am
+            # Ende dunkel dastehen.
+            self._bild_fuer(self.lage)
+        except UpdateFailed as err:
+            self.fehler = str(err)
+            _LOGGER.warning("Betriebsart Ampel: %s", err)
+            self.melden()
+            return
         if self.lage in LAGE_STOERUNG:
             # Eine Stoerung soll sofort zu sehen sein, nicht erst nach zehn
             # Sekunden Theater.
@@ -332,16 +344,16 @@ class Ampelmodus:
 
     # --- Das Bild stellen ---------------------------------------------
 
-    def _bild_fuer(self, lage: str) -> tuple[dict[str, int], str]:
-        """({Farbe: Blinkperiode in ms}; was das Bild bedeutet)."""
-        bild = AMPEL_BILD.get(lage, {})
+    def _bild_fuer(self, lage: str) -> tuple[frozenset[str], str]:
+        """(Die Farben, die brennen sollen; was das Bild bedeutet)."""
+        bild = AMPEL_BILD.get(lage, frozenset())
         for farbe in bild:
             if self.saeule.nummer_farbe(farbe) is None:
                 raise UpdateFailed(
                     f"Die Saeule meldet keine Leuchte \"{farbe}\" - "
                     "braucht Firmware 1.3.0 oder neuer"
                 )
-        return dict(bild), LAGE_TEXT.get(lage, lage)
+        return bild, LAGE_TEXT.get(lage, lage)
 
     async def async_nachziehen(self) -> None:
         """Das Ampelbild stellen, wenn es sich geaendert hat.
@@ -365,7 +377,7 @@ class Ampelmodus:
         zwischen = uebergang(self._bild, ziel)
         if zwischen:
             _LOGGER.debug("Betriebsart Ampel: %s, ueber die Zwischenphase", warum)
-            self._folge_starten(zwischen + ((ziel, 0),))
+            self._folge_starten((*zwischen, (ziel, 0)))
             return
 
         try:

@@ -413,6 +413,16 @@ Zustand. Home Assistant gibt diesen Ton beim Umschalten auf die Betriebsart
 **Ampel** (Abschnitt 6c), und auf der Seite der Saeule gibt es den Knopf
 „Kurz piepen".
 
+**Der Fehler, der die Saeule stumm im Netz stehen liess (behoben in 1.8.0).**
+`wlanVerbinden()` wartet nach `WiFi.begin()` zehn Sekunden auf die Verbindung
+und startete die Server nur, wenn sie in dieser Zeit zustande kam. Kam sie
+kurz danach von selbst, sah die Schleife „verbunden" und rief die Funktion
+nie wieder - die Saeule hatte eine IP und antwortete auf nichts, bis man ihr
+den Strom nahm. Am 18.11.2026 genau so passiert: der Weckruf lief ohne
+Saeule, jeder Schritt mit „nicht erreichbar" im Protokoll. Jetzt zieht
+`serverSicherstellen()` den Start der Server nach, aus der Schleife heraus,
+sobald eine Verbindung steht.
+
 **Stiller Start (seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,
@@ -516,12 +526,7 @@ GET  /api/state                 kompletter Zustand als JSON
 GET  /api/live                  Kurzfassung fuer das Dashboard
 GET  /api/ping                  {"ok":true,"typ":"saeule"}
 GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
-POST /api/stufen?gruen=&orange=&rot=&hinweis=   alle vier Stufen in einem
-                                Zug (-> Manuell): Wert ist die Blinkperiode
-                                in ms, 0 heisst dauernd, fehlt heisst aus
-POST /api/relais/<nr>?an=1|0[&blinken=ms]  eine Leuchte schalten
-                                (Stufe -> Manuell), "blinken" ist die
-                                Periode in ms (nur Stufen, nur Manuell)
+POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
 POST /api/modus?modus=auto|manuell
 POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
 POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
@@ -723,8 +728,8 @@ auf **Ampel**, zeigt die Signalsaeule, wie der Stellplatz in der Garage steht
 |--------------------------------|------------|
 | Auto steht drin                | rot        |
 | frei                           | gruen      |
-| kein Strom an der Lichtschranke | **gelb blinkt** im Sekundentakt, Hinweisleuchte blinkt sehr schnell dazu |
-| ESP antwortet nicht            | **rot blinkt**, im Takt der gelben, sonst nichts |
+| kein Strom an der Lichtschranke | gelb und die Hinweisleuchte oben |
+| ESP antwortet nicht            | rot und die Hinweisleuchte oben |
 
 **Nicht** die Ampel des ESP.** Das Feld `ampel` in dessen `/api/state` gehoert
 zur Lampe in der Garage und ist zum Einparken gedacht: es geht auf `aus`,
@@ -742,20 +747,15 @@ Die **Stoerung an der Lichtschranke** ist nachgebaut, wie eine Ampel es an der K
 macht: gelb blinkt mit einem Hertz. Die Hinweisleuchte blinkt sehr schnell
 dazu (160 ms), damit man es nicht mit dem Status „Achtung" verwechselt.
 
-**Antwortet der ESP gar nicht**, ist das ein anderer Fall und bekommt ein
-anderes Bild: dann fehlen ihm die 5 V, mit denen er selbst betrieben wird. Es
-steht also nicht einmal fest, dass die Garage ueberwacht wird - darum blinkt
-**rot**, allein, im ruhigen Takt der gelben und ohne Hinweisleuchte. Lebt er
-dagegen und meldet nur, dass der Lichtschranke die 24 V fehlen, blinkt es
-gelb.
+**Antwortet der ESP gar nicht**, fehlen ihm die 5 V, mit denen er selbst
+betrieben wird. Dann steht nicht einmal fest, dass die Garage ueberwacht wird
+- darum **rot** mit der Hinweisleuchte. Lebt er und meldet nur, dass der
+Lichtschranke die 24 V fehlen, ist es **gelb** mit der Hinweisleuchte.
 
-Das Blinken macht die **Saeule** (ab Firmware 1.6.0, `POST
-/api/relais/<nr>?an=1&blinken=1000`), nicht Home Assistant: ein Ampeltakt aus
-dem Netz waere ein Zufallstakt. Gesetzt wird das Bild in einem Zug ueber
-`POST /api/stufen` (ab 1.7.0) - vier einzelne Anfragen sieht man flackern.
-Dieser Ruf uebernimmt das laufende Bild **nicht** (ab 1.7.1): er setzt ja alle
-vier Stufen selbst. Sonst stand das alte Bild noch einen HTTP-Ruf lang -
-schaltete man aus dem Status „Stoerung" auf die Ampel, blitzte Rot auf. Die Periode gilt nur fuer die Stufen in der
+Gesetzt wird das Bild Stufe fuer Stufe (`POST /api/relais/<nr>`), weil die
+Saeule nichts anderes mehr anbietet - zwischen der ersten und der letzten
+Anfrage sieht man es leicht flackern. Das ist der Preis dafuer, dass in der
+Firmware nichts Eigenes fuer die Ampel steht. Die Periode gilt nur fuer die Stufen in der
 Betriebsart manuell und wird beim Wechsel auf Auto, bei „Alles aus" und beim
 stillen Start geloescht.
 
@@ -777,11 +777,12 @@ mit ihnen sieht man dem Bild an, wohin es geht. Zu einer **Stoerung** und aus
 einer Stoerung heraus wird nicht ueberblendet: die soll sofort zu sehen sein.
 
 **Beim Einschalten fahert sie einmal vor**, wie eine Ampel bei der
-Inbetriebnahme: die mittlere blinkt eine Sekunde gelb (250 ms Takt), dann
-einmal die volle Folge - gruen, gelb, rot, rot+gelb, gruen - und danach das
-Bild, das wirklich gilt, auch dorthin ueber die richtige Zwischenphase. Steht
-das Auto in der Garage, sind das elf Sekunden. Ist in dem Moment eine
-**Stoerung**, entfaellt das ganz; kommt sie mitten hinein, bricht die Folge ab.
+Inbetriebnahme: gelb, rot, rot+gelb, gruen, gelb, rot, rot+gelb, gruen - und
+danach das Bild, das wirklich gilt, auch dorthin ueber die richtige
+Zwischenphase. Ist in dem Moment eine **Stoerung**, entfaellt das ganz; kommt
+sie mitten hinein, bricht die Folge ab. Meldet die Saeule keine Farben
+(Firmware vor 1.3.0), faengt die Betriebsart gar nicht an und sagt das im
+Attribut `ampel_fehler`.
 
 Beim Umschalten gibt der Tongeber einmal den Quittungston (`/api/piep`, siehe
 Abschnitt 6) - auch dann, wenn die Ampel gerade „aus" sagt und gar nichts zu

@@ -78,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.7.1";
+static const char* VERSION  = "1.8.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -147,19 +147,6 @@ static const uint8_t IDX_TON = 5;       // Index des Tongebers
 
 static bool istAn[ANZAHL];              // was gerade wirklich gesetzt ist
 static bool manuell[ANZAHL];            // Wunsch in der Betriebsart "manuell"
-// Blinken in der Betriebsart "manuell": Periode in ms je Stufe, 0 heisst
-// dauernd. Nur fuer die Stufen - die Betriebsart "auto" hat ihre eigenen
-// Bilder, und Warnleuchte und Tongeber blitzen bzw. piepen nach eigener
-// Logik. Gebraucht wird es fuer die Garagenampel: eine gestoerte Ampel
-// blinkt gelb, wie an einer echten Kreuzung.
-static const uint16_t BLINK_MIN_MS = 40;   // schneller flimmert es nur
-static uint16_t blinkMs[ANZAHL];
-static uint32_t blinkSeit[ANZAHL];
-
-static void blinkenLoeschen() {
-  for (uint8_t i = 0; i < ANZAHL; i++) blinkMs[i] = 0;
-}
-
 static int8_t leuchteIndex(int nr) {
   for (uint8_t i = 0; i < ANZAHL; i++) if (LEUCHTEN[i].nr == nr) return (int8_t)i;
   return -1;
@@ -520,12 +507,7 @@ static void lampenStellen() {
   setzen(IDX_TON, tonAn || piepAn);
 
   if (!autoModus) {
-    for (uint8_t s = 0; s < STUFEN; s++) {
-      bool soll = manuell[s];
-      if (soll && blinkMs[s] >= BLINK_MIN_MS)
-        soll = ((millis() - blinkSeit[s]) % blinkMs[s]) < (blinkMs[s] / 2);
-      setzen(s, soll);
-    }
+    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, manuell[s]);
     return;
   }
 
@@ -807,8 +789,31 @@ static void startStellen() {
 
 // ------------------------------------------------------------------- WLAN
 
+// Laufen die Server schon? Sie duerfen genau einmal gestartet werden, und sie
+// MUESSEN gestartet werden, sobald eine Verbindung steht - egal wann sie
+// zustande kam. Daran hing ein Fehler, der die Saeule stumm im Netz stehen
+// liess: schaffte WiFi.begin() die Verbindung nicht in seinen zehn Sekunden,
+// sondern kurz danach von selbst, dann kehrte wlanVerbinden() beim naechsten
+// Aufruf gleich oben wieder um ("schon verbunden") und server.begin() wurde
+// nie gerufen. Die Saeule hatte eine IP und antwortete auf nichts, bis man
+// ihr den Strom nahm. Am 18.11.2026 genau so passiert - der Weckruf lief
+// ohne Saeule.
+static bool serverLaeuft = false;
+
+static void serverSicherstellen() {
+  if (serverLaeuft || WiFi.status() != WL_CONNECTED) return;
+  server.begin();
+  sseServer.begin();
+  serverLaeuft = true;
+  Serial.print("Server laeuft, IP ");
+  Serial.println(WiFi.localIP());
+}
+
 static void wlanVerbinden() {
-  if (WiFi.status() == WL_CONNECTED) return;
+  if (WiFi.status() == WL_CONNECTED) {
+    serverSicherstellen();        // nachziehen, falls er noch nicht laeuft
+    return;
+  }
   Serial.print("WLAN ");
   Serial.print(WLAN_SSID);
   WiFi.setHostname(HOSTNAME);
@@ -818,10 +823,8 @@ static void wlanVerbinden() {
     Serial.print(".");
   }
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print(" verbunden, IP ");
-    Serial.println(WiFi.localIP());
-    server.begin();
-    sseServer.begin();
+    Serial.println();
+    serverSicherstellen();
   } else {
     Serial.println(" nicht erreichbar");
   }
@@ -850,7 +853,7 @@ static bool sollAn(uint8_t i) {
 
 static String stateJson() {
   String s;
-  s.reserve(2400);
+  s.reserve(3400);   // mit "farbe" je Ausgang reichen 2400 nicht mehr
   s += "{\"name\":\"Signals\xc3\xa4ule\",\"typ\":\"saeule\",\"version\":\"" + String(VERSION) + "\"";
   s += ",\"mac\":\"";
   uint8_t mac[6];
@@ -911,9 +914,7 @@ static String stateJson() {
     s += ",\"an\":" + String(sollAn(i) ? "true" : "false");       // logischer Zustand
     s += ",\"live\":" + String(istAn[i] ? "true" : "false");      // was gerade leuchtet
     s += ",\"pegel\":" + String(digitalRead(LEUCHTEN[i].pin));
-    bool blinkt = (i < STUFEN) && !autoModus && !testAn && manuell[i] && blinkMs[i] >= BLINK_MIN_MS;
-    s += ",\"muster\":\"" + String(!sollAn(i) ? "aus" : (blinkt ? "blinken" : "dauer")) + "\"";
-    s += ",\"blink_ms\":" + String(blinkt ? blinkMs[i] : 0);
+    s += ",\"muster\":\"" + String(sollAn(i) ? "dauer" : "aus") + "\"";
     s += ",\"rest_s\":-1}";
   }
   s += "]}";
@@ -1137,7 +1138,6 @@ static void httpBedienen() {
       if (neu != autoModus) {
         if (neu) {
           autoModus = true;
-          blinkenLoeschen();                    // gilt nur in "manuell"
           statusSetzen(status, true, true);     // Status noch einmal ansagen
         } else {
           // das laufende Bild einfrieren: sollAn() noch in Auto auswerten
@@ -1160,32 +1160,9 @@ static void httpBedienen() {
       bool warManuell = !autoModus || testAn;
       autoModus = true;
       testAn = false;
-      blinkenLoeschen();
       statusSetzen((Status)gefunden, true, warManuell);
       sendeJson(c, 200, stateJson());
     }
-  } else if (pfad == "/api/stufen") {
-    // Das ganze Bild in einem Zug. Stufe fuer Stufe zu schalten heisst vier
-    // Anfragen, und zwischen der ersten und der letzten flackert es - fuer
-    // eine Ampel ist das nichts. Jede Farbe, die nicht dabeisteht, geht aus.
-    // Anders als beim einzelnen Relais wird das laufende Bild hier *nicht*
-    // uebernommen: diese Anfrage setzt ohnehin alle vier Stufen. Wer es doch
-    // uebernahm, sah das alte Bild noch einen HTTP-Ruf lang stehen - beim
-    // Umschalten auf die Ampel aus einem roten Status heraus blitzte Rot auf,
-    // bevor die Eroeffnung begann.
-    noInterrupts();
-    autoModus = false;
-    testAn = false;
-    for (uint8_t i = 0; i < STUFEN; i++) {
-      String wert = argWert(ziel, LEUCHTEN[i].farbe);
-      bool dabei = wert.length() > 0;
-      long periode = dabei ? wert.toInt() : 0;
-      manuell[i] = dabei;
-      blinkMs[i] = (dabei && periode >= BLINK_MIN_MS) ? (uint16_t)periode : 0;
-      blinkSeit[i] = millis();
-    }
-    interrupts();
-    sendeJson(c, 200, stateJson());
   } else if (pfad.startsWith("/api/relais/")) {
     int nr = pfad.substring(pfad.lastIndexOf('/') + 1).toInt();
     int8_t i = leuchteIndex(nr);
@@ -1208,11 +1185,6 @@ static void httpBedienen() {
           autoModus = false;
               }
         manuell[i] = an;
-        // "blinken" ist die Periode in ms, halb an und halb aus. Ohne Angabe
-        // oder beim Ausschalten leuchtet die Stufe wieder dauernd.
-        long periode = argWert(ziel, "blinken").toInt();
-        blinkMs[i] = (an && periode >= BLINK_MIN_MS) ? (uint16_t)periode : 0;
-        blinkSeit[i] = millis();
         testAn = false;
       }
       sendeJson(c, 200, stateJson());
@@ -1280,7 +1252,6 @@ static void httpBedienen() {
     piepIndex = 0;
     piepAn = false;
     autoModus = false;
-    blinkenLoeschen();
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
     sendeJson(c, 200, stateJson());
   } else {
@@ -1344,7 +1315,6 @@ void loop() {
       setzen(i, false);
     }
     warnAn = warnVomAlarm = warnVorAlarm = tonAn = false;
-    blinkenLoeschen();
     piepSchritte = 0;
     piepIndex = 0;
     piepAn = false;
@@ -1364,6 +1334,7 @@ void loop() {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
+    serverSicherstellen();        // kostet nichts, wenn er schon laeuft
     httpBedienen();
     ssePflegen();
   } else {

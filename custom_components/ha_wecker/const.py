@@ -34,9 +34,6 @@ FARBE_HINWEIS = "hinweis"
 
 # Betriebsart "Ampel" (siehe ampel.py). Zeiten in Millisekunden, je Periode
 # (halb an, halb aus).
-AMPEL_BLINK_MS = 1000            # ein Hertz, der Takt einer Stoerungsampel
-AMPEL_BLINK_SCHNELL_MS = 160     # sehr schnell, nur die Hinweisleuchte
-AMPEL_START_BLINK_MS = 250       # gelb blinkt bei der Inbetriebnahme
 # Die Zwischenphasen einer deutschen Ampel (Wechsellichtzeichen nach StVO),
 # Zeiten nach RiLSA fuer 50 km/h: gruen -> gelb -> rot, rot -> rot+gelb ->
 # gruen. Rot und Gelb zugleich ist das, was die deutsche Ampel von den
