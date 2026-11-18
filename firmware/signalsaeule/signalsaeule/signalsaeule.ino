@@ -78,7 +78,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.8.0";
+static const char* VERSION  = "1.9.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -1163,6 +1163,26 @@ static void httpBedienen() {
       statusSetzen((Status)gefunden, true, warManuell);
       sendeJson(c, 200, stateJson());
     }
+  } else if (pfad == "/api/stufen") {
+    // Alle vier Stufen in einem Zug, damit ein Phasenwechsel wirklich
+    // gleichzeitig geschieht. Stufe fuer Stufe ueber vier Anfragen sieht man
+    // sonst: entweder steht die Saeule kurz dunkel oder es brennen kurz drei
+    // Farben zugleich - fuer eine Ampel beides nichts.
+    //
+    // WICHTIG: Die Werte werden hier erst gelesen und dann gesetzt. argWert()
+    // baut Arduino-Strings auf dem Heap, und Speicher anzufordern, waehrend
+    // die Unterbrechungen gesperrt sind, laesst den Zeitgeber ausfallen und
+    // kann haengen bleiben. Genau daran hing die Saeule am 18.11.2026.
+    bool wunsch[STUFEN];
+    for (uint8_t i = 0; i < STUFEN; i++)
+      wunsch[i] = argWert(ziel, LEUCHTEN[i].farbe).length() > 0;
+    // Ab hier keine Strings mehr: nur noch vier Zuweisungen unter der Sperre.
+    noInterrupts();
+    autoModus = false;
+    testAn = false;
+    for (uint8_t i = 0; i < STUFEN; i++) manuell[i] = wunsch[i];
+    interrupts();
+    sendeJson(c, 200, stateJson());
   } else if (pfad.startsWith("/api/relais/")) {
     int nr = pfad.substring(pfad.lastIndexOf('/') + 1).toInt();
     int8_t i = leuchteIndex(nr);

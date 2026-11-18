@@ -1346,35 +1346,20 @@ def schnelle_phasen():
         yield
 
 
-STUFE_FARBE = {1: "gruen", 2: "orange", 3: "rot", 4: "hinweis"}
-
-
 def _bilder(aioclient_mock, ab: int = 0) -> list[set[str]]:
     """Die Stufenbilder, die nacheinander gestellt wurden, nach Farbe.
 
-    Die Integration setzt die vier Stufen der Reihe nach (die Saeule kann
-    nicht mehr); dieser Helfer macht daraus wieder Bilder, damit die Tests
-    nicht von der Reihenfolge einzelner Anfragen abhaengen.
+    Die Integration setzt sie in einem Ruf (/api/stufen?rot=1&orange=1), damit
+    ein Phasenwechsel gleichzeitig geschieht; dieser Helfer macht daraus
+    wieder Mengen, damit die Tests nicht an der Reihenfolge der Parameter
+    haengen.
     """
     bilder: list[set[str]] = []
-    offen: set[str] = set()
-    gesetzt: set[int] = set()
     for pfad in _postpfade(aioclient_mock)[ab:]:
-        m = re.match(r"/api/relais/(\d+)\?an=([01])", pfad)
-        if not m:
+        if not pfad.startswith("/api/stufen"):
             continue
-        nr, an = int(m.group(1)), m.group(2) == "1"
-        farbe = STUFE_FARBE.get(nr)
-        if farbe is None:
-            continue
-        if an:
-            offen.add(farbe)
-        else:
-            offen.discard(farbe)
-        gesetzt.add(nr)
-        if gesetzt >= set(STUFE_FARBE):     # alle vier beruehrt: Bild steht
-            bilder.append(set(offen))
-            gesetzt.clear()
+        _, _, query = pfad.partition("?")
+        bilder.append({t.split("=")[0] for t in query.split("&") if t})
     return bilder
 
 
@@ -1431,10 +1416,6 @@ async def test_ampel_eroeffnung_fahrt_einmal_vor(
         {"rot"},
         {"rot", "orange"},          # rot -> rot+gelb -> gruen
         {"gruen"},
-        {"orange"},                 # gruen -> gelb -> rot
-        {"rot"},
-        {"rot", "orange"},
-        {"gruen"},
         {"orange"},                 # und von dort zum echten Bild,
         {"rot"},                    # auch ueber die Zwischenphase
     ]
@@ -1465,8 +1446,7 @@ async def test_ampel_umschalten_piept_und_zeigt_rot(hass: HomeAssistant, aioclie
     # Zuletzt steht Rot, und nur Rot
     assert _bilder(aioclient_mock)[-1] == {"rot"}
     # Die Warnleuchte und der Tongeber gehoeren zu keinem Bild
-    assert not [p for p in pfade if p.startswith("/api/relais/5")]
-    assert not [p for p in pfade if p.startswith("/api/relais/6")]
+    assert not [p for p in pfade if p.startswith("/api/relais/")]
 
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.state == "Ampel"
@@ -1743,4 +1723,4 @@ async def test_ampel_braucht_die_farben_der_firmware(hass: HomeAssistant, aiocli
     st = hass.states.get("select.signalsaeule_betriebsart")
     assert st.state == "Ampel"
     assert "1.3.0" in st.attributes["ampel_fehler"]
-    assert not [p for p in _postpfade(aioclient_mock) if p.startswith("/api/relais/")]
+    assert not [p for p in _postpfade(aioclient_mock) if p.startswith("/api/stufen")]

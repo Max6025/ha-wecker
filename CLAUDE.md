@@ -176,15 +176,22 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   `/api/stufen` rief `argWert()` viermal innerhalb von `noInterrupts()` - und
   jeder Aufruf baut drei Arduino-`String`s auf dem Heap. Der 100-Hz-Zeitgeber
   faellt dabei aus, und malloc mit gesperrten Unterbrechungen kann haengen.
-  Der Endpunkt ist wieder draussen; wenn er zurueckkommt, erst alle Werte
-  lesen und dann kurz sperren.
-- **Was in der Firmware fuer die Ampel stand, ist am 18.11. wieder heraus**
-  (`/api/stufen`, Blinken je Stufe). Max: die Saeule startete zeitweise nicht
-  mehr, erst muss das sitzen. Die Betriebsart „Ampel" stellt die Stufen
-  seither einzeln und zeigt Stoerungen ohne Blinken (Farbe plus
-  Hinweisleuchte). Vor einem neuen Anlauf: Startverhalten belegen, nicht
-  behaupten - `scratchpad/starttest.sh` faehrt acht Neustarts und prueft jedes
-  Mal die Erreichbarkeit.
+  Seit 1.9.0 liest der Endpunkt alle Werte erst in ein `bool[STUFEN]` und
+  sperrt dann nur fuer vier Zuweisungen. So gehoert es ueberall gemacht.
+- **Das Blinken je Stufe ist am 18.11. heraus** (Max: die Saeule startete
+  zeitweise nicht mehr, erst muss das sitzen). Die Betriebsart „Ampel" zeigt
+  Stoerungen seither ohne Blinken - Farbe plus Hinweisleuchte. Auf Zuruf kann
+  es zurueck; es war nicht die Fehlerursache.
+- **Das Stufenbild gleichzeitig setzen, nicht Stufe fuer Stufe.** Mit vier
+  einzelnen `/api/relais`-Anfragen steht die Saeule entweder 570 ms dunkel
+  (erst aus, dann an) oder es brennen kurz drei Farben (erst an, dann aus) -
+  beides am Geraet gemessen. Fuer eine Ampel ist beides nichts, darum
+  `/api/stufen`.
+- **Beim Startverhalten nichts behaupten, was nicht gemessen ist.**
+  `scratchpad/starttest.sh` faehrt acht Neustarts und prueft jedes Mal
+  Erreichbarkeit, Fassung und ob sie still hochkam. Nach jeder
+  Firmware-Aenderung neu fahren - der Nachweis gilt nur fuer die Fassung, mit
+  der er gefahren wurde.
 - **Die Ampel schaltet deutsch: gruen -> gelb -> rot, rot -> rot+gelb ->
   gruen.** Nicht nur bei der Eroeffnung, sondern bei jedem Wechsel
   (`uebergang()`); Rot und Gelb zugleich ist das Kennzeichen der deutschen

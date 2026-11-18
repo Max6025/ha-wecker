@@ -229,29 +229,15 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._post("/api/piep", {"muster": muster} if muster else {})
 
     async def async_stufen_stellen(self, farben: set[str]) -> None:
-        """Genau diese Farben an, die anderen Stufen aus (Betriebsart manuell).
+        """Das ganze Stufenbild gleichzeitig setzen (Betriebsart manuell).
 
-        Fuer die Betriebsart "Ampel": ein stehendes Bild, keine Choreografie,
-        darum nicht ueber den Status. Stufe fuer Stufe, weil die Saeule nichts
-        anderes anbietet - und dabei **erst an, dann aus**: schaltet man
-        zuerst ab, steht die Saeule zwei Anfragen lang dunkel da (gemessen
-        570 ms), und das sieht man. So leuchtet stattdessen einen Augenblick
-        eine Leuchte zu viel, was beim wichtigsten Wechsel - gelb auf rot -
-        sogar genau das richtige Zwischenbild ergibt.
+        Genau diese Farben an, die anderen aus - in einem Ruf, damit ein
+        Phasenwechsel wirklich gleichzeitig geschieht. Stufe fuer Stufe ueber
+        vier Anfragen sieht man: entweder steht die Saeule 570 ms dunkel oder
+        es brennen kurz drei Farben zugleich, beides am Geraet gemessen. Fuer
+        eine Ampel ist beides nichts. Braucht Firmware 1.9.0.
         """
-        if self.modus != MODUS_MANUELL:
-            await self.async_modus(False)
-        stufen = [
-            (r["nr"], str(r.get("farbe") or ""))
-            for r in self.leuchten(ROLLE_STUFE)
-            if isinstance(r.get("nr"), int)
-        ]
-        for nr, farbe in stufen:
-            if farbe in farben:
-                await self.async_schalten(nr, True)
-        for nr, farbe in stufen:
-            if farbe not in farben:
-                await self.async_schalten(nr, False)
+        await self._post("/api/stufen", {farbe: 1 for farbe in sorted(farben)})
 
     # --- Ereignisstrom -----------------------------------------------
 

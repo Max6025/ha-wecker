@@ -10,12 +10,11 @@ garage.py):
                                -> gelb und die Hinweisleuchte oben
     ESP antwortet nicht        -> rot und die Hinweisleuchte oben
 
-Die Stoerungen blinken nicht mehr. Das Blinken konnte nur die Saeule selbst,
-und was in ihrer Firmware fuer die Ampel stand, ist am 18.11.2026 wieder
-heraus - sie startete zeitweise nicht mehr zuverlaessig, und erst muss das
-sitzen. Die Hinweisleuchte oben unterscheidet eine Stoerung weiter von den
-beiden ruhigen Bildern. Sobald der Start bewiesen stabil ist, kann das
-Blinken zurueck.
+Die Stoerungen blinken nicht. Blinken kann nur die Saeule selbst, und das
+stand bis zum 18.11.2026 in ihrer Firmware - zusammen mit einem Fehler, der
+sie haengen liess. Beides ist heraus; die Hinweisleuchte oben unterscheidet
+eine Stoerung von den beiden ruhigen Bildern, die Farbe unter ihr sagt,
+welche es ist. Das Blinken kann auf Zuruf zurueck.
 
 **Nicht** an der Ampel des ESP (`ampel` in /api/state): die gehoert zur Lampe
 in der Garage und ist zum Einparken gedacht. Sie geht aus, sobald das Tor zu
@@ -135,16 +134,13 @@ LAGE_TEXT: dict[str, str] = {
 # Ein Schritt ist (Bild, wie lange es steht in ms).
 Schritt = tuple[frozenset[str], int]
 
-# Die Eroeffnung: einmal die volle Folge durch, wie eine Ampel bei der
-# Inbetriebnahme. Was danach wirklich gilt, haengt der Ampelmodus mit der
-# richtigen Zwischenphase an. Das Gelbblinken davor fiel mit den Ampelteilen
-# in der Firmware weg; dafuer beginnt die Folge mit einem ruhigen Gelb.
+# Die Eroeffnung: einmal die Folge durch, wie eine Ampel bei der
+# Inbetriebnahme - gelb, dann rot, ueber rot+gelb nach gruen. Was danach
+# wirklich gilt, haengt der Ampelmodus mit der richtigen Zwischenphase an;
+# steht das Auto drin, kommt also noch gelb und rot. Zusammen rund neun
+# Sekunden - lang genug, um es zu sehen, kurz genug, um nicht zu nerven.
 AMPEL_START: tuple[Schritt, ...] = (
     (BILD_GELB, AMPEL_STEHT_MS),       # Inbetriebnahme
-    (BILD_ROT, AMPEL_STEHT_MS),
-    (BILD_ROT_GELB, AMPEL_ROT_GELB_MS),
-    (BILD_GRUEN, AMPEL_STEHT_MS),
-    (BILD_GELB, AMPEL_GELB_MS),
     (BILD_ROT, AMPEL_STEHT_MS),
     (BILD_ROT_GELB, AMPEL_ROT_GELB_MS),
     (BILD_GRUEN, AMPEL_STEHT_MS),

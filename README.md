@@ -526,6 +526,8 @@ GET  /api/state                 kompletter Zustand als JSON
 GET  /api/live                  Kurzfassung fuer das Dashboard
 GET  /api/ping                  {"ok":true,"typ":"saeule"}
 GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
+POST /api/stufen?gruen=1&rot=1  alle vier Stufen gleichzeitig (-> Manuell);
+                                was nicht dabeisteht, geht aus
 POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
 POST /api/modus?modus=auto|manuell
 POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
@@ -752,10 +754,17 @@ betrieben wird. Dann steht nicht einmal fest, dass die Garage ueberwacht wird
 - darum **rot** mit der Hinweisleuchte. Lebt er und meldet nur, dass der
 Lichtschranke die 24 V fehlen, ist es **gelb** mit der Hinweisleuchte.
 
-Gesetzt wird das Bild Stufe fuer Stufe (`POST /api/relais/<nr>`), weil die
-Saeule nichts anderes mehr anbietet - zwischen der ersten und der letzten
-Anfrage sieht man es leicht flackern. Das ist der Preis dafuer, dass in der
-Firmware nichts Eigenes fuer die Ampel steht. Die Periode gilt nur fuer die Stufen in der
+Gesetzt wird das Bild **gleichzeitig** (`POST /api/stufen`, ab Firmware
+1.9.0), nicht Stufe fuer Stufe. Vier einzelne Anfragen sieht man: je nach
+Reihenfolge steht die Saeule 570 ms dunkel oder es brennen kurz drei Farben
+zugleich - beides am Geraet gemessen, und fuer eine Ampel beides nichts.
+
+Der Endpunkt liest alle Werte **erst** und setzt sie **dann** unter einer
+kurzen Interrupt-Sperre. Das ist nicht Geschmack: `argWert()` baut
+Arduino-Strings auf dem Heap, und Speicher anzufordern, waehrend die
+Unterbrechungen gesperrt sind, laesst den 100-Hz-Zeitgeber ausfallen und kann
+haengen bleiben. Eine fruehere Fassung tat das und war mitschuldig daran,
+dass die Saeule am 18.11.2026 zeitweise nicht mehr ansprach. Die Periode gilt nur fuer die Stufen in der
 Betriebsart manuell und wird beim Wechsel auf Auto, bei „Alles aus" und beim
 stillen Start geloescht.
 
@@ -777,9 +786,10 @@ mit ihnen sieht man dem Bild an, wohin es geht. Zu einer **Stoerung** und aus
 einer Stoerung heraus wird nicht ueberblendet: die soll sofort zu sehen sein.
 
 **Beim Einschalten fahert sie einmal vor**, wie eine Ampel bei der
-Inbetriebnahme: gelb, rot, rot+gelb, gruen, gelb, rot, rot+gelb, gruen - und
-danach das Bild, das wirklich gilt, auch dorthin ueber die richtige
-Zwischenphase. Ist in dem Moment eine **Stoerung**, entfaellt das ganz; kommt
+Inbetriebnahme: gelb, rot, rot+gelb, gruen - und danach das Bild, das
+wirklich gilt, auch dorthin ueber die richtige Zwischenphase. Steht das Auto
+in der Garage, kommt also noch gelb und rot; zusammen sind das rund neun
+Sekunden. Ist in dem Moment eine **Stoerung**, entfaellt das ganz; kommt
 sie mitten hinein, bricht die Folge ab. Meldet die Saeule keine Farben
 (Firmware vor 1.3.0), faengt die Betriebsart gar nicht an und sagt das im
 Attribut `ampel_fehler`.
