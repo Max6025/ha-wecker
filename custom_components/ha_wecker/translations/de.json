@@ -108,7 +108,8 @@
           "pause": "Angehalten",
           "eingriff": "Eingriff nötig",
           "fehler": "Gestört",
-          "weg": "Verschwunden"
+          "weg": "Verschwunden",
+          "tuer": "Tür offen"
         }
       }
     }

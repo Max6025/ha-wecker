@@ -418,10 +418,18 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   `async_stop`. Sonst stuende `sensor.<saeule>_drucker` still, solange die
   Saeule auf Auto steht.
 - **Drucker: Ton nur tagsueber und nur einmal je Lage.** Quittung beim
-  Umschalten, dann je einmal bei `fertig` und `fehler`
-  (`_ton_fuer`), nichts bei `eingriff` (eine offene Tuer im Druck ist
-  Alltag), und zwischen 21 und 8 Uhr gar nichts - die Saeule steht in einem
-  Schlafzimmer. Keine Blitz-Warnleuchte, die gehoert dem Alarm.
+  Umschalten, dann je einmal bei `fertig`, `fehler` und `tuer` (`_ton_fuer`),
+  nichts bei `eingriff` (wer Filament wechselt, steht davor), und zwischen 21
+  und 8 Uhr gar nichts - die Saeule steht in einem Schlafzimmer. Keine
+  Blitz-Warnleuchte, die gehoert dem Alarm.
+- **Drucker: die offene Tuer im Druck ist eine eigene Lage** (`tuer`, Max am
+  20.11.2026: Ton und Licht, wenn beim Drucken die Tuer offen steht). Bild
+  gruen + rot - der Druck laeuft, aber etwas steht offen -, und sie geht in
+  der Rangfolge vor Endspurt und Ruesten, denn sie verlangt etwas. Nur bei
+  `running`: steht der Drucker, sagt eine offene Tuer nichts. Beim fertigen
+  Druck hat dieselbe Tuer die **umgekehrte** Bedeutung (sie quittiert das
+  Abholen, siehe `_gedaechtnis_pflegen`) - die beiden Faelle nicht
+  zusammenwerfen.
 - **Die beiden Betriebsarten aus Home Assistant schliessen sich aus.**
   `coordinator.betriebsarten` / `betriebsart_verlassen()` fassen sie
   zusammen; Schalter, Stufe von Hand, Status und „Alles aus" gehen ueber

@@ -919,6 +919,7 @@ einzige Frage: muss ich hin?
 | `eingriff` | Material fehlt, eine Hand ist gebraucht | orange + rot |
 | `fehler` | abgebrochen, Duese verstopft, Fehldruck | rot |
 | `weg` | mitten im Druck verschwunden | rot + Hinweis |
+| `tuer` | Tuer offen, waehrend gedruckt wird | gruen + rot |
 
 Die Bilder folgen derselben Lesart wie die Garagenampel: die Farbe sagt, wie
 es steht, die **Hinweisleuchte oben heisst „es wartet etwas auf dich"**. Rot
@@ -948,12 +949,20 @@ der Firmware heraus, und ein Takt aus Home Assistant waere ein Zufallstakt.
   **Stunden** (0,42), nicht in Minuten. Wer die Zahl ungelesen nimmt, haelt
   jeden Druck fuer fast fertig.
 
+**Die offene Tuer beim Drucken ist eine Lage fuer sich.** Laeuft ein Druck und
+die Gehaeusetuer steht offen, zeigt die Saeule **gruen und rot** zugleich - ein
+Bild, das es sonst nicht gibt: der Druck geht weiter, aber etwas steht offen
+(Zugluft, und beim geschlossenen Drucker auch die Temperatur). Dazu gibt der
+Tongeber **einmal kurz** Laut. Geht die Tuer zu, steht wieder gruen; geht sie
+erneut auf, tont es wieder. Steht der Drucker, ist eine offene Tuer dagegen
+nichts wert - dann bleibt es bei `ruht`.
+
 **Gehoert wird es einmal.** Der Tongeber gibt den Quittungston beim
-Umschalten, und danach genau einmal, wenn aus dem Lauf `fertig` oder `fehler`
-wird - dafuer ist eine Werkstattanzeige da. Nicht bei `eingriff`: eine offene
-Tuer waehrend des Drucks ist Alltag. Und **nie zwischen 21 und 8 Uhr**, denn
-die Saeule steht in einem Schlafzimmer. Die Blitz-Warnleuchte bleibt immer
-aus, die gehoert zum Alarm.
+Umschalten, und danach je einmal, wenn `fertig`, `fehler` oder die offene
+Tuer eintritt - dafuer ist eine Werkstattanzeige da. Nicht bei `eingriff`:
+wer das Filament wechselt, steht sowieso davor. Und **nie zwischen 21 und
+8 Uhr**, denn die Saeule steht in einem Schlafzimmer. Die Blitz-Warnleuchte
+bleibt immer aus, die gehoert zum Alarm.
 
 **Beim Umschalten laeuft ein Selbsttest**: gruen, orange, rot, Hinweis, je
 250 ms von unten nach oben - wie eine Werkzeugmaschine beim Einschalten.

@@ -108,7 +108,8 @@
           "pause": "Paused",
           "eingriff": "Needs a hand",
           "fehler": "Fault",
-          "weg": "Gone"
+          "weg": "Gone",
+          "tuer": "Door open"
         }
       }
     }

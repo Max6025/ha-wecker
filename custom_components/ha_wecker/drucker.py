@@ -21,6 +21,7 @@ daraus **neun Lagen**, und jede beantwortet eine einzige Frage: muss ich hin?
     eingriff  Material fehlt, Hand gebraucht           orange + rot
     fehler    abgebrochen, Duesenproblem, Fehldruck    rot
     weg       mitten im Druck verschwunden             rot + Hinweis
+    tuer      Tuer offen, waehrend gedruckt wird       gruen + rot
 
 Die Bilder folgen derselben Lesart wie die Garagenampel (siehe ampel.py):
 die Farbe sagt, wie es steht, die **Hinweisleuchte oben heisst "es wartet
@@ -165,6 +166,7 @@ LAGE_PAUSE = "pause"
 LAGE_EINGRIFF = "eingriff"
 LAGE_FEHLER = "fehler"
 LAGE_WEG = "weg"
+LAGE_TUER = "tuer"
 
 LAGE_ALLE = (
     LAGE_RUHT,
@@ -176,6 +178,7 @@ LAGE_ALLE = (
     LAGE_EINGRIFF,
     LAGE_FEHLER,
     LAGE_WEG,
+    LAGE_TUER,
 )
 
 # Das Bild je Lage, als Menge der Farben. Die Farbe sagt, wie es steht; die
@@ -191,6 +194,10 @@ DRUCKER_BILD: dict[str, frozenset[str]] = {
     LAGE_EINGRIFF: frozenset({FARBE_ORANGE, FARBE_ROT}),
     LAGE_FEHLER: frozenset({FARBE_ROT}),
     LAGE_WEG: frozenset({FARBE_ROT, FARBE_HINWEIS}),
+    # Tuer offen, waehrend gedruckt wird: gruen bleibt, weil der Druck laeuft,
+    # rot dazu, weil etwas offen steht. Ein Bild, das es sonst nicht gibt -
+    # man sieht beides auf einmal (Max, 20.11.2026).
+    LAGE_TUER: frozenset({FARBE_GRUEN, FARBE_ROT}),
 }
 
 LAGE_TEXT: dict[str, str] = {
@@ -203,13 +210,21 @@ LAGE_TEXT: dict[str, str] = {
     LAGE_EINGRIFF: "Eingriff nötig",
     LAGE_FEHLER: "Druck gestört",
     LAGE_WEG: "mitten im Druck verschwunden",
+    LAGE_TUER: "Tür offen beim Drucken",
 }
 
 # Bei diesen Lagen ist ein Druck unterwegs - verschwindet der Drucker dabei,
 # ist das `weg` und nicht einfach ein ausgeschaltetes Geraet.
-LAGE_IM_LAUF = (LAGE_RUESTET, LAGE_DRUCKT, LAGE_ENDSPURT, LAGE_PAUSE, LAGE_EINGRIFF)
-# Dafuer gibt der Tongeber einmal Laut, wenn es aus dem Nichtstun kommt
-LAGE_TON = (LAGE_FERTIG, LAGE_FEHLER)
+LAGE_IM_LAUF = (
+    LAGE_RUESTET,
+    LAGE_DRUCKT,
+    LAGE_ENDSPURT,
+    LAGE_PAUSE,
+    LAGE_EINGRIFF,
+    LAGE_TUER,
+)
+# Dafuer gibt der Tongeber einmal kurz Laut, sobald die Lage eintritt
+LAGE_TON = (LAGE_FERTIG, LAGE_FEHLER, LAGE_TUER)
 
 # --- Wie aus den Begriffen des Druckers eine Lage wird ---------------------
 
@@ -448,6 +463,12 @@ class Druckermodus:
             return LAGE_RUHT if self._abgeholt else LAGE_FERTIG
 
         if status == STATUS_LAEUFT:
+            # Die offene Tuer geht vor allem anderen, was der Lauf zu melden
+            # hat: der Druck geht weiter, aber es steht etwas offen - Zugluft,
+            # und bei einem geschlossenen Drucker auch Temperatur. Gruen und
+            # rot zusammen, dazu einmal kurz der Tongeber (Max, 20.11.2026).
+            if self._ja(TK_TUER):
+                return LAGE_TUER
             # Der Endspurt geht vor dem Ruesten - sonst wird aus dem Nachlauf
             # am Ende eines Drucks (die Kammerluft wird gereinigt, die Duese
             # kuehlt) wieder "ruestet", und die Saeule faellt bei 100 % von
@@ -732,9 +753,11 @@ class Druckermodus:
     async def _tonen(self, vorher: str | None, lage: str) -> None:
         """Einmal Laut geben, wenn aus dem Lauf etwas Wartendes geworden ist.
 
-        Nur `fertig` und `fehler`, nur einmal je Lage, und nie nachts - die
-        Saeule steht in einem Schlafzimmer. `eingriff` tont nicht: eine offene
-        Tuer waehrend des Drucks ist Alltag.
+        `fertig`, `fehler` und die offene Tuer beim Drucken, je einmal beim
+        Eintreten, und nie nachts - die Saeule steht in einem Schlafzimmer.
+        `eingriff` tont nicht: wer das Filament wechselt, steht sowieso davor.
+        Geht die Tuer zu und wieder auf, tont es erneut - `_ton_fuer` haelt nur
+        die laufende Lage fest, und die ist dazwischen eine andere.
         """
         if lage not in LAGE_TON or vorher is None or self._ton_fuer == lage:
             self._ton_fuer = lage if lage in LAGE_TON else None
