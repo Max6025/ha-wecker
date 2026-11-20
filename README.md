@@ -578,7 +578,12 @@ GET  /api/live                  Kurzfassung fuer das Dashboard
 GET  /api/ping                  {"ok":true,"typ":"saeule"}
 GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
 POST /api/stufen?gruen=1&rot=1  alle vier Stufen gleichzeitig (-> Manuell);
-                                was nicht dabeisteht, geht aus
+                                was nicht dabeisteht, geht aus. Statt 1 darf
+                                eine Blinkperiode in ms stehen, dahinter nach
+                                einem Doppelpunkt der Versatz darin
+                                ("orange=900:300") - damit blinken zwei Lampen
+                                im Wechsel und drei laufen als Welle
+                                (ab Firmware 1.15.0)
 POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> Manuell)
 POST /api/modus?modus=auto|manuell
 POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
@@ -905,35 +910,70 @@ Bambu-Integration liefert rund siebzig Entitaeten je Drucker, und ihre Werte
 sind Maschinenbegriffe: `print_status` kennt elf, `stage` ueber achtzig - von
 `heatbed_underside_foreign_object_detection` bis `paused_skipped_step`. Davon
 ist fast nichts eine Information, auf die man aufsteht. Die Integration
-urteilt selbst und macht daraus **neun Lagen**, und jede beantwortet eine
-einzige Frage: muss ich hin?
+urteilt selbst.
+
+### Die Bildsprache ist eine Grammatik, keine Liste
+
+Vierzehn Bilder auswendig zu lernen will niemand (Max, 20.11.2026). Darum
+sagt nicht jedes Bild fuer sich etwas, sondern **sechs Regeln sagen alles**:
+
+| Was man sieht | Was es heisst |
+|---|---|
+| Licht wandert **nach oben** | der Drucker fahert hoch - er wird warm |
+| Licht wandert **nach unten** | er fahert runter - er kuehlt ab |
+| **gruen** | der Druck laeuft; hektisch heisst gleich fertig |
+| **orange** | er arbeitet daneben, es kommt noch kein Kunststoff |
+| **weiss oben** | du bist gefragt; blinkt es, dann jetzt |
+| **rot** | etwas stimmt nicht |
+
+Daraus ergibt sich jede Lage von selbst, und am **eigenen Arbeitsschritt**
+erkennt man, was gerade passiert:
 
 | Lage | heisst | Saeule |
 |---|---|---|
-| `ruht` | nichts zu tun (auch: Drucker aus) | Hinweis |
-| `ruestet` | heizt, kalibriert, laedt Filament | orange |
-| `druckt` | laeuft | gruen |
-| `endspurt` | weniger als fuenf Minuten, oder ab 98 % | gruen + orange |
-| `fertig` | liegt auf dem Bett und will geholt werden | gruen + Hinweis |
-| `pause` | von Hand angehalten | orange + Hinweis |
-| `eingriff` | Material fehlt, eine Hand ist gebraucht | orange + rot |
-| `fehler` | abgebrochen, Duese verstopft, Fehldruck | rot |
-| `weg` | mitten im Druck verschwunden | rot + Hinweis |
-| `tuer` | Tuer offen, waehrend gedruckt wird | gruen + rot |
+| `ruht` | nichts zu tun (auch: Drucker aus) | Hinweis, dauerhaft |
+| `ruestet` | arbeitet vor, `stage` sagt nichts Naeheres | orange, dauerhaft |
+| `heizt` | Bett und Duese werden warm | Welle nach oben (1,8 s) |
+| `vermisst` | Bett antasten, kalibrieren, einmessen | gruen und orange im Wechsel (0,7 s) |
+| `material` | Filament laden, spuelen, Duese putzen | orange, schnell (0,4 s) |
+| `druckt` | laeuft | gruen, dauerhaft |
+| `endspurt` | weniger als fuenf Minuten, oder ab 98 % | gruen, schnell (0,4 s) |
+| `kuehlt` | Nachlauf: Kammerluft reinigen, abkuehlen | Welle nach unten (1,8 s) |
+| `fertig` | liegt auf dem Bett und will geholt werden | gruen + Hinweis, dauerhaft |
+| `pause` | von Hand angehalten | orange + Hinweis, dauerhaft |
+| `eingriff` | Material fehlt, eine Hand ist gebraucht | orange, Hinweis blinkt (0,6 s) |
+| `fehler` | abgebrochen, Duese verstopft, Fehldruck | rot, blinkt (0,5 s) |
+| `tuer` | Tuer offen, waehrend gedruckt wird | gruen, rot blinkt hektisch (0,3 s) |
+| `weg` | mitten im Druck verschwunden | rot und Hinweis langsam im Wechsel (1,5 s) |
 
-Die Bilder folgen derselben Lesart wie die Garagenampel: die Farbe sagt, wie
-es steht, die **Hinweisleuchte oben heisst „es wartet etwas auf dich"**. Rot
-und Hinweis zusammen bedeutet hier wie dort: keine Auskunft. Jedes Bild ist
-eindeutig, keines blinkt - das Blinken je Stufe ist seit dem 18.11.2026 aus
-der Firmware heraus, und ein Takt aus Home Assistant waere ein Zufallstakt.
+**Heizen und Kuehlen sind dieselbe Welle, nur in die andere Richtung** - ein
+Thermometer, das steigt oder faellt. Genau das war Max' Beispiel: man soll am
+Ende eines Drucks sehen, dass nur noch zugemacht wird, ohne es zu lernen.
+`pause` und `eingriff` tragen dieselben Farben und unterscheiden sich nur im
+Takt oben: „es wartet etwas" gegen „komm jetzt". Kein Bild gleicht einem
+anderen; der Test `test_drucker_jedes_bild_ist_eindeutig` haelt das fest.
 
-**Was die Integration selbst entscheidet:**
+**Geblinkt wird im Geraet.** `/api/stufen` nimmt ab Firmware **1.15.0** je
+Lampe eine Periode und einen Versatz, und der Zeitgeber der Saeule (alle
+10 ms) haelt sie ein. Ein Takt aus Home Assistant ueber HTTP waere ein
+Zufallstakt. Der Versatz ist das eigentliche Mittel: eine halbe Periode
+versetzt ergibt den Wechsel, je ein Drittel die Welle.
+
+### Was die Integration selbst entscheidet
 
 - **Eine Pause ist nicht eine Pause.** Steht der Druck, weil Material fehlt
   (`paused_filament_runout`, AMS verloren, warten auf Material), ist das
   `eingriff`. Steht er wegen der Maschine (verstopfte Duese, misslungene
   erste Schicht, Temperaturfehler), ist das `fehler`. Hat ihn der Nutzer
   selbst angehalten, ist es `pause`. Drei Lagen aus einem Wort.
+- **Der Arbeitsschritt kommt aus `stage`, nach Wortanfang.** `heat`, `cool`,
+  `calibrat`, `filament`, `purifying` - das traegt weiter als eine
+  Aufzaehlung, die altert, denn Bambu nimmt laufend Werte dazu.
+  `heatbed_preheating` ist damit auf immer richtig einsortiert.
+- **Der Nachlauf ist kein Endspurt.** Am Ende steht der Fortschritt auf 100,
+  waehrend `stage` auf `purifying_chamber_air` geht. Vorher wurde daraus
+  `endspurt` oder sogar wieder `ruestet` - am 20.11.2026 am laufenden Druck
+  gesehen. Jetzt faellt die Welle, und man sieht es.
 - **HMS-Meldungen machen kein Bild.** Darunter melden die Drucker auch
   Bagatellen; eine Signalsaeule, die davon rot wird, ist nach einer Woche
   Tapete. Sie stehen im Attribut `hms`. Sichtbar wird nur, was den Druck
@@ -950,19 +990,17 @@ der Firmware heraus, und ein Takt aus Home Assistant waere ein Zufallstakt.
   jeden Druck fuer fast fertig.
 
 **Die offene Tuer beim Drucken ist eine Lage fuer sich.** Laeuft ein Druck und
-die Gehaeusetuer steht offen, zeigt die Saeule **gruen und rot** zugleich - ein
-Bild, das es sonst nicht gibt: der Druck geht weiter, aber etwas steht offen
-(Zugluft, und beim geschlossenen Drucker auch die Temperatur). Dazu gibt der
-Tongeber **einmal kurz** Laut. Geht die Tuer zu, steht wieder gruen; geht sie
-erneut auf, tont es wieder. Steht der Drucker, ist eine offene Tuer dagegen
-nichts wert - dann bleibt es bei `ruht`.
+die Gehaeusetuer steht offen, bleibt **gruen stehen** (der Druck laeuft) und
+**rot blinkt hektisch** dazu: etwas steht offen - Zugluft, und beim
+geschlossenen Drucker auch die Temperatur. Geht die Tuer zu, steht wieder
+gruen allein. Steht der Drucker, ist eine offene Tuer dagegen nichts wert -
+dann bleibt es bei `ruht`. Beim **fertigen** Druck hat dieselbe Tuer die
+umgekehrte Bedeutung: sie quittiert das Abholen.
 
-**Gehoert wird es einmal.** Der Tongeber gibt den Quittungston beim
-Umschalten, und danach je einmal, wenn `fertig`, `fehler` oder die offene
-Tuer eintritt - dafuer ist eine Werkstattanzeige da. Nicht bei `eingriff`:
-wer das Filament wechselt, steht sowieso davor. Und **nie zwischen 21 und
-8 Uhr**, denn die Saeule steht in einem Schlafzimmer. Die Blitz-Warnleuchte
-bleibt immer aus, die gehoert zum Alarm.
+**Gehoert wird nichts.** Jeder Arbeitsschritt hat sein Licht, und damit ist
+alles gesagt (Max, 20.11.2026). Der einzige Ton ist der Quittungston beim
+**Umschalten** auf die Betriebsart - das ist eine Bedienung, keine Meldung
+des Druckers. Die Blitz-Warnleuchte bleibt immer aus, die gehoert zum Alarm.
 
 **Beim Umschalten laeuft ein Selbsttest**: gruen, orange, rot, Hinweis, je
 250 ms von unten nach oben - wie eine Werkzeugmaschine beim Einschalten.

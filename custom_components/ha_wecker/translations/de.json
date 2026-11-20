@@ -102,8 +102,12 @@
         "state": {
           "ruht": "Ruht",
           "ruestet": "Rüstet",
+          "heizt": "Heizt auf",
+          "vermisst": "Vermisst das Bett",
+          "material": "Material läuft",
           "druckt": "Druckt",
           "endspurt": "Fast fertig",
+          "kuehlt": "Kühlt ab",
           "fertig": "Zum Abholen",
           "pause": "Angehalten",
           "eingriff": "Eingriff nötig",

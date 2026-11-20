@@ -64,6 +64,13 @@
     GET  :8081/api/events           Ereignisstrom (SSE), bei jeder Aenderung
     POST /api/relais/<nr>?an=1|0    eine Leuchte schalten (Stufe -> manuell),
                                     Nr. 6 ist der Tongeber
+    POST /api/stufen?gruen=1&orange=900:300&rot=900:600   alle Stufen in einem
+                                    Zug (-> manuell). Wert 1 heisst dauerhaft
+                                    an, eine groessere Zahl ist eine
+                                    Blinkperiode in ms, und was nach dem
+                                    Doppelpunkt steht, ist der Versatz in der
+                                    Periode: damit laufen drei Lampen als
+                                    Welle, und zwei blinken im Wechsel.
     POST /api/modus?modus=auto|manuell
     POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm  (-> auto)
     POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
@@ -80,7 +87,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.14.0";
+static const char* VERSION  = "1.15.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -245,6 +252,22 @@ static const uint8_t IDX_TON = 5;       // Index des Tongebers
 
 static bool istAn[ANZAHL];              // was gerade wirklich gesetzt ist
 static bool manuell[ANZAHL];            // Wunsch in der Betriebsart "manuell"
+// Blinken in der Betriebsart "manuell": je Stufe eine Periode in ms (0 heisst
+// dauerhaft an) und ein Versatz innerhalb der Periode. Der Versatz ist alles,
+// was ein stehendes Bild von einer Bewegung unterscheidet - zwei Lampen mit
+// halber Periode Versatz blinken im Wechsel, drei mit je einem Drittel laufen
+// die Saeule hinauf oder hinunter. Getaktet wird im Geraet, im Zeitgeber alle
+// 10 ms: ein Takt aus dem Netz waere ein Zufallstakt.
+static const uint16_t TAKT_MAX_MS = 60000;
+static uint16_t manuellTakt[STUFEN];
+static uint16_t manuellVersatz[STUFEN];
+static unsigned long manuellAb = 0;     // ab wann der manuelle Takt zaehlt
+
+// Jedes von Hand gestellte Bild loescht den Takt: wer eine Lampe einzeln
+// schaltet, will sie leuchten sehen und nicht blinken.
+static void manuellTaktAus() {
+  for (uint8_t s = 0; s < STUFEN; s++) manuellTakt[s] = manuellVersatz[s] = 0;
+}
 static int8_t leuchteIndex(int nr) {
   for (uint8_t i = 0; i < ANZAHL; i++) if (LEUCHTEN[i].nr == nr) return (int8_t)i;
   return -1;
@@ -386,6 +409,13 @@ static void statusSetzen(Status neu, bool ansage = true, bool erzwingen = false)
 // ab dem Einrasten des Status.
 static bool takt(unsigned long periode) {
   return ((millis() - blinkAb) % periode) < (periode / 2);
+}
+
+// Derselbe Gedanke fuer die Betriebsart "manuell", mit eigenem Nullpunkt und
+// einem Versatz je Lampe. Periode 0 heisst dauerhaft an.
+static bool taktManuell(uint16_t periode, uint16_t versatz) {
+  if (!periode) return true;
+  return ((millis() - manuellAb + versatz) % periode) < (periode / 2u);
 }
 
 // ------------------------------------------------------------- Testmodus
@@ -605,7 +635,8 @@ static void lampenStellen() {
   setzen(IDX_TON, tonAn || piepAn);
 
   if (!autoModus) {
-    for (uint8_t s = 0; s < STUFEN; s++) setzen(s, manuell[s]);
+    for (uint8_t s = 0; s < STUFEN; s++)
+      setzen(s, manuell[s] && taktManuell(manuellTakt[s], manuellVersatz[s]));
     return;
   }
 
@@ -1122,7 +1153,7 @@ static bool sollAn(uint8_t i) {
 
 static String stateJson() {
   String s;
-  s.reserve(3400);   // mit "farbe" je Ausgang reichen 2400 nicht mehr
+  s.reserve(3700);   // mit "farbe" und Takt je Ausgang reichen 3400 nicht mehr
   s += "{\"name\":\"Signals\xc3\xa4ule\",\"typ\":\"saeule\",\"version\":\"" + String(VERSION) + "\"";
   s += ",\"mac\":\"";
   uint8_t mac[6];
@@ -1189,7 +1220,12 @@ static String stateJson() {
     s += ",\"an\":" + String(sollAn(i) ? "true" : "false");       // logischer Zustand
     s += ",\"live\":" + String(istAn[i] ? "true" : "false");      // was gerade leuchtet
     s += ",\"pegel\":" + String(digitalRead(LEUCHTEN[i].pin));
-    s += ",\"muster\":\"" + String(sollAn(i) ? "dauer" : "aus") + "\"";
+    bool getaktet = i < STUFEN && manuellTakt[i] && !autoModus;
+    s += ",\"muster\":\"" + String(!sollAn(i) ? "aus" : getaktet ? "takt" : "dauer") + "\"";
+    if (getaktet) {
+      s += ",\"takt_ms\":" + String(manuellTakt[i]);
+      s += ",\"versatz_ms\":" + String(manuellVersatz[i]);
+    }
     s += ",\"rest_s\":-1}";
   }
   s += "]}";
@@ -1420,6 +1456,7 @@ static void httpBedienen() {
         } else {
           // das laufende Bild einfrieren: sollAn() noch in Auto auswerten
           for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
+          manuellTaktAus();
           autoModus = false;
         }
       }
@@ -1455,14 +1492,44 @@ static void httpBedienen() {
     // baut Arduino-Strings auf dem Heap, und Speicher anzufordern, waehrend
     // die Unterbrechungen gesperrt sind, laesst den Zeitgeber ausfallen und
     // kann haengen bleiben. Genau daran hing die Saeule am 18.11.2026.
-    bool wunsch[STUFEN];
+    bool     wunsch[STUFEN];
+    uint16_t takte[STUFEN];
+    uint16_t versatz[STUFEN];
+    bool     bewegt = false;
+    for (uint8_t i = 0; i < STUFEN; i++) {
+      String w = argWert(ziel, LEUCHTEN[i].farbe);
+      takte[i] = versatz[i] = 0;
+      wunsch[i] = w.length() > 0 && w != "0";
+      // "1" heisst dauerhaft an. Eine groessere Zahl ist eine Blinkperiode in
+      // ms, und was nach einem Doppelpunkt steht, ist der Versatz in der
+      // Periode - "900:300" ist die mittlere Lampe einer Welle.
+      if (wunsch[i]) {
+        int dp = w.indexOf(':');
+        long p = (dp < 0 ? w : w.substring(0, dp)).toInt();
+        long v = (dp < 0) ? 0 : w.substring(dp + 1).toInt();
+        if (p > 1) {
+          if (p > TAKT_MAX_MS) p = TAKT_MAX_MS;
+          takte[i] = (uint16_t)p;
+          versatz[i] = (uint16_t)(v > 0 ? (v % p) : 0);
+          bewegt = true;
+        }
+      }
+    }
+    // Hat sich am Takt etwas geaendert, faengt das neue Bild vorn an - sonst
+    // stolpert die erste Periode mitten hinein.
+    bool neuesMuster = false;
     for (uint8_t i = 0; i < STUFEN; i++)
-      wunsch[i] = argWert(ziel, LEUCHTEN[i].farbe).length() > 0;
-    // Ab hier keine Strings mehr: nur noch vier Zuweisungen unter der Sperre.
+      if (takte[i] != manuellTakt[i] || versatz[i] != manuellVersatz[i]) neuesMuster = true;
+    // Ab hier keine Strings mehr: nur noch Zuweisungen unter der Sperre.
     noInterrupts();
     autoModus = false;
     testAn = false;
-    for (uint8_t i = 0; i < STUFEN; i++) manuell[i] = wunsch[i];
+    for (uint8_t i = 0; i < STUFEN; i++) {
+      manuell[i] = wunsch[i];
+      manuellTakt[i] = takte[i];
+      manuellVersatz[i] = versatz[i];
+    }
+    if (bewegt && neuesMuster) manuellAb = millis();
     interrupts();
     sendeJson(c, 200, stateJson());
   } else if (pfad.startsWith("/api/relais/")) {
@@ -1484,9 +1551,11 @@ static void httpBedienen() {
       } else {
         if (autoModus) {                  // von Hand schalten heisst manuell
           for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = sollAn(s);
+          manuellTaktAus();
           autoModus = false;
               }
         manuell[i] = an;
+        if (i < STUFEN) { manuellTakt[i] = 0; manuellVersatz[i] = 0; }
         testAn = false;
       }
       sendeJson(c, 200, stateJson());
@@ -1555,6 +1624,7 @@ static void httpBedienen() {
     piepAn = false;
     autoModus = false;
     for (uint8_t s = 0; s < STUFEN; s++) manuell[s] = false;
+    manuellTaktAus();
     sendeJson(c, 200, stateJson());
   } else {
     sendeJson(c, 404, "{\"ok\":false,\"fehler\":\"unbekannt\"}");
@@ -1626,6 +1696,7 @@ void loop() {
   if (phase == PH_WLAN) {
     // Alles aus, bevor irgendetwas anderes passiert.
     autoModus = false;
+    manuellTaktAus();
     for (uint8_t i = 0; i < ANZAHL; i++) {
       manuell[i] = false;
       setzen(i, false);

@@ -257,7 +257,9 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         await self._post("/api/piep", {"muster": muster} if muster else {})
 
-    async def async_stufen_stellen(self, farben: set[str]) -> None:
+    async def async_stufen_stellen(
+        self, farben: set[str] | dict[str, tuple[int, int]]
+    ) -> None:
         """Das ganze Stufenbild gleichzeitig setzen (Betriebsart manuell).
 
         Genau diese Farben an, die anderen aus - in einem Ruf, damit ein
@@ -265,8 +267,22 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         vier Anfragen sieht man: entweder steht die Saeule 570 ms dunkel oder
         es brennen kurz drei Farben zugleich, beides am Geraet gemessen. Fuer
         eine Ampel ist beides nichts. Braucht Firmware 1.9.0.
+
+        Eine Menge von Farben heisst "dauerhaft an". Ein Verzeichnis
+        `{farbe: (periode_ms, versatz_ms)}` gibt dazu einen Takt: die Lampe
+        blinkt mit dieser Periode, und der Versatz verschiebt sie darin.
+        Getaktet wird in der Saeule, nicht hier - ein Takt ueber HTTP waere
+        ein Zufallstakt. Zwei Lampen mit halbem Versatz blinken im Wechsel,
+        drei mit je einem Drittel laufen als Welle (Firmware 1.15.0).
         """
-        await self._post("/api/stufen", {farbe: 1 for farbe in sorted(farben)})
+        if isinstance(farben, dict):
+            werte = {
+                farbe: (f"{p}:{v}" if p and v else str(p) if p else "1")
+                for farbe, (p, v) in sorted(farben.items())
+            }
+        else:
+            werte = {farbe: "1" for farbe in sorted(farben)}
+        await self._post("/api/stufen", werte)
 
     # --- Ereignisstrom -----------------------------------------------
 

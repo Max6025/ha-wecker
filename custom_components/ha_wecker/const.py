@@ -52,8 +52,15 @@ DRUCKER_ENDSPURT_PROZENT = 98    # ... oder ab diesem Fortschritt
 DRUCKER_FERTIG_MAX_S = 900       # so lange ruft die Saeule zum Abholen
 DRUCKER_WEG_MAX_S = 1800         # so lange gilt ein verschwundener Druck als Stoerung
 DRUCKER_FEUCHT_AB = 4           # Feuchtigkeitsindex des AMS, ab dem es im Attribut steht
-DRUCKER_TON_VON_UHR = 8          # Ton nur zwischen diesen Stunden - nachts
-DRUCKER_TON_BIS_UHR = 21        # steht die Saeule in einem Schlafzimmer
+# Die Takte der Bildsprache (Periode in ms, halb an, halb aus). Getaktet wird
+# in der Saeule (Firmware 1.15.0), hier stehen nur die Zahlen.
+DRUCKER_WELLE_MS = 1800          # eine Welle hinauf (heizt) oder hinunter (kuehlt)
+DRUCKER_WECHSEL_MS = 700         # zwei Lampen im Wechsel: die Maschine fahert hin und her
+DRUCKER_EILIG_MS = 400           # schnelles Blinken: gleich soweit, oder Material laeuft
+DRUCKER_RUF_MS = 600             # die Hinweisleuchte ruft: komm jetzt
+DRUCKER_FEHLER_MS = 500          # rot blinkt: etwas stimmt nicht
+DRUCKER_TUER_MS = 300            # rot hektisch: es laeuft, aber es steht offen
+DRUCKER_STILL_MS = 1500          # langsamer Wechsel: keine Auskunft
 
 # Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
 GARAGE_ABFRAGE_S = 15

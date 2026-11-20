@@ -102,13 +102,17 @@
         "state": {
           "ruht": "Idle",
           "ruestet": "Preparing",
+          "heizt": "Heating up",
+          "vermisst": "Probing the bed",
+          "material": "Filament moving",
           "druckt": "Printing",
           "endspurt": "Almost done",
+          "kuehlt": "Cooling down",
           "fertig": "Ready to collect",
           "pause": "Paused",
           "eingriff": "Needs a hand",
           "fehler": "Fault",
-          "weg": "Gone",
+          "weg": "Lost",
           "tuer": "Door open"
         }
       }

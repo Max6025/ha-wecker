@@ -387,7 +387,7 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   diesen Weg.
 - **Die Betriebsart „Drucker" urteilt selbst** (`drucker.py`, seit
   20.11.2026). Sie reicht nichts von Bambu weiter: aus `print_status` (elf
-  Werte) und `stage` (ueber achtzig) werden neun Lagen, und eine Pause wird
+  Werte) und `stage` (ueber achtzig) werden vierzehn Lagen, und eine Pause wird
   nach ihrem Grund auf drei davon verteilt - Material fehlt ist `eingriff`,
   Maschine ist `fehler`, von Hand ist `pause`. HMS-Meldungen machen bewusst
   **kein** Bild (darunter kommen Bagatellen, und eine Saeule, die davon rot
@@ -417,15 +417,36 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   `_setup_saeule`) und `verlassen()` raeumt die Wache **nicht** ab - nur
   `async_stop`. Sonst stuende `sensor.<saeule>_drucker` still, solange die
   Saeule auf Auto steht.
-- **Drucker: Ton nur tagsueber und nur einmal je Lage.** Quittung beim
-  Umschalten, dann je einmal bei `fertig`, `fehler` und `tuer` (`_ton_fuer`),
-  nichts bei `eingriff` (wer Filament wechselt, steht davor), und zwischen 21
-  und 8 Uhr gar nichts - die Saeule steht in einem Schlafzimmer. Keine
-  Blitz-Warnleuchte, die gehoert dem Alarm.
+- **Drucker: kein Ton, sondern Licht** (Max, 20.11.2026: „Kein Ton, sondern
+  Signalbeleuchtung"). Jeder Arbeitsschritt hat sein eigenes Bild; der einzige
+  Ton ist die Quittung beim Umschalten auf die Betriebsart, weil das eine
+  Bedienung ist. Keine Blitz-Warnleuchte, die gehoert dem Alarm.
+- **Drucker: die Bildsprache ist eine Grammatik, keine Liste.** Max will nicht
+  vierzehn Bilder lernen, sondern hinsehen und es wissen. Darum sechs Regeln:
+  Licht wandert nach oben = er fahert hoch (heizt), nach unten = er kuehlt ab,
+  gruen = Druck laeuft (hektisch = gleich fertig), orange = Nebenarbeit,
+  weiss oben = du bist gefragt (blinkend = jetzt), rot = Problem. Wer eine
+  Lage dazunimmt, baut ihr Bild **aus diesen Regeln** und faellt nicht in eine
+  eigene Bedeutung - und `test_drucker_jedes_bild_ist_eindeutig` haelt fest,
+  dass keine zwei Bilder gleich aussehen.
+- **Drucker: der Arbeitsschritt kommt aus `stage`, nach Wortanfang**
+  (`_arbeitsschritt`), nicht aus einer Liste: ueber achtzig Werte, und Bambu
+  nimmt laufend welche dazu. Rangfolge der Gruppen: kuehlen, Material,
+  vermessen, heizen, dann der Rest als `ruestet`. Der **Nachlauf geht vor dem
+  Endspurt** - sonst wird aus dem Zumachen am Ende wieder `ruestet` oder
+  `endspurt` (am 20.11.2026 am laufenden Druck gesehen).
+- **Blinken gehoert ins Geraet, nicht nach Home Assistant.** Seit Firmware
+  1.15.0 nimmt `/api/stufen` je Lampe `periode` und `periode:versatz` in ms,
+  getaktet vom Zeitgeber alle 10 ms. Ein Takt ueber HTTP waere ein
+  Zufallstakt (dieselbe Begruendung wie bei der Ampel). Eine Lampe von Hand zu
+  schalten loescht ihren Takt (`manuellTaktAus()`), damit ein gestelltes Bild
+  nie heimlich weiterblinkt. Und die Werte werden weiter **erst gelesen und
+  dann** unter der Interrupt-Sperre gesetzt - siehe den Haenger vom
+  18.11.2026.
 - **Drucker: die offene Tuer im Druck ist eine eigene Lage** (`tuer`, Max am
-  20.11.2026: Ton und Licht, wenn beim Drucken die Tuer offen steht). Bild
-  gruen + rot - der Druck laeuft, aber etwas steht offen -, und sie geht in
-  der Rangfolge vor Endspurt und Ruesten, denn sie verlangt etwas. Nur bei
+  20.11.2026). Bild: gruen steht (der Druck laeuft), rot blinkt hektisch dazu
+  (etwas steht offen), und sie geht in der Rangfolge vor allem anderen im
+  Lauf, denn sie verlangt etwas. Nur bei
   `running`: steht der Drucker, sagt eine offene Tuer nichts. Beim fertigen
   Druck hat dieselbe Tuer die **umgekehrte** Bedeutung (sie quittiert das
   Abholen, siehe `_gedaechtnis_pflegen`) - die beiden Faelle nicht

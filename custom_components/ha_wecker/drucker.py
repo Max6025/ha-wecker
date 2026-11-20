@@ -9,33 +9,52 @@ Das ist der ganze Zweck dieser Betriebsart. Die Bambu-Integration liefert
 rund 70 Entitaeten je Drucker, und ihre Zustaende sind Maschinenbegriffe:
 `print_status` kennt elf Werte, `stage` ueber achtzig - von
 `heatbed_underside_foreign_object_detection` bis `paused_skipped_step`.
-Davon ist fast nichts eine Information, auf die man aufsteht. Hier werden
-daraus **neun Lagen**, und jede beantwortet eine einzige Frage: muss ich hin?
+Davon ist fast nichts eine Information, auf die man aufsteht.
 
-    ruht      nichts zu tun                            Hinweis
-    ruestet   heizt, kalibriert, laedt Filament        orange
-    druckt    laeuft                                   gruen
-    endspurt  weniger als fuenf Minuten                gruen + orange
-    fertig    liegt auf dem Bett und will geholt       gruen + Hinweis
-    pause     von Hand angehalten                      orange + Hinweis
-    eingriff  Material fehlt, Hand gebraucht           orange + rot
-    fehler    abgebrochen, Duesenproblem, Fehldruck    rot
-    weg       mitten im Druck verschwunden             rot + Hinweis
-    tuer      Tuer offen, waehrend gedruckt wird       gruen + rot
+**Die Bildsprache ist eine Grammatik, keine Liste.** Max will nicht vierzehn
+Bilder auswendig lernen, sondern hinsehen und es wissen (20.11.2026). Darum
+sagt nicht jedes Bild fuer sich etwas, sondern vier Regeln sagen alles:
 
-Die Bilder folgen derselben Lesart wie die Garagenampel (siehe ampel.py):
-die Farbe sagt, wie es steht, die **Hinweisleuchte oben heisst "es wartet
-etwas auf dich"** - beim Abholen, in der Pause, und bei `weg`, wo niemand
-mehr weiss, wie es dem Druck geht. Rot und Hinweis zusammen bedeutet hier
-dasselbe wie dort: keine Auskunft. Jedes Bild ist eindeutig; kein Bild
-blinkt.
+    Bewegung nach oben     der Drucker fahert hoch - er wird warm
+    Bewegung nach unten    er fahert runter - er kuehlt ab
+    gruen                  der Druck laeuft; hektisch heisst gleich fertig
+    orange                 er arbeitet daneben, es kommt noch kein Kunststoff
+    weiss oben             du bist gefragt; blinkt es, dann jetzt
+    rot                    etwas stimmt nicht
 
-**Nicht geblinkt wird mit Absicht.** Blinken koennte nur die Saeule selbst,
-und das ist am 18.11.2026 aus ihrer Firmware heraus - zusammen mit einem
-Fehler, der sie zeitweise nicht mehr starten liess. Ein Takt aus Home
-Assistant ueber HTTP waere ein Zufallstakt (dieselbe Begruendung wie in
-ampel.py). Neun stehende Bilder reichen, weil vier Lampen fuenfzehn davon
-hergeben.
+Daraus ergeben sich die Bilder von selbst, und der eigene Arbeitsschritt ist
+an der Art der Bewegung zu erkennen, nicht an einer Legende:
+
+    ruht       nichts zu tun                      weiss oben, dauerhaft
+    ruestet    arbeitet vor, ohne Naeheres        orange, dauerhaft
+    heizt      Bett und Duese werden warm         Welle nach oben
+    vermisst   Bett antasten, kalibrieren         gruen und orange im Wechsel
+    material   Filament laden, spuelen, putzen    orange, schnell
+    druckt     laeuft                             gruen, dauerhaft
+    endspurt   gleich fertig                      gruen, schnell
+    kuehlt     Nachlauf: Kammer und Duese kuehlen Welle nach unten
+    fertig     liegt auf dem Bett, hol es         gruen und weiss, dauerhaft
+    pause      von Hand angehalten                orange und weiss, dauerhaft
+    eingriff   Material fehlt, Hand gebraucht     orange, weiss blinkt
+    fehler     abgebrochen, Duese, Fehldruck      rot, blinkt
+    tuer       Tuer offen, waehrend gedruckt wird gruen, rot blinkt hektisch
+    weg        mitten im Druck verschwunden       rot und weiss, langsam im Wechsel
+
+**Hier wird geblinkt, und zwar im Geraet.** Die Takte stehen in der Firmware
+der Saeule: `/api/stufen` nimmt ab 1.15.0 je Lampe eine Periode und einen
+Versatz, der Zeitgeber alle 10 ms haelt sie ein (siehe signalsaeule.ino). Ein
+Takt aus Home Assistant ueber HTTP waere ein Zufallstakt - dieselbe
+Begruendung wie in ampel.py, nur dass das Geraet es jetzt selbst kann. Der
+Versatz ist das eigentliche Mittel: zwei Lampen um eine halbe Periode
+versetzt blinken im Wechsel, drei um je ein Drittel laufen die Saeule hinauf
+oder hinunter. Genau das macht aus "heizt" und "kuehlt" ein Bild, das man
+nicht lernen muss - ein Thermometer, das steigt oder fahert.
+
+**Ton gibt es nicht mehr.** Jeder Arbeitsschritt hat sein Licht, und damit ist
+alles gesagt (Max, 20.11.2026). Nur das Umschalten auf die Betriebsart
+quittiert der Tongeber einmal, wie bei der Ampel - das ist eine Bedienung,
+keine Meldung des Druckers. Die Blitz-Warnleuchte bleibt immer aus: die
+gehoert zum Alarm, nicht zum Druck.
 
 **Was die Integration selbst entscheidet**, statt es durchzureichen:
 
@@ -45,6 +64,16 @@ hergeben.
   Maschinenproblem (verstopfte Duese, erste Schicht misslungen,
   Temperaturfehler), ist das `fehler`. Hat sie der Nutzer selbst angehalten,
   ist es `pause`. Drei Lagen aus einem Wort.
+- **Der Arbeitsschritt kommt aus `stage`,** nach Wortanfang sortiert statt
+  nach Liste: ueber achtzig Werte gibt es, und Bambu nimmt morgen welche
+  dazu. `heat`, `cool`, `calibrat`, `filament` - das traegt weiter als eine
+  Aufzaehlung, die altert.
+- **Der Nachlauf ist eigenes Licht, kein Endspurt.** Am Ende reinigt der
+  Drucker die Kammerluft und kuehlt (`purifying_chamber_air`, `cooling`),
+  waehrend der Fortschritt schon auf 100 steht. Vorher wurde daraus
+  `endspurt` oder sogar wieder `ruestet` - am 20.11.2026 am laufenden Druck
+  gesehen. Jetzt faehrt die Welle nach unten, und man sieht: er macht nur
+  noch zu.
 - **HMS-Meldungen machen kein Bild.** Der Drucker meldet darunter auch
   Bagatellen (ein offener AMS-Deckel, eine Kalibrierempfehlung); eine
   Signalsaeule, die davon rot wird, ist nach einer Woche Tapete. Sie stehen
@@ -61,14 +90,6 @@ hergeben.
 - **Die Restzeit hat eine Einheit.** Die Bambu-Integration meldet sie in
   Stunden (0,58), nicht in Minuten. Hier wird `unit_of_measurement` gelesen
   und umgerechnet, statt eine Zahl zu glauben.
-
-**Gehoert wird es einmal.** Der Tongeber gibt den Quittungston beim
-Umschalten auf die Betriebsart, und danach genau einmal je Lage, wenn aus dem
-Nichtstun `fertig` oder `fehler` wird - dafuer ist eine Werkstattanzeige da.
-Nicht bei `eingriff`: eine offene Tuer waehrend des Drucks ist Alltag. Und
-nie nachts: zwischen 21 und 8 Uhr bleibt sie stumm
-(`DRUCKER_TON_VON_UHR`), denn sie steht in einem Schlafzimmer. Die
-Blitz-Warnleuchte bleibt immer aus - die gehoert zum Alarm, nicht zum Druck.
 
 Beim Umschalten fahert die Saeule einmal von unten nach oben durch (gruen,
 orange, rot, Hinweis, je 250 ms) - der Selbsttest einer Werkzeugmaschine beim
@@ -98,14 +119,19 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    DRUCKER_EILIG_MS,
     DRUCKER_ENDSPURT_MIN,
     DRUCKER_ENDSPURT_PROZENT,
+    DRUCKER_FEHLER_MS,
     DRUCKER_FERTIG_MAX_S,
     DRUCKER_FEUCHT_AB,
-    DRUCKER_TON_BIS_UHR,
-    DRUCKER_TON_VON_UHR,
+    DRUCKER_RUF_MS,
+    DRUCKER_STILL_MS,
+    DRUCKER_TUER_MS,
     DRUCKER_VORLAUF_MS,
+    DRUCKER_WECHSEL_MS,
     DRUCKER_WEG_MAX_S,
+    DRUCKER_WELLE_MS,
     FARBE_GRUEN,
     FARBE_HINWEIS,
     FARBE_ORANGE,
@@ -159,8 +185,12 @@ TK_ALLE = (
 
 LAGE_RUHT = "ruht"
 LAGE_RUESTET = "ruestet"
+LAGE_HEIZT = "heizt"
+LAGE_VERMISST = "vermisst"
+LAGE_MATERIAL = "material"
 LAGE_DRUCKT = "druckt"
 LAGE_ENDSPURT = "endspurt"
+LAGE_KUEHLT = "kuehlt"
 LAGE_FERTIG = "fertig"
 LAGE_PAUSE = "pause"
 LAGE_EINGRIFF = "eingriff"
@@ -171,8 +201,12 @@ LAGE_TUER = "tuer"
 LAGE_ALLE = (
     LAGE_RUHT,
     LAGE_RUESTET,
+    LAGE_HEIZT,
+    LAGE_VERMISST,
+    LAGE_MATERIAL,
     LAGE_DRUCKT,
     LAGE_ENDSPURT,
+    LAGE_KUEHLT,
     LAGE_FERTIG,
     LAGE_PAUSE,
     LAGE_EINGRIFF,
@@ -181,30 +215,94 @@ LAGE_ALLE = (
     LAGE_TUER,
 )
 
-# Das Bild je Lage, als Menge der Farben. Die Farbe sagt, wie es steht; die
-# Hinweisleuchte oben heisst "es wartet etwas auf dich". Jedes Bild ist
-# eindeutig, keines blinkt.
-DRUCKER_BILD: dict[str, frozenset[str]] = {
-    LAGE_RUHT: frozenset({FARBE_HINWEIS}),
-    LAGE_RUESTET: frozenset({FARBE_ORANGE}),
-    LAGE_DRUCKT: frozenset({FARBE_GRUEN}),
-    LAGE_ENDSPURT: frozenset({FARBE_GRUEN, FARBE_ORANGE}),
-    LAGE_FERTIG: frozenset({FARBE_GRUEN, FARBE_HINWEIS}),
-    LAGE_PAUSE: frozenset({FARBE_ORANGE, FARBE_HINWEIS}),
-    LAGE_EINGRIFF: frozenset({FARBE_ORANGE, FARBE_ROT}),
-    LAGE_FEHLER: frozenset({FARBE_ROT}),
-    LAGE_WEG: frozenset({FARBE_ROT, FARBE_HINWEIS}),
-    # Tuer offen, waehrend gedruckt wird: gruen bleibt, weil der Druck laeuft,
-    # rot dazu, weil etwas offen steht. Ein Bild, das es sonst nicht gibt -
-    # man sieht beides auf einmal (Max, 20.11.2026).
-    LAGE_TUER: frozenset({FARBE_GRUEN, FARBE_ROT}),
+# Ein Bild ist je Lampe eine Periode und ein Versatz darin, beides in ms.
+# Periode 0 heisst dauerhaft an. Getaktet wird in der Saeule (Firmware
+# 1.15.0), hier steht nur, was sie tun soll.
+Bild = dict[str, tuple[int, int]]
+
+
+def dauer(*farben: str) -> Bild:
+    """Diese Lampen brennen und stehen still."""
+    return {farbe: (0, 0) for farbe in farben}
+
+
+def blinkt(periode: int, *farben: str) -> Bild:
+    """Diese Lampen blinken gemeinsam."""
+    return {farbe: (periode, 0) for farbe in farben}
+
+
+def wechsel(periode: int, erst: str, dann: str) -> Bild:
+    """Zwei Lampen im Gegentakt - eine halbe Periode Versatz.
+
+    Das liest sich als "hin und her", nicht als "Achtung": genau das, was eine
+    Maschine tut, die etwas abtastet, und was eine Verbindung tut, die es
+    nicht mehr gibt.
+    """
+    return {erst: (periode, 0), dann: (periode, periode // 2)}
+
+
+def welle(periode: int, *farben: str) -> Bild:
+    """Eine Bewegung durch die Saeule, in der Reihenfolge der Farben.
+
+    Jede Lampe brennt eine halbe Periode, die naechste faengt ein Drittel
+    spaeter an - zwei brennen also immer zugleich, und der Lichtschwerpunkt
+    wandert. Die Saeule schaltet eine Lampe ein, solange
+    `(t + versatz) % periode` in der ersten Haelfte liegt; sie faengt also bei
+    `periode - versatz` an. Darum geht der Versatz nach hinten (`-i`): so
+    leuchten die Farben in der Reihenfolge auf, in der sie hier stehen.
+    """
+    n = len(farben)
+    return {
+        farbe: (periode, (-i * periode // n) % periode)
+        for i, farbe in enumerate(farben)
+    }
+
+
+# Die Bilder. Jedes ist eindeutig, und keines muss man lernen - die vier
+# Regeln im Kopf dieser Datei geben sie her.
+DRUCKER_BILD: dict[str, Bild] = {
+    # Nichts zu tun. Die Hinweisleuchte allein ist das Grundbild der Saeule.
+    LAGE_RUHT: dauer(FARBE_HINWEIS),
+    # Er arbeitet vor, und `stage` sagt nicht, woran: orange, stehend.
+    LAGE_RUESTET: dauer(FARBE_ORANGE),
+    # Er wird warm: die Welle steigt wie ein Thermometer.
+    LAGE_HEIZT: welle(DRUCKER_WELLE_MS, FARBE_GRUEN, FARBE_ORANGE, FARBE_ROT),
+    # Er tastet das Bett ab und fahert hin und her - das Bild tut es auch.
+    LAGE_VERMISST: wechsel(DRUCKER_WECHSEL_MS, FARBE_GRUEN, FARBE_ORANGE),
+    # Material laeuft durch: orange, schnell.
+    LAGE_MATERIAL: blinkt(DRUCKER_EILIG_MS, FARBE_ORANGE),
+    # Es druckt.
+    LAGE_DRUCKT: dauer(FARBE_GRUEN),
+    # Gleich fertig: dasselbe Gruen, nur hektisch.
+    LAGE_ENDSPURT: blinkt(DRUCKER_EILIG_MS, FARBE_GRUEN),
+    # Nachlauf: dieselbe Welle wie beim Heizen, nur abwaerts.
+    LAGE_KUEHLT: welle(DRUCKER_WELLE_MS, FARBE_ROT, FARBE_ORANGE, FARBE_GRUEN),
+    # Fertig, hol es: gruen (gut gegangen) und weiss (du bist dran).
+    LAGE_FERTIG: dauer(FARBE_GRUEN, FARBE_HINWEIS),
+    # Von Hand angehalten: es steht, und es steht an dir.
+    LAGE_PAUSE: dauer(FARBE_ORANGE, FARBE_HINWEIS),
+    # Material fehlt: dieselben Farben wie die Pause, aber oben blinkt es -
+    # "komm jetzt" statt "es wartet".
+    LAGE_EINGRIFF: {**dauer(FARBE_ORANGE), **blinkt(DRUCKER_RUF_MS, FARBE_HINWEIS)},
+    # Gestoert: rot, blinkend. Nichts sonst brennt dabei.
+    LAGE_FEHLER: blinkt(DRUCKER_FEHLER_MS, FARBE_ROT),
+    # Tuer offen beim Drucken: gruen bleibt stehen, weil der Druck laeuft, und
+    # rot blinkt hektisch dazu (Max, 20.11.2026).
+    LAGE_TUER: {**dauer(FARBE_GRUEN), **blinkt(DRUCKER_TUER_MS, FARBE_ROT)},
+    # Keine Auskunft: rot und weiss im langsamen Wechsel - unruhig, aber ohne
+    # Eile, so wie die Lage selbst.
+    LAGE_WEG: wechsel(DRUCKER_STILL_MS, FARBE_ROT, FARBE_HINWEIS),
 }
 
 LAGE_TEXT: dict[str, str] = {
     LAGE_RUHT: "Drucker ruht",
     LAGE_RUESTET: "Drucker rüstet",
+    LAGE_HEIZT: "heizt auf",
+    LAGE_VERMISST: "vermisst das Bett",
+    LAGE_MATERIAL: "Material läuft",
     LAGE_DRUCKT: "Druck läuft",
     LAGE_ENDSPURT: "Druck fast fertig",
+    LAGE_KUEHLT: "kühlt ab",
     LAGE_FERTIG: "fertig, zum Abholen",
     LAGE_PAUSE: "von Hand angehalten",
     LAGE_EINGRIFF: "Eingriff nötig",
@@ -217,14 +315,16 @@ LAGE_TEXT: dict[str, str] = {
 # ist das `weg` und nicht einfach ein ausgeschaltetes Geraet.
 LAGE_IM_LAUF = (
     LAGE_RUESTET,
+    LAGE_HEIZT,
+    LAGE_VERMISST,
+    LAGE_MATERIAL,
     LAGE_DRUCKT,
     LAGE_ENDSPURT,
+    LAGE_KUEHLT,
     LAGE_PAUSE,
     LAGE_EINGRIFF,
     LAGE_TUER,
 )
-# Dafuer gibt der Tongeber einmal kurz Laut, sobald die Lage eintritt
-LAGE_TON = (LAGE_FERTIG, LAGE_FEHLER, LAGE_TUER)
 
 # --- Wie aus den Begriffen des Druckers eine Lage wird ---------------------
 
@@ -273,39 +373,75 @@ STUFE_EINGRIFF = frozenset(
 STUFE_PAUSE = frozenset({"paused_user"})
 
 # `stage`: der Drucker arbeitet, aber es kommt noch kein Kunststoff aufs Bett.
-# Ueber achtzig Werte gibt es; nach Anfang zu pruefen ist kuerzer und faengt
-# auch die, die Bambu erst morgen dazunimmt.
-STUFE_RUESTEN_ANFANG = (
-    "heat",
+# Ueber achtzig Werte gibt es; nach Wortanfang zu pruefen ist kuerzer und
+# faengt auch die, die Bambu erst morgen dazunimmt. Die Reihenfolge der
+# Gruppen ist die Rangfolge in `_arbeitsschritt`.
+
+# Der Nachlauf am Ende eines Drucks: die Kammerluft wird gereinigt, Duese und
+# Bett kuehlen. Das ist Max' Beispiel fuer einen Schritt, der sein eigenes
+# Licht braucht - man soll sehen, dass nur noch zugemacht wird (20.11.2026).
+STUFE_KUEHLEN_ANFANG = (
     "cool",
+    "purifying",
+    "chamber_air",
+)
+
+# Material in Bewegung: laden, entladen, spuelen, Duese putzen
+STUFE_MATERIAL_ANFANG = (
+    "filament",
+    "changing_filament",
+    "pre_extrusion",
+    "purging",
+    "purge",
+    "extrud",
+    "feeding",
+    "cleaning",
+    "cutting",
+    "retract",
+)
+
+# Antasten und Nachmessen: das Bett, die Duese, die Mechanik
+STUFE_VERMESSEN_ANFANG = (
     "calibrat",
     "bed_level",
-    "filament_",
-    "changing_filament",
-    "preparing",
-    "prepar",
+    "auto_bed_level",
     "homing",
     "scanning",
     "inspecting",
     "identifying",
     "measuring",
-    "moving",
     "sweeping",
-    "purifying",
-    "build_plate",
-    "thermal",
-    "hotend",
+    "vibration",
+    "motor_noise",
     "absolute_accuracy",
     "laser",
-    "active_arc",
-    "waiting",
-    "cleaning",
+    "build_plate",
     "print_calibration",
-    "pre_extrusion",
     "check_absolute",
     "check_birdeye",
-    "motor_noise",
+    "nozzle_offset",
+    "active_arc",
 )
+
+# Warm werden
+STUFE_HEIZEN_ANFANG = (
+    "heat",
+    "preheat",
+    "thermal",
+    "hotend",
+)
+
+# Alles andere, was Arbeit ist, aber nicht Drucken - ohne Naeheres
+STUFE_RUESTEN_ANFANG = (
+    "prepar",
+    "moving",
+    "waiting",
+    "slicing",
+    "init",
+)
+
+# Ein `stage`, der gar kein Arbeitsschritt ist
+STUFE_KEINE = frozenset({"", "idle", "printing", "unknown", "offline", "none"})
 
 
 def zahl(wert: Any) -> float | None:
@@ -342,7 +478,7 @@ class Druckermodus:
         self.aktiv = False
         self.pausiert = False          # der Weckablauf hat die Saeule
         self.fehler: str | None = None
-        self._bild: frozenset[str] | None = None   # was zuletzt gestellt wurde
+        self._bild: Bild | None = None             # was zuletzt gestellt wurde
         self._lage: str | None = None              # und zu welcher Lage
         self._folge: asyncio.Task | None = None    # laufender Selbsttest
         self._ab_zustand: Any = None               # Abmelder der Zustandswache
@@ -353,7 +489,6 @@ class Druckermodus:
         self._abgeholt = False           # Tuer war auf, oder die Zeit ist um
         self._tuer_war_zu = True
         self._lauf_seit: Any = None      # wann der Drucker zuletzt im Lauf war
-        self._ton_fuer: str | None = None  # fuer diese Lage hat es schon getont
 
     # --- Die Entitaeten des Druckers ----------------------------------
 
@@ -465,33 +600,52 @@ class Druckermodus:
         if status == STATUS_LAEUFT:
             # Die offene Tuer geht vor allem anderen, was der Lauf zu melden
             # hat: der Druck geht weiter, aber es steht etwas offen - Zugluft,
-            # und bei einem geschlossenen Drucker auch Temperatur. Gruen und
-            # rot zusammen, dazu einmal kurz der Tongeber (Max, 20.11.2026).
+            # und bei einem geschlossenen Drucker auch Temperatur.
             if self._ja(TK_TUER):
                 return LAGE_TUER
-            # Der Endspurt geht vor dem Ruesten - sonst wird aus dem Nachlauf
-            # am Ende eines Drucks (die Kammerluft wird gereinigt, die Duese
-            # kuehlt) wieder "ruestet", und die Saeule faellt bei 100 % von
-            # gruen auf orange zurueck. Am 20.11.2026 am laufenden Druck
-            # gesehen: stage `purifying_chamber_air` bei 465/465 Schichten.
+            schritt = self._arbeitsschritt(stufe)
+            # Der Nachlauf geht vor dem Endspurt, und der Endspurt vor allen
+            # anderen Arbeitsschritten. Sonst wird aus dem Zumachen am Ende
+            # eines Drucks wieder "ruestet", und die Saeule faellt bei 100 %
+            # auf orange zurueck - am 20.11.2026 am laufenden Druck gesehen:
+            # stage `purifying_chamber_air` bei 465/465 Schichten.
+            if schritt == LAGE_KUEHLT:
+                return LAGE_KUEHLT
             if self._endspurt():
                 return LAGE_ENDSPURT
-            if stufe and stufe != "printing" and self._ruestet(stufe):
-                return LAGE_RUESTET
+            if schritt is not None:
+                return schritt
             return LAGE_DRUCKT
 
         if status in STATUS_RUESTET:
-            return LAGE_RUESTET
-        if self._ruestet(stufe):
-            return LAGE_RUESTET
+            return self._arbeitsschritt(stufe) or LAGE_RUESTET
+        schritt = self._arbeitsschritt(stufe)
+        if schritt is not None:
+            return schritt
         return LAGE_RUHT
 
     @staticmethod
-    def _ruestet(stufe: str) -> bool:
-        """Arbeitet der Drucker, ohne schon zu drucken?"""
-        if not stufe or stufe in ("idle", "printing", "unknown", "offline"):
-            return False
-        return stufe.startswith(STUFE_RUESTEN_ANFANG)
+    def _arbeitsschritt(stufe: str) -> str | None:
+        """Welcher Arbeitsschritt steckt in diesem `stage`? None = keiner.
+
+        Nach Wortanfang, nicht nach Liste: `stage` hat ueber achtzig Werte und
+        bekommt laufend neue. `heatbed_preheating` faengt mit "heat" an und ist
+        damit auf immer richtig einsortiert, ohne dass es hier stehen muss.
+        """
+        stufe = (stufe or "").strip().lower()
+        if stufe in STUFE_KEINE:
+            return None
+        if stufe.startswith(STUFE_KUEHLEN_ANFANG):
+            return LAGE_KUEHLT
+        if stufe.startswith(STUFE_MATERIAL_ANFANG):
+            return LAGE_MATERIAL
+        if stufe.startswith(STUFE_VERMESSEN_ANFANG):
+            return LAGE_VERMISST
+        if stufe.startswith(STUFE_HEIZEN_ANFANG):
+            return LAGE_HEIZT
+        if stufe.startswith(STUFE_RUESTEN_ANFANG):
+            return LAGE_RUESTET
+        return None
 
     def _endspurt(self) -> bool:
         """Ist der Druck so weit, dass es sich lohnt, hochzugehen?
@@ -567,7 +721,6 @@ class Druckermodus:
         self.pausiert = False
         self._bild = None
         self._lage = None
-        self._ton_fuer = None
         self._horchen()
         self._saeule_beobachten()
         self._gedaechtnis_pflegen()
@@ -585,7 +738,7 @@ class Druckermodus:
         # Selbsttest wie an einer Werkzeugmaschine: von unten nach oben durch
         self._folge_starten(
             tuple(
-                (frozenset({farbe}), DRUCKER_VORLAUF_MS)
+                (dauer(farbe), DRUCKER_VORLAUF_MS)
                 for farbe in (FARBE_GRUEN, FARBE_ORANGE, FARBE_ROT, FARBE_HINWEIS)
             )
         )
@@ -605,7 +758,6 @@ class Druckermodus:
         self.fehler = None
         self._bild = None
         self._lage = None
-        self._ton_fuer = None
         self._folge_abbrechen()
         self._saeule_loslassen()
 
@@ -676,12 +828,12 @@ class Druckermodus:
         return self._folge is not None and not self._folge.done()
 
     @callback
-    def _folge_starten(self, schritte: tuple[tuple[frozenset[str], int], ...]) -> None:
+    def _folge_starten(self, schritte: tuple[tuple[Bild, int], ...]) -> None:
         self._folge_abbrechen()
         self._folge = self.hass.async_create_task(self._folge_fahren(schritte))
 
     async def _folge_fahren(
-        self, schritte: tuple[tuple[frozenset[str], int], ...]
+        self, schritte: tuple[tuple[Bild, int], ...]
     ) -> None:
         try:
             for bild, dauer_ms in schritte:
@@ -710,8 +862,8 @@ class Druckermodus:
 
     # --- Das Bild stellen ---------------------------------------------
 
-    def _bild_fuer(self, lage: str) -> tuple[frozenset[str], str]:
-        bild = DRUCKER_BILD.get(lage, frozenset())
+    def _bild_fuer(self, lage: str) -> tuple[Bild, str]:
+        bild = DRUCKER_BILD.get(lage, {})
         for farbe in bild:
             if self.saeule.nummer_farbe(farbe) is None:
                 raise UpdateFailed(
@@ -743,34 +895,11 @@ class Druckermodus:
             _LOGGER.warning("Betriebsart Drucker: %s", err)
             self.melden()
             return
-        vorher, self._lage = self._lage, lage
+        self._lage = lage
         self._bild = ziel
         self.fehler = None
-        await self._tonen(vorher, lage)
         self.melden()
         _LOGGER.debug("Betriebsart Drucker: %s -> %s", warum, ziel or "aus")
-
-    async def _tonen(self, vorher: str | None, lage: str) -> None:
-        """Einmal Laut geben, wenn aus dem Lauf etwas Wartendes geworden ist.
-
-        `fertig`, `fehler` und die offene Tuer beim Drucken, je einmal beim
-        Eintreten, und nie nachts - die Saeule steht in einem Schlafzimmer.
-        `eingriff` tont nicht: wer das Filament wechselt, steht sowieso davor.
-        Geht die Tuer zu und wieder auf, tont es erneut - `_ton_fuer` haelt nur
-        die laufende Lage fest, und die ist dazwischen eine andere.
-        """
-        if lage not in LAGE_TON or vorher is None or self._ton_fuer == lage:
-            self._ton_fuer = lage if lage in LAGE_TON else None
-            return
-        self._ton_fuer = lage
-        stunde = dt_util.now().hour
-        if not DRUCKER_TON_VON_UHR <= stunde < DRUCKER_TON_BIS_UHR:
-            _LOGGER.debug("Betriebsart Drucker: %s, aber Nachtruhe - still", lage)
-            return
-        try:
-            await self.saeule.async_piep()
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.debug("Ton zu \"%s\" ging nicht: %s", lage, err)
 
     # --- Auf den Drucker hoeren ---------------------------------------
 

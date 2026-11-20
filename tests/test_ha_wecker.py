@@ -1354,13 +1354,46 @@ def _bilder(aioclient_mock, ab: int = 0) -> list[set[str]]:
     wieder Mengen, damit die Tests nicht an der Reihenfolge der Parameter
     haengen.
     """
-    bilder: list[set[str]] = []
+    return [{farbe for farbe in b} for b in _takte(aioclient_mock, ab)]
+
+
+def _takte(aioclient_mock, ab: int = 0) -> list[dict[str, str]]:
+    """Dieselben Bilder, aber mit dem Takt je Lampe.
+
+    Die Saeule nimmt ab Firmware 1.15.0 je Farbe "1" (dauerhaft an), eine
+    Periode in ms oder "Periode:Versatz". Getaktet wird im Geraet; hier steht
+    nur, was bestellt wurde - und genau das pruefen die Tests der
+    Bildsprache (siehe drucker.py).
+    """
+    bilder: list[dict[str, str]] = []
     for pfad in _postpfade(aioclient_mock)[ab:]:
         if not pfad.startswith("/api/stufen"):
             continue
         _, _, query = pfad.partition("?")
-        bilder.append({t.split("=")[0] for t in query.split("&") if t})
+        bilder.append(
+            dict(t.split("=", 1) for t in query.split("&") if t)  # type: ignore[misc]
+        )
     return bilder
+
+
+def _welle(bild: dict[str, str]) -> list[str]:
+    """Die Farben einer Welle in der Reihenfolge, in der sie aufleuchten.
+
+    Die Saeule schaltet eine Lampe ein, wenn `(t + versatz) % periode` in der
+    ersten Haelfte liegt - sie faengt also bei `(periode - versatz) % periode`
+    an. Danach wird hier sortiert, und heraus kommt der Weg des Lichts.
+    """
+    teile = {f: w.split(":") for f, w in bild.items()}
+    perioden = {int(t[0]) for t in teile.values()}
+    assert len(perioden) == 1, f"keine Welle, verschiedene Perioden: {bild}"
+    periode = perioden.pop()
+
+    def beginn(farbe: str) -> int:
+        t = teile[farbe]
+        versatz = int(t[1]) if len(t) > 1 else 0
+        return (periode - versatz) % periode
+
+    return sorted(teile, key=beginn)
 
 
 def _postpfade(aioclient_mock) -> list[str]:
@@ -1789,18 +1822,6 @@ def schneller_selbsttest():
         yield
 
 
-@pytest.fixture
-def tagsueber():
-    """Der Ton kommt nur zwischen 8 und 21 Uhr - im Test immer."""
-    from unittest.mock import patch
-
-    from custom_components.ha_wecker import drucker as drucker_modul
-
-    with patch.object(drucker_modul, "DRUCKER_TON_VON_UHR", 0), \
-         patch.object(drucker_modul, "DRUCKER_TON_BIS_UHR", 24):
-        yield
-
-
 def _drucker_anlegen(hass: HomeAssistant) -> dict[str, str]:
     """Die Entitaeten eines Bambu-Druckers in der Registry anlegen."""
     registry = er.async_get(hass)
@@ -1889,14 +1910,62 @@ async def test_drucker_ruht_zeigt_hinweis(
     assert hass.states.get("sensor.signalsaeule_drucker").state == "ruht"
 
 
-async def test_drucker_ruestet_bei_heizen(
+async def test_drucker_heizt_als_welle_nach_oben(
     hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
-    """Heizen, Kalibrieren, Filament laden ist Ruesten - orange."""
+    """Er wird warm: die Welle steigt wie ein Thermometer (Max, 20.11.2026)."""
     await _mit_drucker(hass, aioclient_mock, print_status="running",
                        stage="heatbed_preheating")
     await _betriebsart(hass, "Drucker")
-    assert _bilder(aioclient_mock)[-1] == {"orange"}
+    bild = _takte(aioclient_mock)[-1]
+    assert _welle(bild) == ["gruen", "orange", "rot"], "die Welle muss steigen"
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "heizt"
+
+
+async def test_drucker_kuehlt_als_welle_nach_unten(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
+) -> None:
+    """Und am Ende faellt dieselbe Welle: er macht nur noch zu."""
+    await _mit_drucker(hass, aioclient_mock, print_status="running",
+                       stage="cooling", print_progress="100")
+    await _betriebsart(hass, "Drucker")
+    bild = _takte(aioclient_mock)[-1]
+    assert _welle(bild) == ["rot", "orange", "gruen"], "die Welle muss fallen"
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "kuehlt"
+
+
+async def test_drucker_vermisst_im_wechsel(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
+) -> None:
+    """Bett antasten: gruen und orange im Gegentakt - es fahert hin und her."""
+    await _mit_drucker(hass, aioclient_mock, print_status="running",
+                       stage="auto_bed_leveling")
+    await _betriebsart(hass, "Drucker")
+    bild = _takte(aioclient_mock)[-1]
+    assert set(bild) == {"gruen", "orange"}
+    assert bild["gruen"] == "700" and bild["orange"] == "700:350", bild
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "vermisst"
+
+
+async def test_drucker_material_blinkt_schnell(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
+) -> None:
+    """Filament laden: orange, schnell - Material laeuft durch."""
+    await _mit_drucker(hass, aioclient_mock, print_status="running",
+                       stage="filament_loading")
+    await _betriebsart(hass, "Drucker")
+    assert _takte(aioclient_mock)[-1] == {"orange": "400"}
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "material"
+
+
+async def test_drucker_unbekannter_schritt_bleibt_orange(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
+) -> None:
+    """Sagt `stage` nichts Naeheres, steht orange still - und nichts blinkt."""
+    await _mit_drucker(hass, aioclient_mock, print_status="prepare",
+                       stage="preparing_the_print")
+    await _betriebsart(hass, "Drucker")
+    assert _takte(aioclient_mock)[-1] == {"orange": "1"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "ruestet"
 
 
@@ -1911,29 +1980,28 @@ async def test_drucker_restzeit_in_stunden(
     await _mit_drucker(hass, aioclient_mock, print_status="running",
                        stage="printing", remaining_time="0.5")
     await _betriebsart(hass, "Drucker")
-    assert _bilder(aioclient_mock)[-1] == {"gruen"}
+    assert _takte(aioclient_mock)[-1] == {"gruen": "1"}
     assert hass.states.get("sensor.signalsaeule_drucker").attributes["rest_min"] == 30
 
-    # Drei Minuten sind der Endspurt - gruen und orange
+    # Drei Minuten sind der Endspurt - dasselbe Gruen, nur hektisch
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="running", stage="printing",
                           remaining_time="0.05")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "orange"}
+    assert _takte(aioclient_mock, ab)[-1] == {"gruen": "400"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "endspurt"
 
 
-async def test_drucker_fertig_tont_und_wartet_auf_abholung(
-    hass: HomeAssistant, aioclient_mock, schneller_selbsttest, tagsueber
+async def test_drucker_fertig_wartet_auf_abholung(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
-    """Fertig: gruen und Hinweis, ein Ton - und die Tuer quittiert es."""
+    """Fertig: gruen und Hinweis, beide stehend - und die Tuer quittiert es."""
     await _mit_drucker(hass, aioclient_mock, print_status="running", stage="printing",
                        remaining_time="1")
     await _betriebsart(hass, "Drucker")
 
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="finish", stage="idle")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "hinweis"}
-    assert "/api/piep" in _postpfade(aioclient_mock)[ab:]
+    assert _takte(aioclient_mock, ab)[-1] == {"gruen": "1", "hinweis": "1"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "fertig"
 
     # Tuer auf heisst: gesehen und geholt
@@ -1944,23 +2012,33 @@ async def test_drucker_fertig_tont_und_wartet_auf_abholung(
     assert st.state == "ruht" and st.attributes["abgeholt"] is True
 
 
-async def test_drucker_nachts_ohne_ton(
+async def test_drucker_gibt_keinen_ton(
     hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
-    """Nachts bleibt die Saeule stumm - sie steht in einem Schlafzimmer."""
-    from unittest.mock import patch
+    """Jeder Arbeitsschritt hat sein Licht - gehoert wird nichts.
 
-    from custom_components.ha_wecker import drucker as drucker_modul
-
+    Max will kein akustisches Signal mehr, auch nicht tagsueber und auch
+    nicht beim fertigen Teil (20.11.2026). Der einzige Ton bleibt der
+    Quittungston beim Umschalten auf die Betriebsart - das ist eine
+    Bedienung, keine Meldung des Druckers.
+    """
     await _mit_drucker(hass, aioclient_mock, print_status="running", stage="printing",
                        remaining_time="1")
-    with patch.object(drucker_modul, "DRUCKER_TON_VON_UHR", 25), \
-         patch.object(drucker_modul, "DRUCKER_TON_BIS_UHR", 25):
-        await _betriebsart(hass, "Drucker")
-        ab = len(_postpfade(aioclient_mock))
-        await _drucker_melden(hass, print_status="finish", stage="idle")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "hinweis"}
+    await _betriebsart(hass, "Drucker")
+    assert _postpfade(aioclient_mock)[0] == "/api/piep", "die Quittung bleibt"
+
+    ab = len(_postpfade(aioclient_mock))
+    for werte in (
+        {"print_status": "finish", "stage": "idle"},
+        {"print_status": "running", "stage": "printing", "door_open": "on"},
+        {"print_status": "pause", "stage": "paused_nozzle_clog", "door_open": "off"},
+        {"print_status": "pause", "stage": "paused_filament_runout"},
+        {"print_status": "offline", "stage": "offline", "online": "off"},
+    ):
+        await _drucker_melden(hass, **werte)
     assert "/api/piep" not in _postpfade(aioclient_mock)[ab:]
+    # ... und die Blitz-Warnleuchte ruehrt die Betriebsart ohnehin nie an
+    assert not [p for p in _postpfade(aioclient_mock) if p.startswith("/api/relais/")]
 
 
 async def test_drucker_pause_von_hand(
@@ -1976,22 +2054,27 @@ async def test_drucker_pause_von_hand(
 async def test_drucker_eingriff_bei_filamentende(
     hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
-    """Material fehlt: orange und rot - da hilft nur hingehen."""
+    """Material fehlt: wie die Pause, aber oben blinkt es - "komm jetzt"."""
     await _mit_drucker(hass, aioclient_mock, print_status="pause",
                        stage="paused_filament_runout")
     await _betriebsart(hass, "Drucker")
-    assert _bilder(aioclient_mock)[-1] == {"orange", "rot"}
+    assert _takte(aioclient_mock)[-1] == {"orange": "1", "hinweis": "600"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "eingriff"
+    # Der Unterschied zur Pause ist allein der Takt oben, nicht die Farbe:
+    # "es wartet etwas" gegen "komm jetzt".
+    ab = len(_postpfade(aioclient_mock))
+    await _drucker_melden(hass, print_status="pause", stage="paused_user")
+    assert _takte(aioclient_mock, ab)[-1] == {"orange": "1", "hinweis": "1"}
 
 
 async def test_drucker_fehler_bei_duesenproblem(
-    hass: HomeAssistant, aioclient_mock, schneller_selbsttest, tagsueber
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
     """Ein Maschinenproblem ist rot, nicht orange."""
     await _mit_drucker(hass, aioclient_mock, print_status="pause",
                        stage="paused_nozzle_clog")
     await _betriebsart(hass, "Drucker")
-    assert _bilder(aioclient_mock)[-1] == {"rot"}
+    assert _takte(aioclient_mock)[-1] == {"rot": "500"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "fehler"
     # Die Blitz-Warnleuchte bleibt aus - die gehoert zum Alarm, nicht zum Druck
     assert not [p for p in _postpfade(aioclient_mock) if p.startswith("/api/relais/")]
@@ -2033,6 +2116,7 @@ async def test_drucker_verschwindet_mitten_im_druck(
 
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="offline", stage="offline", online="off")
+    assert _takte(aioclient_mock)[-1] == {"rot": "1500", "hinweis": "1500:750"}
     assert _bilder(aioclient_mock, ab)[-1] == {"rot", "hinweis"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "weg"
 
@@ -2124,26 +2208,27 @@ async def test_drucker_sensor_hat_die_einzelheiten(
     assert st.attributes["saeule_zeigt_drucker"] is False
 
 
-async def test_drucker_nachlauf_bleibt_endspurt(
+async def test_drucker_nachlauf_ist_kuehlen(
     hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
-    """Am Ende eines Drucks reinigt der Drucker die Kammerluft - kein Ruesten.
+    """Am Ende eines Drucks reinigt der Drucker die Kammerluft und kuehlt.
 
     Am 20.11.2026 am laufenden Druck gesehen: bei 465/465 Schichten und
-    Restzeit null steht `stage` auf `purifying_chamber_air`. Ginge das
-    Ruesten vor, fiele die Saeule auf den letzten Metern von gruen auf
-    orange zurueck.
+    Restzeit null steht `stage` auf `purifying_chamber_air`. Das ist weder
+    Ruesten (dann fiele die Saeule auf den letzten Metern auf orange zurueck)
+    noch Endspurt, sondern der Nachlauf - und der hat sein eigenes Licht,
+    eine Welle nach unten (Max, 20.11.2026).
     """
     await _mit_drucker(hass, aioclient_mock, print_status="running",
                        stage="purifying_chamber_air", print_progress="100",
                        remaining_time="0.0", current_layer="465", total_layers="465")
     await _betriebsart(hass, "Drucker")
-    assert _bilder(aioclient_mock)[-1] == {"gruen", "orange"}
-    assert hass.states.get("sensor.signalsaeule_drucker").state == "endspurt"
+    assert _welle(_takte(aioclient_mock)[-1]) == ["rot", "orange", "gruen"]
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "kuehlt"
 
 
 async def test_drucker_echter_druck_von_anfang_bis_abholen(
-    hass: HomeAssistant, aioclient_mock, schneller_selbsttest, tagsueber
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
     """Der Verlauf eines echten Drucks, Schritt fuer Schritt.
 
@@ -2159,16 +2244,15 @@ async def test_drucker_echter_druck_von_anfang_bis_abholen(
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="running", stage="purifying_chamber_air",
                           print_progress="100", remaining_time="0.0")
-    assert hass.states.get("sensor.signalsaeule_drucker").state == "endspurt"
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "orange"}
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "kuehlt"
+    assert _welle(_takte(aioclient_mock, ab)[-1]) == ["rot", "orange", "gruen"]
 
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="finish", stage="idle",
                           print_progress="100", remaining_time="0.0")
     st = hass.states.get("sensor.signalsaeule_drucker")
     assert st.state == "fertig" and st.attributes["abgeholt"] is False
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "hinweis"}
-    assert "/api/piep" in _postpfade(aioclient_mock)[ab:]
+    assert _takte(aioclient_mock, ab)[-1] == {"gruen": "1", "hinweis": "1"}
 
     # Und so ging es weiter: zwischen zwei Abfragen stand die Gehaeusetuer
     # offen - Max hatte das Teil geholt. Mehr braucht die Saeule nicht.
@@ -2180,9 +2264,9 @@ async def test_drucker_echter_druck_von_anfang_bis_abholen(
 
 
 async def test_drucker_tuer_offen_beim_drucken(
-    hass: HomeAssistant, aioclient_mock, schneller_selbsttest, tagsueber
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
-    """Tuer auf, waehrend gedruckt wird: gruen und rot, dazu ein kurzer Ton."""
+    """Tuer auf, waehrend gedruckt wird: gruen bleibt, rot blinkt hektisch."""
     await _mit_drucker(hass, aioclient_mock, print_status="running", stage="printing",
                        print_progress="40", remaining_time="1.5")
     await _betriebsart(hass, "Drucker")
@@ -2191,29 +2275,26 @@ async def test_drucker_tuer_offen_beim_drucken(
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="running", stage="printing",
                           print_progress="40", remaining_time="1.5", door_open="on")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "rot"}
-    assert "/api/piep" in _postpfade(aioclient_mock)[ab:]
+    assert _takte(aioclient_mock, ab)[-1] == {"gruen": "1", "rot": "300"}
     st = hass.states.get("sensor.signalsaeule_drucker")
     assert st.state == "tuer" and st.attributes["tuer_offen"] is True
 
-    # Tuer zu: weiter wie vorher, und ohne Ton
+    # Tuer zu: weiter wie vorher
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="running", stage="printing",
                           print_progress="40", remaining_time="1.5", door_open="off")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen"}
-    assert "/api/piep" not in _postpfade(aioclient_mock)[ab:]
+    assert _takte(aioclient_mock, ab)[-1] == {"gruen": "1"}
     assert hass.states.get("sensor.signalsaeule_drucker").state == "druckt"
 
-    # Und noch einmal auf: dann tont es wieder
+    # Und noch einmal auf: dasselbe Bild wieder
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, print_status="running", stage="printing",
                           print_progress="40", remaining_time="1.5", door_open="on")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "rot"}
-    assert "/api/piep" in _postpfade(aioclient_mock)[ab:]
+    assert _takte(aioclient_mock, ab)[-1] == {"gruen": "1", "rot": "300"}
 
 
 async def test_drucker_tuer_offen_ohne_druck_ist_still(
-    hass: HomeAssistant, aioclient_mock, schneller_selbsttest, tagsueber
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
 ) -> None:
     """Steht der Drucker, ist eine offene Tuer kein Signal wert."""
     await _mit_drucker(hass, aioclient_mock, door_open="on")
@@ -2224,24 +2305,22 @@ async def test_drucker_tuer_offen_ohne_druck_ist_still(
     ab = len(_postpfade(aioclient_mock))
     await _drucker_melden(hass, door_open="off")
     await _drucker_melden(hass, door_open="on")
-    assert "/api/piep" not in _postpfade(aioclient_mock)[ab:]
+    assert _bilder(aioclient_mock, ab)[-1:] in ([], [{"hinweis"}])
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "ruht"
 
 
-async def test_drucker_tuer_nachts_ohne_ton(
-    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
-) -> None:
-    """Nachts zeigt die Tuer das Bild, bleibt aber stumm."""
-    from unittest.mock import patch
+async def test_drucker_jedes_bild_ist_eindeutig() -> None:
+    """Keine zwei Lagen duerfen gleich aussehen - sonst raet man.
 
-    from custom_components.ha_wecker import drucker as drucker_modul
+    Die Bildsprache soll man nicht lernen muessen, aber sie muss eindeutig
+    sein: Farben UND Takte zusammen genommen gibt es jedes Bild nur einmal.
+    """
+    from custom_components.ha_wecker.drucker import DRUCKER_BILD, LAGE_ALLE
 
-    await _mit_drucker(hass, aioclient_mock, print_status="running", stage="printing",
-                       print_progress="40", remaining_time="1.5")
-    with patch.object(drucker_modul, "DRUCKER_TON_VON_UHR", 25), \
-         patch.object(drucker_modul, "DRUCKER_TON_BIS_UHR", 25):
-        await _betriebsart(hass, "Drucker")
-        ab = len(_postpfade(aioclient_mock))
-        await _drucker_melden(hass, print_status="running", stage="printing",
-                              print_progress="40", remaining_time="1.5", door_open="on")
-    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "rot"}
-    assert "/api/piep" not in _postpfade(aioclient_mock)[ab:]
+    assert set(DRUCKER_BILD) == set(LAGE_ALLE), "jede Lage braucht ihr Bild"
+    gesehen: dict[frozenset, str] = {}
+    for lage, bild in DRUCKER_BILD.items():
+        schluessel = frozenset(bild.items())
+        assert schluessel not in gesehen, f"{lage} sieht aus wie {gesehen.get(schluessel)}"
+        assert bild, f"{lage} waere dunkel"
+        gesehen[schluessel] = lage
