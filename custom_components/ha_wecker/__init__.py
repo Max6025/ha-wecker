@@ -5,9 +5,10 @@ Drei Geraetetypen in einer Integration:
           kein lokaler Server, nichts zum Abfragen). An ihm haengt der
           Weckablauf, der Hauptlicht und Saeule steuert - siehe ablauf.py.
 - Saeule: Signalsaeule am Arduino UNO R4 WiFi - Betriebsart Auto/Manuell/
-          Ampel, Status mit Ansage, einzelne Leuchten, Selbstdiagnose. In der
-          Betriebsart "Ampel" zeichnet sie die Garagenampel nach, siehe
-          ampel.py.
+          Ampel/Drucker, Status mit Ansage, einzelne Leuchten, Selbstdiagnose.
+          In der Betriebsart "Ampel" zeichnet sie die Garagenampel nach
+          (ampel.py), in "Drucker" zeigt sie, wie es dem 3D-Drucker geht
+          (drucker.py).
 - Garage: der Garagen-ESP des Peugeot 206 (Lichtschranke, rote Lampe, Funk zum
           Auto-ESP) - Ampel, Tor, Auto zu hoeren, verriegelt, Zuendung. Er
           meldet sich selbst an, siehe garage.py.
@@ -44,6 +45,7 @@ from .const import (
 )
 from .ablauf import Weckablauf
 from .ampel import Ampelmodus
+from .drucker import Druckermodus
 from .garage import GarageCoordinator
 from .saeule import SaeuleCoordinator
 from .strom import Stromplan
@@ -191,9 +193,16 @@ async def _setup_saeule(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # Sie faengt immer aus - absichtlich, siehe ampel.py.
     coordinator.ampel = Ampelmodus(hass, coordinator)
     entry.async_on_unload(coordinator.ampel.async_stop)
+    # Die Betriebsart "Drucker" liest die Bambu-Lab-Integration (drucker.py).
+    # Sie faengt ebenfalls aus, horcht aber von Anfang an: der Drucker-Sensor
+    # soll auch gelten, wenn die Saeule auf Auto steht.
+    coordinator.drucker = Druckermodus(hass, coordinator)
+    entry.async_on_unload(coordinator.drucker.async_stop)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS_SAEULE)
     # Jede Aenderung kommt sofort ueber den Ereignisstrom
     coordinator.async_start_events()
+    # Erst jetzt auf den Drucker hoeren: die Entitaeten stehen.
+    coordinator.drucker.async_beobachten()
 
 
 async def _setup_garage(hass: HomeAssistant, entry: ConfigEntry) -> None:

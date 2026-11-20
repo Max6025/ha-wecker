@@ -370,6 +370,48 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   eine neue IP nach) duerfen sich nicht aendern, ohne die Firmware
   mitzuziehen. Der Test `test_garage_config_flow_wie_der_esp` geht genau
   diesen Weg.
+- **Die Betriebsart „Drucker" urteilt selbst** (`drucker.py`, seit
+  20.11.2026). Sie reicht nichts von Bambu weiter: aus `print_status` (elf
+  Werte) und `stage` (ueber achtzig) werden neun Lagen, und eine Pause wird
+  nach ihrem Grund auf drei davon verteilt - Material fehlt ist `eingriff`,
+  Maschine ist `fehler`, von Hand ist `pause`. HMS-Meldungen machen bewusst
+  **kein** Bild (darunter kommen Bagatellen, und eine Saeule, die davon rot
+  wird, ist nach einer Woche Tapete), nur `print_error` und ein abgebrochener
+  Lauf. Max' Vorgabe: „die eingebauten meldungen wie störung etc nicht
+  einfach anzeigen was eigenes bauen."
+- **Drucker: die Entitaeten ueber den `translation_key` finden**, nie ueber
+  Entitaets-IDs. Die IDs folgen der Sprache von Home Assistant und dem Namen
+  des Geraets (`sensor.og_zimmer_max_bambulab_drucker_druckstatus`); der
+  Schluessel (`print_status`) ist stabil. Gelesen wird die Registry
+  (`platform == "bambu_lab"`), und `async_track_state_change_event` horcht -
+  kein Abfragetakt.
+- **Drucker: die Restzeit kommt in Stunden.** `remaining_time` hat
+  `unit_of_measurement: h` (0,42 = 25 Minuten). Wer die Zahl ungelesen nimmt,
+  haelt jeden Druck fuer fast fertig - darum `minuten()` mit der Einheit.
+  Dasselbe gilt fuer alles andere, was eine Einheit traegt.
+- **Drucker: `finish` ist kein Ereignis, sondern ein Dauerzustand.** Der
+  Drucker steht nach dem letzten Layer stundenlang darauf. Darum merkt sich
+  `_gedaechtnis_pflegen()` drei Dinge, die das Geraet nicht sagt: wann
+  `finish` anfing (nach `DRUCKER_FERTIG_MAX_S` ist es gut), ob die
+  Gehaeusetuer seither **aufgegangen** ist (das quittiert das Abholen - nur
+  die Oeffnung, nicht der offene Zustand), und wann zuletzt wirklich ein
+  Druck lief (sonst waere jeder ausgeschaltete Drucker eine Stoerung statt
+  `ruht`).
+- **Drucker: der Sensor ist der Zweck, die Betriebsart die Zugabe.** Darum
+  horcht `Druckermodus` ab dem Einrichten (`async_beobachten()` in
+  `_setup_saeule`) und `verlassen()` raeumt die Wache **nicht** ab - nur
+  `async_stop`. Sonst stuende `sensor.<saeule>_drucker` still, solange die
+  Saeule auf Auto steht.
+- **Drucker: Ton nur tagsueber und nur einmal je Lage.** Quittung beim
+  Umschalten, dann je einmal bei `fertig` und `fehler`
+  (`_ton_fuer`), nichts bei `eingriff` (eine offene Tuer im Druck ist
+  Alltag), und zwischen 21 und 8 Uhr gar nichts - die Saeule steht in einem
+  Schlafzimmer. Keine Blitz-Warnleuchte, die gehoert dem Alarm.
+- **Die beiden Betriebsarten aus Home Assistant schliessen sich aus.**
+  `coordinator.betriebsarten` / `betriebsart_verlassen()` fassen sie
+  zusammen; Schalter, Stufe von Hand, Status und „Alles aus" gehen ueber
+  diese eine Stelle, nicht ueber `coordinator.ampel`. Wer eine dritte
+  dazubaut, haengt sie dort ein und sonst nirgends.
 - **Garage: Werte vom Auto sind dreiwertig.** `auto_verriegelt`, `auto_zuendung`,
   `auto_rueckwaerts` sind `null`, solange der Auto-ESP nicht zu hoeren ist, und
   die Entitaeten dann `unavailable` - nicht "aus". Ein verriegeltes Auto, das

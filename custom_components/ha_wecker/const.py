@@ -18,6 +18,9 @@ MODUS_MANUELL = "manuell"
 # die Ampel der Garage nach (siehe ampel.py). Am Geraet selbst steht sie
 # dabei auf "manuell" - die Stufen werden einzeln gestellt.
 MODUS_AMPEL = "ampel"
+# Vierte Betriebsart, ebenfalls nur hier: die Saeule als Werkstattanzeige des
+# 3D-Druckers (siehe drucker.py). Am Geraet steht sie dabei auf "manuell".
+MODUS_DRUCKER = "drucker"
 STATUS_STANDARD = "ruhe"
 # Rolle eines Ausgangs in /api/state: "stufe" gehoert zur Saeule und folgt dem
 # Status, "warn" ist die Blitz-Warnleuchte, "ton" der Tongeber - die beiden
@@ -41,6 +44,16 @@ FARBE_HINWEIS = "hinweis"
 AMPEL_GELB_MS = 3000             # Gelbzeit
 AMPEL_ROT_GELB_MS = 1000         # Rot und Gelb zusammen
 AMPEL_STEHT_MS = 1000            # so lange steht ein Vollbild beim Vorfahren
+
+# Betriebsart "Drucker" (siehe drucker.py)
+DRUCKER_VORLAUF_MS = 250         # je Lampe beim Selbsttest zur Eroeffnung
+DRUCKER_ENDSPURT_MIN = 5.0       # ab hier ist der Druck im Endspurt
+DRUCKER_ENDSPURT_PROZENT = 98    # ... oder ab diesem Fortschritt
+DRUCKER_FERTIG_MAX_S = 900       # so lange ruft die Saeule zum Abholen
+DRUCKER_WEG_MAX_S = 1800         # so lange gilt ein verschwundener Druck als Stoerung
+DRUCKER_FEUCHT_AB = 4           # Feuchtigkeitsindex des AMS, ab dem es im Attribut steht
+DRUCKER_TON_VON_UHR = 8          # Ton nur zwischen diesen Stunden - nachts
+DRUCKER_TON_BIS_UHR = 21        # steht die Saeule in einem Schlafzimmer
 
 # Garagen-ESP: schiebt jede Aenderung ueber den Ereignisstrom, Abfrage ist Rueckfallebene
 GARAGE_ABFRAGE_S = 15

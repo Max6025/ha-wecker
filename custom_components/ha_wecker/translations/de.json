@@ -96,6 +96,20 @@
           "kein_strom": "Kein Strom",
           "aus": "Aus"
         }
+      },
+      "drucker_lage": {
+        "name": "Drucker",
+        "state": {
+          "ruht": "Ruht",
+          "ruestet": "Rüstet",
+          "druckt": "Druckt",
+          "endspurt": "Fast fertig",
+          "fertig": "Zum Abholen",
+          "pause": "Angehalten",
+          "eingriff": "Eingriff nötig",
+          "fehler": "Gestört",
+          "weg": "Verschwunden"
+        }
       }
     }
   },

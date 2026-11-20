@@ -490,12 +490,21 @@ class Weckablauf:
 
     @callback
     def _ampel_weiter(self) -> None:
-        """Die Betriebsart "Ampel" wieder laufen lassen, falls sie ruhte."""
+        """Die Betriebsarten aus Home Assistant wieder laufen lassen.
+
+        Gilt fuer "Ampel" und "Drucker" - beide ruhen, solange der Weckruf
+        die Saeule braucht (siehe ampel.py, drucker.py).
+        """
         coordinator = self.saeule()
-        ampel = getattr(coordinator, "ampel", None) if coordinator else None
-        if ampel is not None and ampel.aktiv and ampel.pausiert:
-            self.notiz("Betriebsart Ampel", "laeuft wieder", "ok")
-            self.hass.async_create_task(ampel.async_weiter())
+        if coordinator is None:
+            return
+        for name, modus in (
+            ("Ampel", getattr(coordinator, "ampel", None)),
+            ("Drucker", getattr(coordinator, "drucker", None)),
+        ):
+            if modus is not None and modus.aktiv and modus.pausiert:
+                self.notiz(f"Betriebsart {name}", "laeuft wieder", "ok")
+                self.hass.async_create_task(modus.async_weiter())
 
     def _faellig(self, schritt: dict[str, Any]):
         @callback
@@ -607,13 +616,16 @@ class Weckablauf:
         if coordinator is None:
             self.notiz("Signalsaeule", "nicht eingerichtet", "uebersprungen")
             return
-        # Der Weckruf hat Vorrang: steht die Saeule auf der Garagenampel, ruht
-        # die Betriebsart jetzt und zieht ihr Bild erst am Ende des Laufs
-        # wieder nach (siehe ampel.py).
-        ampel = getattr(coordinator, "ampel", None)
-        if ampel is not None and ampel.aktiv and not ampel.pausiert:
-            ampel.pausieren()
-            self.notiz("Betriebsart Ampel", "ruht bis zum Ende des Laufs", "ok")
+        # Der Weckruf hat Vorrang: steht die Saeule auf der Garagenampel oder
+        # am Drucker, ruht die Betriebsart jetzt und zieht ihr Bild erst am
+        # Ende des Laufs wieder nach (siehe ampel.py, drucker.py).
+        for name, modus in (
+            ("Ampel", getattr(coordinator, "ampel", None)),
+            ("Drucker", getattr(coordinator, "drucker", None)),
+        ):
+            if modus is not None and modus.aktiv and not modus.pausiert:
+                modus.pausieren()
+                self.notiz(f"Betriebsart {name}", "ruht bis zum Ende des Laufs", "ok")
         try:
             if "status" in wunsch:
                 await coordinator.async_status(str(wunsch["status"]))

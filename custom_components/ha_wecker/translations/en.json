@@ -96,6 +96,20 @@
           "kein_strom": "No power",
           "aus": "Off"
         }
+      },
+      "drucker_lage": {
+        "name": "Printer",
+        "state": {
+          "ruht": "Idle",
+          "ruestet": "Preparing",
+          "druckt": "Printing",
+          "endspurt": "Almost done",
+          "fertig": "Ready to collect",
+          "pause": "Paused",
+          "eingriff": "Needs a hand",
+          "fehler": "Fault",
+          "weg": "Gone"
+        }
       }
     }
   },

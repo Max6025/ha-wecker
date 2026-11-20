@@ -19,6 +19,7 @@ from homeassistant.const import SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 
 from . import WeckerData
 from .const import DOMAIN
+from .drucker import LAGE_ALLE, LAGE_TEXT
 from .entity import GarageEntity, SaeuleEntity, WeckerEntity
 from .garage import AMPEL_ALLE, GarageCoordinator
 from .saeule import SaeuleCoordinator
@@ -32,6 +33,7 @@ async def async_setup_entry(
         async_add_entities(
             [
                 SaeuleStatusSensor(obj),
+                DruckerSensor(obj),
                 SaeuleDiagnoseSensor(obj),
                 RssiSensor(obj),
                 UptimeSensor(obj),
@@ -297,6 +299,53 @@ class SaeuleDiagnoseSensor(SaeuleEntity, SensorEntity):
                 if isinstance(p, dict)
             ],
         }
+
+
+class DruckerSensor(SaeuleEntity, SensorEntity):
+    """Wie es dem 3D-Drucker geht - eine Entitaet statt siebzig.
+
+    Das ist der eigentliche Kern der Betriebsart "Drucker" (drucker.py): aus
+    allem, was die Bambu-Integration meldet, wird **eine** Lage, die eine
+    Frage beantwortet - muss ich hin? Die Einzelheiten (Aufgabe, Fortschritt,
+    Restzeit, Schicht, Filament) haengen als Attribute daran.
+
+    Der Sensor gilt unabhaengig davon, worauf die Saeule steht: er sagt, wie
+    es dem Drucker geht, nicht was die Saeule zeigt. Ohne Drucker in Home
+    Assistant ist er `unavailable` - nicht "ruht", denn das waere eine
+    Behauptung.
+    """
+
+    _attr_name = "Drucker"
+    _attr_icon = "mdi:printer-3d-nozzle"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(LAGE_ALLE)
+    _attr_translation_key = "drucker_lage"
+
+    def __init__(self, coordinator: SaeuleCoordinator) -> None:
+        super().__init__(coordinator, "drucker")
+
+    @property
+    def _modus(self) -> Any | None:
+        return getattr(self.coordinator, "drucker", None)
+
+    @property
+    def available(self) -> bool:
+        modus = self._modus
+        return bool(modus is not None and modus.vorhanden)
+
+    @property
+    def native_value(self) -> str | None:
+        modus = self._modus
+        return modus.lage if self.available and modus is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        modus = self._modus
+        if modus is None or not self.available:
+            return {}
+        attr = dict(modus.attribute())
+        attr["saeule_zeigt_drucker"] = modus.aktiv
+        return attr
 
 
 # ---------------------------------------------------------------------------

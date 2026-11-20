@@ -345,9 +345,9 @@ bleiben stabil - die Entitaeten in Home Assistant haengen daran. Ab Firmware
 `rot`, `hinweis`, `warn`, `ton`). Wer eine bestimmte Farbe will, fragt danach
 und nicht nach der Nummer - die Garagenampel in Abschnitt 6c tut genau das.
 
-**Betriebsarten.** Drei: **Auto**, **Manuell** und **Ampel**. Die ersten zwei
-kennt die Saeule selbst, die dritte nur Home Assistant - sie steht weiter
-unten in Abschnitt 6c.
+**Betriebsarten.** Vier: **Auto**, **Manuell**, **Ampel** und **Drucker**. Die
+ersten zwei kennt die Saeule selbst, die anderen nur Home Assistant - sie
+stehen weiter unten in Abschnitt 6c (Ampel) und 6d (Drucker).
 
 In **Auto** treibt der Status die Saeule. Ein Wechsel wird
 immer gleich angesagt: alle vier Stufen laufen von unten nach oben dazu (bei
@@ -881,6 +881,89 @@ Information), `ampel_pausiert`, `ampel_schaltet` (eine Phasenfolge laeuft), `amp
 und `geraet` (worauf die Saeule selbst steht, also `auto` oder `manuell`).
 
 Code: `custom_components/ha_wecker/ampel.py`.
+
+---
+
+## 6d. Betriebsart „Drucker" (die Saeule zeigt den 3D-Drucker)
+
+Der vierte Platz im Schalter **Betriebsart**. Er steht nur da, wenn die
+**Bambu-Lab-Integration** in Home Assistant eingerichtet ist; einzurichten
+ist sonst nichts, die Entitaeten des Druckers werden selbst gefunden.
+
+Diese Betriebsart reicht **keine Herstellermeldungen weiter**. Die
+Bambu-Integration liefert rund siebzig Entitaeten je Drucker, und ihre Werte
+sind Maschinenbegriffe: `print_status` kennt elf, `stage` ueber achtzig - von
+`heatbed_underside_foreign_object_detection` bis `paused_skipped_step`. Davon
+ist fast nichts eine Information, auf die man aufsteht. Die Integration
+urteilt selbst und macht daraus **neun Lagen**, und jede beantwortet eine
+einzige Frage: muss ich hin?
+
+| Lage | heisst | Saeule |
+|---|---|---|
+| `ruht` | nichts zu tun (auch: Drucker aus) | Hinweis |
+| `ruestet` | heizt, kalibriert, laedt Filament | orange |
+| `druckt` | laeuft | gruen |
+| `endspurt` | weniger als fuenf Minuten, oder ab 98 % | gruen + orange |
+| `fertig` | liegt auf dem Bett und will geholt werden | gruen + Hinweis |
+| `pause` | von Hand angehalten | orange + Hinweis |
+| `eingriff` | Material fehlt, eine Hand ist gebraucht | orange + rot |
+| `fehler` | abgebrochen, Duese verstopft, Fehldruck | rot |
+| `weg` | mitten im Druck verschwunden | rot + Hinweis |
+
+Die Bilder folgen derselben Lesart wie die Garagenampel: die Farbe sagt, wie
+es steht, die **Hinweisleuchte oben heisst „es wartet etwas auf dich"**. Rot
+und Hinweis zusammen bedeutet hier wie dort: keine Auskunft. Jedes Bild ist
+eindeutig, keines blinkt - das Blinken je Stufe ist seit dem 18.11.2026 aus
+der Firmware heraus, und ein Takt aus Home Assistant waere ein Zufallstakt.
+
+**Was die Integration selbst entscheidet:**
+
+- **Eine Pause ist nicht eine Pause.** Steht der Druck, weil Material fehlt
+  (`paused_filament_runout`, AMS verloren, warten auf Material), ist das
+  `eingriff`. Steht er wegen der Maschine (verstopfte Duese, misslungene
+  erste Schicht, Temperaturfehler), ist das `fehler`. Hat ihn der Nutzer
+  selbst angehalten, ist es `pause`. Drei Lagen aus einem Wort.
+- **HMS-Meldungen machen kein Bild.** Darunter melden die Drucker auch
+  Bagatellen; eine Signalsaeule, die davon rot wird, ist nach einer Woche
+  Tapete. Sie stehen im Attribut `hms`. Sichtbar wird nur, was den Druck
+  wirklich anhaelt.
+- **Fertig ist erst abgeholt.** Der Drucker bleibt nach dem letzten Layer
+  stundenlang auf `finish`. Die Saeule ruft darum hoechstens eine
+  Viertelstunde - und hoert sofort auf, wenn die Gehaeusetuer aufgeht: wer
+  das Teil holt, hat es gesehen.
+- **Offline ist meistens kein Fehler.** Ein ausgeschalteter Drucker `ruht`.
+  Verschwindet er dagegen mitten im Druck, ist das `weg` - und auch das nur
+  eine halbe Stunde, danach war es wohl doch der Netzschalter.
+- **Die Restzeit hat eine Einheit.** Die Bambu-Integration meldet sie in
+  **Stunden** (0,42), nicht in Minuten. Wer die Zahl ungelesen nimmt, haelt
+  jeden Druck fuer fast fertig.
+
+**Gehoert wird es einmal.** Der Tongeber gibt den Quittungston beim
+Umschalten, und danach genau einmal, wenn aus dem Lauf `fertig` oder `fehler`
+wird - dafuer ist eine Werkstattanzeige da. Nicht bei `eingriff`: eine offene
+Tuer waehrend des Drucks ist Alltag. Und **nie zwischen 21 und 8 Uhr**, denn
+die Saeule steht in einem Schlafzimmer. Die Blitz-Warnleuchte bleibt immer
+aus, die gehoert zum Alarm.
+
+**Beim Umschalten laeuft ein Selbsttest**: gruen, orange, rot, Hinweis, je
+250 ms von unten nach oben - wie eine Werkzeugmaschine beim Einschalten.
+Danach steht, was gilt.
+
+**Der Sensor `sensor.<saeule>_drucker` ist der eigentliche Kern.** Er gilt
+unabhaengig davon, worauf die Saeule steht: eine Entitaet statt siebzig, mit
+der Lage als Zustand und allem, was dazugehoert, als Attribut - `aufgabe`,
+`fortschritt`, `rest_min`, `schicht` („306/465"), `filament`, `tuer_offen`,
+`hms`, `feuchte_index` und `filament_feucht` (ab Index 4 ist das Filament im
+AMS feucht), `online`, `abgeholt`, dazu `drucker` und `arbeitsschritt` als
+das, was das Geraet selbst sagt. Ohne Drucker in Home Assistant ist er
+`unavailable` - nicht „ruht", denn das waere eine Behauptung.
+
+Beendet wird die Betriebsart von denselben vier Dingen wie die Ampel: ein
+anderer Platz im Schalter (die beiden schliessen sich aus), ein Status oder
+eine Stufe von Hand, der Knopf „Alles aus", und die Saeule selbst, wenn sie
+abends vom Netz geht. Der Weckruf hat Vorrang.
+
+Code: `custom_components/ha_wecker/drucker.py`.
 
 ---
 

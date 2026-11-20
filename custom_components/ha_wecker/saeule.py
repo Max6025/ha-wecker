@@ -20,7 +20,7 @@ from typing import Any
 import aiohttp
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -79,10 +79,39 @@ class SaeuleCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._events_task: asyncio.Task | None = None
         self.events_verbunden = False
         self.test_aktiv = False      # Schalter "Testmodus"
-        # Betriebsart "Ampel" - siehe ampel.py. Sie steht nicht hier, weil sie
-        # die Garage braucht und saeule.py die nicht kennen soll; __init__.py
-        # haengt sie ein.
+        # Die Betriebsarten, die es nur in Home Assistant gibt: "Ampel"
+        # (ampel.py, braucht die Garage) und "Drucker" (drucker.py, liest die
+        # Bambu-Integration). Beide stehen nicht hier, weil saeule.py weder
+        # die Garage noch einen Drucker kennen soll; __init__.py haengt sie
+        # ein. Am Geraet steht die Saeule dabei auf "manuell".
         self.ampel: Any = None
+        self.drucker: Any = None
+
+    # --- Betriebsarten aus Home Assistant -----------------------------
+
+    @property
+    def betriebsarten(self) -> list[Any]:
+        """Die Betriebsarten, die es nur hier gibt - ohne die leeren."""
+        return [m for m in (self.ampel, self.drucker) if m is not None]
+
+    @property
+    def betriebsart_aktiv(self) -> Any | None:
+        """Die Betriebsart, die gerade das Bild schreibt; None bei Auto/Manuell."""
+        for modus in self.betriebsarten:
+            if modus.aktiv:
+                return modus
+        return None
+
+    @callback
+    def betriebsart_verlassen(self) -> None:
+        """Jede Betriebsart aus Home Assistant beenden.
+
+        Wer von Hand einen Status, eine Stufe oder "Alles aus" waehlt, will
+        selbst stellen - dann darf keine Betriebsart ihr Bild darueber
+        schreiben (siehe ampel.py, drucker.py).
+        """
+        for modus in self.betriebsarten:
+            modus.verlassen()
 
     # --- Adresse ------------------------------------------------------
 

@@ -96,12 +96,11 @@ class LeuchteSwitch(_SaeuleLeuchte):
 
     async def _schalten(self, an: bool) -> None:
         # Eine Stufe von Hand zu schalten heisst: ich stelle selbst. Dann
-        # beendet das auch die Betriebsart "Ampel", sonst zieht sie beim
-        # naechsten Wort aus der Garage ihr Bild wieder darueber. Die
-        # Warnleuchte und der Tongeber tun das nicht - sie gehoeren zu keinem
-        # Bild (siehe ampel.py).
-        if self.coordinator.ampel is not None:
-            self.coordinator.ampel.verlassen()
+        # endet jede Betriebsart aus Home Assistant - sonst zieht sie beim
+        # naechsten Wort aus der Garage oder vom Drucker ihr Bild wieder
+        # darueber. Die Warnleuchte und der Tongeber tun das nicht - sie
+        # gehoeren zu keinem Bild (siehe ampel.py, drucker.py).
+        self.coordinator.betriebsart_verlassen()
         await super()._schalten(an)
 
     @property
