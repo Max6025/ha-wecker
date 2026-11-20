@@ -2122,3 +2122,58 @@ async def test_drucker_sensor_hat_die_einzelheiten(
     assert st.attributes["filament"] == "Generic PETG"
     assert st.attributes["filament_feucht"] is True
     assert st.attributes["saeule_zeigt_drucker"] is False
+
+
+async def test_drucker_nachlauf_bleibt_endspurt(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest
+) -> None:
+    """Am Ende eines Drucks reinigt der Drucker die Kammerluft - kein Ruesten.
+
+    Am 20.11.2026 am laufenden Druck gesehen: bei 465/465 Schichten und
+    Restzeit null steht `stage` auf `purifying_chamber_air`. Ginge das
+    Ruesten vor, fiele die Saeule auf den letzten Metern von gruen auf
+    orange zurueck.
+    """
+    await _mit_drucker(hass, aioclient_mock, print_status="running",
+                       stage="purifying_chamber_air", print_progress="100",
+                       remaining_time="0.0", current_layer="465", total_layers="465")
+    await _betriebsart(hass, "Drucker")
+    assert _bilder(aioclient_mock)[-1] == {"gruen", "orange"}
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "endspurt"
+
+
+async def test_drucker_echter_druck_von_anfang_bis_abholen(
+    hass: HomeAssistant, aioclient_mock, schneller_selbsttest, tagsueber
+) -> None:
+    """Der Verlauf eines echten Drucks, Schritt fuer Schritt.
+
+    Die Werte sind am 20.11.2026 am P2S mitgeschrieben worden: 82 % mitten
+    im Druck, dann die Nachlaufphase bei 100 %, dann `finish`.
+    """
+    await _mit_drucker(hass, aioclient_mock, print_status="running", stage="printing",
+                       print_progress="82", remaining_time="0.416666666666667")
+    await _betriebsart(hass, "Drucker")
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "druckt"
+    assert _bilder(aioclient_mock)[-1] == {"gruen"}
+
+    ab = len(_postpfade(aioclient_mock))
+    await _drucker_melden(hass, print_status="running", stage="purifying_chamber_air",
+                          print_progress="100", remaining_time="0.0")
+    assert hass.states.get("sensor.signalsaeule_drucker").state == "endspurt"
+    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "orange"}
+
+    ab = len(_postpfade(aioclient_mock))
+    await _drucker_melden(hass, print_status="finish", stage="idle",
+                          print_progress="100", remaining_time="0.0")
+    st = hass.states.get("sensor.signalsaeule_drucker")
+    assert st.state == "fertig" and st.attributes["abgeholt"] is False
+    assert _bilder(aioclient_mock, ab)[-1] == {"gruen", "hinweis"}
+    assert "/api/piep" in _postpfade(aioclient_mock)[ab:]
+
+    # Und so ging es weiter: zwischen zwei Abfragen stand die Gehaeusetuer
+    # offen - Max hatte das Teil geholt. Mehr braucht die Saeule nicht.
+    ab = len(_postpfade(aioclient_mock))
+    await _drucker_melden(hass, print_status="finish", stage="idle", door_open="on")
+    st = hass.states.get("sensor.signalsaeule_drucker")
+    assert st.state == "ruht" and st.attributes["abgeholt"] is True
+    assert _bilder(aioclient_mock, ab)[-1] == {"hinweis"}

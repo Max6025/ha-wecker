@@ -448,9 +448,16 @@ class Druckermodus:
             return LAGE_RUHT if self._abgeholt else LAGE_FERTIG
 
         if status == STATUS_LAEUFT:
+            # Der Endspurt geht vor dem Ruesten - sonst wird aus dem Nachlauf
+            # am Ende eines Drucks (die Kammerluft wird gereinigt, die Duese
+            # kuehlt) wieder "ruestet", und die Saeule faellt bei 100 % von
+            # gruen auf orange zurueck. Am 20.11.2026 am laufenden Druck
+            # gesehen: stage `purifying_chamber_air` bei 465/465 Schichten.
+            if self._endspurt():
+                return LAGE_ENDSPURT
             if stufe and stufe != "printing" and self._ruestet(stufe):
                 return LAGE_RUESTET
-            return LAGE_ENDSPURT if self._endspurt() else LAGE_DRUCKT
+            return LAGE_DRUCKT
 
         if status in STATUS_RUESTET:
             return LAGE_RUESTET
@@ -466,12 +473,19 @@ class Druckermodus:
         return stufe.startswith(STUFE_RUESTEN_ANFANG)
 
     def _endspurt(self) -> bool:
-        """Ist der Druck so weit, dass es sich lohnt, hochzugehen?"""
-        rest = self.rest_min
-        if rest is not None and rest <= DRUCKER_ENDSPURT_MIN:
-            return True
+        """Ist der Druck so weit, dass es sich lohnt, hochzugehen?
+
+        **Eine Restzeit von null ist kein Endspurt.** Beim Vorheizen steht sie
+        oft auf null, weil der Drucker noch nichts zu rechnen hat - wer das
+        glaubt, haelt jeden Druck vom ersten Augenblick an fuer fast fertig.
+        Glaubwuerdig ist sie nur ueber null; was danach kommt (die Kammerluft
+        wird gereinigt), faengt der Fortschritt.
+        """
         fortschritt = zahl(self._wert(TK_FORTSCHRITT))
-        return fortschritt is not None and fortschritt >= DRUCKER_ENDSPURT_PROZENT
+        if fortschritt is not None and fortschritt >= DRUCKER_ENDSPURT_PROZENT:
+            return True
+        rest = self.rest_min
+        return rest is not None and 0 < rest <= DRUCKER_ENDSPURT_MIN
 
     def _im_lauf_verschwunden(self) -> bool:
         """War der Drucker gerade noch mitten in einem Druck?"""
