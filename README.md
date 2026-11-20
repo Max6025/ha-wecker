@@ -464,6 +464,16 @@ zu oft dunkel als einmal um Viertel vor fuenf hell: die Steckdose geht um 4:55
 an, der Wecker klingelt um fuenf. Darum ist auch die Reihenfolge so herum -
 erst WLAN und Uhrzeit, dann die Entscheidung, ob vorgefuehrt wird.
 
+**Und sie bleibt nicht still, wenn die Zeit nur spaet kommt (seit 1.14.0).**
+Das WLAN-Modul liefert seine NTP-Zeit erst einige Sekunden nach der
+Verbindung, manchmal gar nicht - am 20.11.2026 stand die Saeule darum um
+halb sechs am Abend dunkel und auf Manuell, mit `"nachtruhe": true` im JSON.
+Jetzt wird die Zeit sechsmal versucht, **jede Antwort von Home Assistant
+liefert sie im `Date:`-Kopf mit** (zweite Quelle im eigenen Netz, ohne NTP),
+und kommt sie erst danach, holt die Saeule die Vorfuehrung nach - aber nur,
+solange niemand etwas gestellt hat und es dann wirklich nicht zwischen 3 und
+7 Uhr ist.
+
 **Stiller Start (die Technik dahinter, seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,

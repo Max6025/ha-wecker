@@ -127,6 +127,21 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   laesst das hinter `VUSB_LDO_ENABLE` aus, aber das allein ist nicht der Grund.
   `(bool)Serial` (`tud_cdc_connected()`) bleibt dauerhaft true, auch ohne
   offenen Port. Darum gibt es in `/api/state` kein `usb` mehr.
+- **Eine unbekannte Uhrzeit darf nicht dauerhaft still bedeuten.** Der
+  schwerste Fehler nach dem Serverstart: `zeitHolen()` lief **einmal**,
+  direkt nach `wlanVerbinden()`. Liefert `WiFi.getTime()` da noch nichts -
+  der Koprozessor holt seine NTP-Zeit erst Sekunden nach dem Verbinden -,
+  bleibt `zeitStunde` auf -1, `nachtruhe()` sagt still, und die Phase ist
+  durch: die Saeule stand am 20.11.2026 um halb sechs am Abend auf
+  "manuell", stockdunkel, mit `"nachtruhe": true` im JSON. Max hat es
+  gemerkt, nicht die Technik. Seit 1.14.0 drei Dinge: `zeitHolen()` wird
+  sechsmal mit 1,5 s Abstand versucht; **jede Antwort von Home Assistant
+  liefert die Zeit im `Date:`-Kopf** (`zeitAusDate()` in `haSchritt`, zweite
+  Quelle im eigenen Netz, unabhaengig von NTP); und `nachholenPruefen()`
+  holt die Vorfuehrung nach, sobald die Zeit doch kommt - aber nur solange
+  `unberuehrt` gilt (jeder POST loescht es) und es dann wirklich nicht
+  Nachtruhe ist. Nie wieder einen Dauerzustand an einen einzigen Versuch
+  haengen, eine Zeit zu bekommen.
 - **Der stille Start gilt nur zwischen 3 und 7 Uhr** (1.13.0, Max am
   18.11.2026). Ausserhalb fuehrt die Saeule beim Einschalten normal vor und
   steht danach auf **Auto** - das ist der Zustand, in dem Weckablauf und

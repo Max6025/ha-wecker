@@ -80,7 +80,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.13.1";
+static const char* VERSION  = "1.14.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -139,6 +139,12 @@ static uint16_t schleifeMax = 0;        // laengster Schleifendurchlauf in ms
 // datenbank hat der Arduino nicht.
 static unsigned long zeitEpoch = 0;      // zuletzt geholte Zeit (UTC), 0 = keine
 static int8_t zeitStunde = -1;           // lokale Stunde, -1 = unbekannt
+// Kam die Saeule still hoch, weil die Zeit fehlte (nicht, weil es wirklich
+// Nacht war)? Dann wird die Vorfuehrung nachgeholt, sobald die Zeit da ist -
+// aber nur, solange niemand etwas gestellt hat.
+static bool stillGestartet = false;
+static bool unberuehrt = true;
+static unsigned long zeitVersuch = 0;
 
 // Letzter Sonntag im Maerz bzw. Oktober (gilt 1900-2099).
 static int letzterSonntag(int jahr, bool maerz) {
@@ -157,17 +163,55 @@ static bool istSommerzeit(const struct tm& g) {
   return (monat == 3) ? (g.tm_hour >= 1) : (g.tm_hour < 1);
 }
 
-// Zeit holen und die lokale Stunde merken. Klappt es nicht, bleibt sie
-// unbekannt - und unbekannt heisst still (siehe nachtruhe()).
-static void zeitHolen() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  const unsigned long t = WiFi.getTime();
+// Eine Zeit (UTC) uebernehmen und die lokale Stunde daraus merken.
+static void zeitSetzen(unsigned long t) {
   if (t < 1700000000UL) return;          // nichts Brauchbares (vor 2023)
   zeitEpoch = t;
   const time_t tt = (time_t)t;
   struct tm g;
   gmtime_r(&tt, &g);
   zeitStunde = (int8_t)((g.tm_hour + (istSommerzeit(g) ? 2 : 1)) % 24);
+}
+
+// Zeit holen und die lokale Stunde merken. Klappt es nicht, bleibt sie
+// unbekannt - und unbekannt heisst still (siehe nachtruhe()).
+static void zeitHolen() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  zeitSetzen(WiFi.getTime());
+}
+
+// Sekunden seit 1970 aus einem Datum (nach Howard Hinnant). Die Standard-
+// Bibliothek des R4 hat kein timegm, und mktime rechnet mit einer Zeitzone,
+// die es hier nicht gibt.
+static unsigned long epochAus(int jahr, int monat, int tag, int h, int m, int s) {
+  jahr -= monat <= 2;
+  const long era = (jahr >= 0 ? jahr : jahr - 399) / 400;
+  const unsigned yoe = (unsigned)(jahr - era * 400);
+  const unsigned doy = (153 * (monat + (monat > 2 ? -3 : 9)) + 2) / 5 + tag - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  const long tage = era * 146097L + (long)doe - 719468L;
+  return (unsigned long)tage * 86400UL + (unsigned long)h * 3600UL
+         + (unsigned long)m * 60UL + (unsigned long)s;
+}
+
+// Zweite Zeitquelle: der Date-Kopf jeder Antwort von Home Assistant
+// ("Date: Thu, 20 Nov 2026 16:35:12 GMT"). Der Koprozessor liefert seine
+// NTP-Zeit erst Sekunden nach dem Verbinden - und manchmal gar nicht. Home
+// Assistant steht im eigenen Netz und antwortet immer.
+static bool zeitAusDate(const String& kopf) {
+  int p = kopf.indexOf("Date: ");
+  if (p < 0) p = kopf.indexOf("date: ");
+  if (p < 0 || kopf.length() < (unsigned)p + 31) return false;
+  const String d = kopf.substring(p + 6, p + 35);
+  const int tag  = d.substring(5, 7).toInt();
+  const int jahr = d.substring(12, 16).toInt();
+  const int h = d.substring(17, 19).toInt();
+  const int m = d.substring(20, 22).toInt();
+  const int s = d.substring(23, 25).toInt();
+  const int mi = String("JanFebMarAprMayJunJulAugSepOctNovDec").indexOf(d.substring(8, 11));
+  if (mi < 0 || mi % 3 != 0 || tag < 1 || tag > 31 || jahr < 2023) return false;
+  zeitSetzen(epochAus(jahr, mi / 3 + 1, tag, h, m, s));
+  return zeitStunde >= 0;
 }
 
 // Soll die Saeule still hochkommen? Im Zweifel ja: lieber einmal zu oft
@@ -920,6 +964,10 @@ static int haSchritt(WiFiClient& c, const String& pfad, const String& body, Stri
   const int leer = kopf.indexOf(' ');
   if (leer > 0) code = kopf.substring(leer + 1, leer + 4).toInt();
 
+  // Jede Antwort von Home Assistant traegt die Uhrzeit im Kopf - die beste
+  // Gelegenheit, sie zu bekommen, wenn der Koprozessor keine liefert.
+  if (zeitStunde < 0) zeitAusDate(kopf);
+
   long laenge = -1;
   int cl = kopf.indexOf("Content-Length:");
   if (cl < 0) cl = kopf.indexOf("content-length:");
@@ -1345,6 +1393,9 @@ static void httpBedienen() {
   if (l1 < 0 || l2 < 0) { c.stop(); return; }
   String methode = zeile1.substring(0, l1);
   String ziel = zeile1.substring(l1 + 1, l2);
+  // Hat jemand etwas gestellt, holt die Saeule keine Vorfuehrung mehr nach:
+  // wer selbst stellt, will selbst stellen (siehe nachholenPruefen()).
+  if (methode == "POST") unberuehrt = false;
   String pfad = ziel;
   int fz = pfad.indexOf('?');
   if (fz >= 0) pfad = pfad.substring(0, fz);
@@ -1537,6 +1588,30 @@ void setup() {
   wechselAktiv = false;
 }
 
+// Kam die Saeule still hoch, weil die Zeit fehlte, holt sie die Vorfuehrung
+// nach, sobald sie die Zeit doch bekommt - aber nur, wenn es dann wirklich
+// nicht Nachtruhe ist und niemand inzwischen etwas gestellt hat. Ohne das
+// blieb sie den ganzen Tag dunkel und auf "manuell": die Phase war durch,
+// und die Zeit wurde nie wieder geholt.
+static void nachholenPruefen() {
+  if (!stillGestartet) return;
+  if (!unberuehrt) { stillGestartet = false; return; }
+  if (zeitStunde < 0) {
+    if (millis() - zeitVersuch < 20000) return;
+    zeitVersuch = millis();
+    zeitHolen();
+    if (zeitStunde < 0) {
+      anmeldungZuletzt = 0;       // Anmeldung erzwingen, ihr Date-Kopf hilft
+      return;
+    }
+  }
+  stillGestartet = false;
+  if (nachtruhe()) return;        // es ist wirklich Nacht: still bleiben
+  Serial.println("Zeit kam spaeter - Vorfuehrung wird nachgeholt");
+  startSeit = millis();
+  phase = PH_VORFUEHREN;
+}
+
 void loop() {
   schleifeBegann = millis();
 
@@ -1566,8 +1641,22 @@ void loop() {
 
     // Das WLAN blockiert hier gut zehn Sekunden; der Zeitgeber laeuft weiter.
     wlanVerbinden();
-    zeitHolen();
+    // Die Zeit kommt vom WLAN-Koprozessor nicht im selben Augenblick wie die
+    // Verbindung. Ein einziger Versuch ging ins Leere, und weil eine
+    // unbekannte Zeit als Nachtruhe gilt, blieb die Saeule den ganzen Tag
+    // dunkel - am 20.11.2026 genau so passiert. Darum mehrere Versuche, und
+    // wenn es dann noch nicht reicht, holt es sich die Anmeldung bei Home
+    // Assistant aus deren Date-Kopf (siehe haSchritt).
+    for (uint8_t v = 0; v < 6 && zeitStunde < 0; v++) {
+      zeitHolen();
+      if (zeitStunde < 0) warten(1500);
+    }
+    if (zeitStunde < 0) {
+      haAnmelden();            // liefert die Zeit im Date-Kopf mit
+      zeitVersuch = millis();
+    }
 
+    stillGestartet = zeitStunde < 0;
     if (nachtruhe()) {
       // Zwischen drei und sieben still: keine Vorfuehrung, keine Matrix,
       // Betriebsart manuell. So bleibt es, bis der Weckablauf etwas sagt.
@@ -1606,6 +1695,7 @@ void loop() {
     haAnmelden();                 // beim ersten Mal, danach einmal taeglich
     httpBedienen();
     ssePflegen();
+    nachholenPruefen();           // still gestartet, weil die Zeit fehlte?
   } else {
     static unsigned long letzterVersuch = 0;
     if (millis() - letzterVersuch > 20000) {
