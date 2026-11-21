@@ -517,12 +517,13 @@ nichts - der Kanal ist Sache des Routers. Sie haelt aber durch:
   **drei Minuten** ganz still, wird die Verbindung von Grund auf neu gemacht
   (`WiFi.end()`), hoechstens aber alle fuenf Minuten. Zaehler:
   `stille_neustarts`, `stille_s`.
-- **Erst die Adresse, dann der Rest.** Nach einem Neuverbinden steht
-  `WL_CONNECTED`, bevor DHCP fertig ist. Wer dann den Server startet, bindet
-  ihn an **0.0.0.0** und meldet sich bei Home Assistant mit einer Adresse, die
-  es nicht gibt - genau so am 21.11.2026 beim ersten Testlauf des Wachhunds
-  gesehen. Jetzt wartet die Saeule auf die Adresse (bis 5 s) und prueft sie
-  vor jedem Schritt (`adresseDa()`).
+- **Der Server startet ohne Bedingung** (korrigiert in 1.22.0). In 1.18.0
+  musste erst die Adresse da sein - das hat die Saeule am 21.11.2026 von
+  16:27 bis 17:09 stumm im Netz stehen lassen: Ping ja, Port 80 und 8081
+  abgelehnt, kein Server, kein Weg zurueck ohne Stecker. Der Server lauscht im
+  Koprozessor auf allen Adressen; die Adresse braucht nur die
+  Selbstanmeldung. Bleibt eine Verbindung 30 s ohne Adresse, wird sie neu
+  gemacht.
 - **Nachsicht mit der jungen Verbindung.** In den ersten 90 s nach dem
   Verbinden gehen ausgehende Verbindungen noch ins Leere. Ein Fehlschlag ohne
   Antwort ist dann kein Befund, sondern nur zu frueh: es wird still neu

@@ -462,12 +462,30 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   und ohne offenen Ereignisstrom, wird die Verbindung neu gemacht, hoechstens
   alle fuenf Minuten. Wer hier etwas anfasst: HA fragt alle 15 s ab, die
   Stille ist also ein verlaessliches Zeichen.
-- **Nach dem Verbinden erst die Adresse abwarten** (`adresseDa()`). `WL_CONNECTED`
-  kommt vor DHCP; ohne diese Pruefung bindet `server.begin()` an 0.0.0.0 und
-  die Selbstanmeldung traegt eine Adresse ein, die es nicht gibt. Und in den
-  ersten 90 s danach ist ein Anmeldefehler **ohne** Antwortcode kein Befund,
-  sondern zu frueh - still neu versuchen, den guten Stand nicht
+- **Der Server startet, sobald die Verbindung steht - ohne jede Bedingung.**
+  Am 21.11.2026 habe ich in 1.18.0 `adresseDa()` davor gehaengt, weil die
+  Logzeile "Server laeuft, IP 0.0.0.0" haesslich war. Folge: kam die Adresse
+  nicht, lief **nie** ein Server, und die Saeule stand von 16:27 bis 17:09
+  stumm im Netz (Ping ja, Port 80 und 8081 abgelehnt) - sie musste vom Strom.
+  Der Server lauscht im Koprozessor ohnehin auf allen Adressen. Die Adresse
+  braucht nur die Selbstanmeldung (dort steht `adresseDa()` richtig), und eine
+  Verbindung, die 30 s ohne Adresse bleibt, wird neu gemacht
+  (`adressePruefen`). **Nie wieder eine Betriebsfunktion von einer Bedingung
+  abhaengig machen, die nur die Kosmetik verbessert.**
+- **Anmeldefehler in den ersten 90 s nach dem Verbinden** sind kein Befund,
+  sondern zu frueh: still neu versuchen, den guten Stand nicht
   ueberschreiben.
+- **JSON nie zusammenkopieren.** `sendeJson` hat Kopf und Rumpf zu einem
+  String verbunden - 3,8 kB wurden 7,6 kB, bei 2,6 kB Luft zwischen Stapel
+  und Haufen. Nacheinander schreiben; der Ereignisstrom baut sein JSON nur,
+  wenn ein Klient dranhaengt; unter 1200 Byte frei startet die Saeule sauber
+  neu (`ramPruefen`). Nach dem Umbau sind 6,5 statt 2,6 kB frei. Wer ein Feld
+  ins `stateJson` setzt, sieht vorher auf `ram_frei`.
+- **Eigene Messungen nicht fuer Geraetefehler halten.** Am 21.11.2026 lief
+  `werkzeug/starttest.sh` im Hintergrund und hat acht Mal `/api/neustart`
+  geschickt; die "Neustarts im Minutentakt" waren das, nicht die Saeule - und
+  der Start-Grund "Software" kam von diesen Aufrufen. Vor jeder Deutung
+  nachsehen, was gerade selbst laeuft (`pgrep`, `/tmp/starttest.log`).
 - **Der WLAN-Koprozessor des R4 muss hart neu gestartet werden.** Nach drei
   Fehlversuchen `WiFi.end()` und von vorn (`serverLaeuft` dabei zuruecksetzen,
   sonst laufen die Server nach dem Verbinden nicht wieder an). Ohne das
