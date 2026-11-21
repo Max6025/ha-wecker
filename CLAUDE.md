@@ -445,6 +445,17 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   und `nachholenPruefen` nimmt beides zurueck, wenn die Zeit doch kommt und
   es wirklich Nacht ist. Wer hier etwas aendert: ein Signalgeraet, das nichts
   anzeigt, ist schlimmer als eines, das das Falsche anzeigt.
+- **Der Zeitgeber wacht ueber die Hauptschleife** (`taktISR`, seit 1.19.0):
+  ruehrt sie sich 90 s nicht, `NVIC_SystemReset()`. Grund: am 21.11.2026
+  stand die Saeule solo am Netzteil, Ping ging, beide Ports abgelehnt - der
+  Koprozessor hielt das WLAN, der Hauptprozessor stand, und ohne Kabel war
+  nichts zu machen. Wer blockierende Aufrufe dazunimmt (WLAN, Scan,
+  Anmeldung), muss unter dieser Frist bleiben - sonst startet sich das Geraet
+  im Betrieb selbst neu.
+- **Den Grund des Starts nicht wegwerfen.** `startGrundLesen()` liest
+  RSTSR0/1/2 **und loescht die Flags**; ohne das Loeschen erbt sie der
+  naechste Start und jede Diagnose ist falsch. "Unterspannung" heisst
+  Netzteil, "Software" heisst Wachhund oder Upload.
 - **Verbunden ist nicht erreichbar.** Zwei Mal hat die Saeule mit IP im Netz
   gestanden und auf nichts geantwortet (18.11.2026) - darum der
   Stille-Wachhund (`stillePruefen`): bleibt es drei Minuten ohne HTTP-Anfrage

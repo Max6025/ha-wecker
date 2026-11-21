@@ -535,6 +535,39 @@ Adresse und meldet sich wieder an; im Dauerlauf mit echtem Verkehr sieben
 Minuten lang `stille_neustarts: 0`. Einen Schalter fuer den Stromsparbetrieb
 hat WiFiS3 nicht - da ist nichts abzuschalten.
 
+**Und wenn trotzdem alles steht: der Wachhund (1.19.0).** Am 21.11.2026
+stand die Saeule solo am Netzteil im WLAN - Ping lief mit 5 bis 18 ms, aber
+Port 80 und 8081 antworteten mit "Verbindung abgelehnt": kein Server offen,
+der Hauptprozessor war stehengeblieben. Der WLAN-Koprozessor haelt in diesem
+Zustand die Verbindung, das Geraet sieht von aussen also fast lebendig aus -
+und ohne Kabel ist nichts zu machen.
+
+Darum wacht jetzt der Zeitgeber ueber die Hauptschleife: er laeuft alle
+10 ms in einer Unterbrechung und bemerkt damit auch das, was die Schleife
+selbst nicht mehr bemerken kann. Ruehrt sie sich **90 s** nicht, startet er
+das Geraet neu (`NVIC_SystemReset`). Die Frist ist weit genug fuer alles, was
+legitim blockiert: WLAN-Aufbau 10 s, Zeitsuche 9 s, Anmeldung bis 15 s,
+Funkscan rund 10 s. Gemessen mit einer Testfassung (Frist 15 s, absichtlicher
+Haenger nach 40 s): zwei Mal haengen geblieben, zwei Mal nach der Frist
+selbst zurueckgekommen - WLAN verbunden, Server offen, angemeldet.
+
+**Warum sie hochgekommen ist, sagt sie seit 1.19.0 selbst.** Der RA4M1
+schreibt den Grund in drei Register (RSTSR0/1/2); die Saeule liest sie beim
+Start, loescht sie (sonst erbt sie der naechste Start) und meldet in
+`/api/state` unter `start_grund`:
+
+| Was dort steht | Was es heisst |
+|---|---|
+| `Strom` | eingesteckt, normaler Kaltstart |
+| `Unterspannung` | die Spannung ist eingebrochen - das Netzteil |
+| `Software` | Neustart aus dem Programm: der Wachhund (oder ein Upload) |
+| `WDT` / `IWDT` | der Hardware-Watchdog |
+| `Stapel`, `RAM-Paritaet`, `RAM-ECC` | ein Fehler im Prozessor selbst |
+| `Kaltstart` | kam ohne vorherigen Warmstart (RSTSR2) |
+
+Damit ist beim naechsten Ausfall nicht mehr zu raten, ob die Saeule gehangen
+hat oder ob ihr die Spannung weggebrochen ist.
+
 **Stiller Start (die Technik dahinter, seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,
