@@ -61,6 +61,11 @@
   blinken, nicht schon waehrend der Ansage - und bleibt dann dauerhaft an.
   Verlaesst die Saeule den Alarm, bekommt sie wieder den Stand von vorher.
 
+  Haengt die Hauptschleife laenger als 90 s, startet der Zeitgeber das Geraet
+  neu (Wachhund in Software, ab 1.19.0). Warum die Saeule hochgekommen ist,
+  steht danach in /api/state unter "start_grund": "Strom" (eingesteckt),
+  "Unterspannung" (das Netzteil!), "Software" (der Wachhund), "WDT", "Stapel".
+
   HTTP (Port 80)
     GET  /                          Dashboard
     GET  /api/state                 Zustand als JSON
@@ -94,7 +99,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.18.0";
+static const char* VERSION  = "1.19.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -145,6 +150,59 @@ static const uint8_t RUHE_BIS_UHR = 7;
 static Phase phase = PH_START;
 static uint32_t schleifeBegann = 0;
 static uint16_t schleifeMax = 0;        // laengster Schleifendurchlauf in ms
+
+// Warum ist die Saeule hochgekommen? Der RA4M1 schreibt es in drei Register,
+// und das ist die Antwort auf die Frage, die am 21.11.2026 nicht zu klaeren
+// war: haengt sie, oder bekommt sie am Netzteil zu wenig Spannung? "Strom
+// eingesteckt" (PORF), "Unterspannung" (LVD, also das Netzteil), "Software"
+// (SWRF, also unser Wachhund) und "Watchdog" sind damit zu unterscheiden,
+// ohne dass jemand daneben stehen und zusehen muss.
+static char startGrund[64] = "unbekannt";
+static uint16_t startRoh = 0;
+
+static void startGrundLesen() {
+  const uint8_t r0 = R_SYSTEM->RSTSR0;
+  const uint16_t r1 = R_SYSTEM->RSTSR1;
+  const uint8_t r2 = R_SYSTEM->RSTSR2;
+  startRoh = (uint16_t)((r0 << 8) | (r1 & 0xFF));
+  char* p = startGrund;
+  const char* ende = startGrund + sizeof(startGrund) - 1;
+  *p = 0;
+  auto dazu = [&](const char* text) {
+    if (p != startGrund && p < ende) *p++ = '+';
+    while (*text && p < ende) *p++ = *text++;
+    *p = 0;
+  };
+  if (r0 & 0x01) dazu("Strom");            // PORF: Netz eingesteckt
+  if (r0 & 0x0E) dazu("Unterspannung");    // LVD0/1/2: zu wenig Spannung
+  if (r0 & 0x80) dazu("Tiefschlaf");
+  if (r1 & 0x01) dazu("IWDT");
+  if (r1 & 0x02) dazu("WDT");
+  if (r1 & 0x04) dazu("Software");         // SWRF: unser Wachhund
+  if (r1 & 0x100) dazu("RAM-Paritaet");
+  if (r1 & 0x200) dazu("RAM-ECC");
+  if (r1 & 0x1000) dazu("Stapel");
+  if (!(r2 & 0x01)) dazu("Kaltstart");
+  if (p == startGrund) dazu("Taster oder unbekannt");
+  // Die Flags bleiben sonst stehen und der naechste Start erbt sie: erst
+  // bestaetigen, dass sie gesetzt sind, dann mit 0 loeschen.
+  if (r0) R_SYSTEM->RSTSR0 = 0;
+  if (r1) R_SYSTEM->RSTSR1 = 0;
+  Serial.print("Start: ");
+  Serial.println(startGrund);
+}
+
+// Ein Wachhund in Software, im Zeitgeber - der laeuft alle 10 ms und bemerkt
+// darum auch das, was die Hauptschleife nicht mehr bemerken kann. Am
+// 21.11.2026 stand die Saeule solo am Netzteil im WLAN (Ping ging), hatte
+// aber keinen Server mehr offen: der Hauptprozessor war stehengeblieben, und
+// ohne Kabel war nichts zu machen. Danach darf das nicht mehr vorkommen.
+//
+// Die Frist ist mit Absicht weit: der WLAN-Aufbau blockiert zehn Sekunden,
+// die Zeitsuche neun, die Anmeldung bis fuenfzehn und der Funkscan rund
+// zehn - alles zusammen bleibt deutlich unter einer Minute.
+static const uint32_t WD_FRIST_MS = 90000;
+static volatile bool wdScharf = false;
 
 #include <time.h>
 
@@ -867,6 +925,13 @@ static volatile uint32_t taktMaxUs = 0;
 static volatile uint32_t taktZaehler = 0;
 
 static void taktISR(timer_callback_args_t*) {
+  // Haengt die Hauptschleife? Dann das Geraet neu starten - ein dunkles,
+  // stummes Geraet im Netz ist das Schlimmste, was eine Signalsaeule sein
+  // kann (der Grund steht nach dem Neustart in "start_grund": "Software").
+  if (wdScharf && (uint32_t)(millis() - schleifeBegann) > WD_FRIST_MS) {
+    wdScharf = false;
+    NVIC_SystemReset();
+  }
   uint32_t jetzt = micros();
   if (taktLetzter) {
     uint32_t ab = jetzt - taktLetzter;
@@ -1437,6 +1502,8 @@ static String stateJson() {
   s += ",\"wlan_versuche\":" + String(wlanVersuche);
   s += ",\"wlan_neustarts\":" + String(wlanNeustarts);
   s += ",\"stille_neustarts\":" + String(stilleNeustarts);
+  s += ",\"start_grund\":" + jsonText(startGrund);
+  s += ",\"start_roh\":" + String(startRoh);
   s += ",\"stille_s\":" + String(letzteAnfrage ? (millis() - letzteAnfrage) / 1000 : 0);
   s += ",\"funk\":{\"netze\":" + String(funkNetze);
   s += ",\"mein_kanal\":" + String(funkMeinKanal);
@@ -1898,6 +1965,7 @@ void setup() {
   }
 
   Serial.begin(115200);
+  startGrundLesen();
   matrix.begin();
 
   if (!taktgeberStarten()) Serial.println("Taktgeber laesst sich nicht starten");
@@ -1905,6 +1973,7 @@ void setup() {
   phase = PH_START;
   startSeit = millis();
   statusSeit = millis();
+  schleifeBegann = millis();
   wechselAktiv = false;
 }
 
@@ -1990,6 +2059,7 @@ static bool ohneNetz() {
 
 void loop() {
   schleifeBegann = millis();
+  wdScharf = true;          // ab dem ersten Durchlauf wird gewacht
 
   if (phase == PH_START) {
     // Erst gar nichts: ob vorgefuehrt wird, entscheidet die Uhrzeit, und die
