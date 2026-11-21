@@ -508,6 +508,33 @@ Auf demselben Kanal 1 funkt ein Fremdnetz mit **-71 dBm** - zehn Dezibel
 weitere Netze. Zum Vergleich: der 3D-Drucker im selben Zimmer hat -57 dBm,
 die Leiterbahnantenne des R4 hoert also deutlich schlechter als er.
 
+**Was die Firmware daraus macht (1.18.0).** Am Funk selbst aendert die Saeule
+nichts - der Kanal ist Sache des Routers. Sie haelt aber durch:
+
+- **Stille-Wachhund.** Verbunden zu sein heisst nicht, erreichbar zu sein (am
+  18.11.2026 stand sie mit IP im Netz und antwortete auf nichts). Home
+  Assistant fragt alle 15 s ab und haelt den Ereignisstrom offen; bleibt es
+  **drei Minuten** ganz still, wird die Verbindung von Grund auf neu gemacht
+  (`WiFi.end()`), hoechstens aber alle fuenf Minuten. Zaehler:
+  `stille_neustarts`, `stille_s`.
+- **Erst die Adresse, dann der Rest.** Nach einem Neuverbinden steht
+  `WL_CONNECTED`, bevor DHCP fertig ist. Wer dann den Server startet, bindet
+  ihn an **0.0.0.0** und meldet sich bei Home Assistant mit einer Adresse, die
+  es nicht gibt - genau so am 21.11.2026 beim ersten Testlauf des Wachhunds
+  gesehen. Jetzt wartet die Saeule auf die Adresse (bis 5 s) und prueft sie
+  vor jedem Schritt (`adresseDa()`).
+- **Nachsicht mit der jungen Verbindung.** In den ersten 90 s nach dem
+  Verbinden gehen ausgehende Verbindungen noch ins Leere. Ein Fehlschlag ohne
+  Antwort ist dann kein Befund, sondern nur zu frueh: es wird still neu
+  versucht, statt einen guten Anmeldestand mit einem Fehler zu
+  ueberschreiben.
+
+Gemessen (Testfassung mit 20-30 s Schwelle und abgeklemmten Lebenszeichen):
+der Wachhund schlaegt genau nach der Frist an, verbindet neu, bekommt die
+Adresse und meldet sich wieder an; im Dauerlauf mit echtem Verkehr sieben
+Minuten lang `stille_neustarts: 0`. Einen Schalter fuer den Stromsparbetrieb
+hat WiFiS3 nicht - da ist nichts abzuschalten.
+
 **Stiller Start (die Technik dahinter, seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,

@@ -94,7 +94,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.17.0";
+static const char* VERSION  = "1.18.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -180,6 +180,20 @@ static bool ohneNetzBild = false;           // Grundbild steht schon
 
 // WLAN-Versuche. Der Koprozessor des R4 verschluckt sich: nach mehreren
 // Fehlversuchen hilft nur, ihn ganz abzuschalten und neu anzufangen.
+// Verbunden zu sein heisst nicht, erreichbar zu sein. Am 18.11.2026 stand
+// die Saeule mit IP im Netz und antwortete auf nichts; seit dem schlechten
+// Funk (eigenes Netz nur einmal in Reichweite, -81 bis -83 dBm, ein
+// Fremdnetz auf demselben Kanal 10 dB stuerker, 21.11.2026) ist damit
+// dauerhaft zu rechnen. Home Assistant fragt alle 15 s /api/state ab und
+// haelt den Ereignisstrom offen - bleibt es STILLE_MS lang ganz still,
+// stimmt etwas nicht, und zwar unabhaengig davon, was WiFi.status() sagt.
+// Dann wird die Verbindung von Grund auf neu gemacht.
+static const unsigned long STILLE_MS = 180000;      // drei Minuten ohne Anfrage
+static const unsigned long STILLE_PAUSE_MS = 300000; // und hoechstens alle fuenf
+static unsigned long letzteAnfrage = 0;     // wann zuletzt jemand etwas wollte
+static unsigned long stilleZuletzt = 0;     // wann der Wachhund zuletzt anschlug
+static uint16_t stilleNeustarts = 0;
+
 static const uint8_t WLAN_FEHL_BIS_NEUSTART = 3;
 static uint16_t wlanVersuche = 0;
 static uint16_t wlanNeustarts = 0;
@@ -418,6 +432,7 @@ static bool inRuhephase() {
 static bool eingerastet() { return !wechselAktiv || wechselZeit() >= wechselDauer() + RUHE_MS; }
 
 static void sseSenden();   // vorab
+static bool adresseDa();   // vorab
 
 static void statusSetzen(Status neu, bool ansage = true, bool erzwingen = false) {
   if (neu == status && ansage && !erzwingen) return;
@@ -980,6 +995,23 @@ static const unsigned long ANMELDUNG_TAG_MS    = 86400000UL;  // einmal taeglich
 // zu sein.
 static const unsigned long ANMELDUNG_PAUSE_MS  = 120000UL;    // zwei Minuten
 static unsigned long anmeldungZuletzt = 0;     // 0 = noch nie versucht
+// Kurz nach dem Verbinden gehen ausgehende Verbindungen noch ins Leere: der
+// Koprozessor hat die Adresse, aber der Netzstack ist noch nicht fertig. Die
+// Anmeldung lief dann auf "Antwort 0" und schrieb einen Fehler ueber einen
+// vorher guten Stand (am 21.11.2026 beim Stille-Wachhund gesehen). Darum
+// eine kurze Schonzeit nach jedem Verbinden.
+static const unsigned long ANMELDUNG_SCHONZEIT_MS = 15000;
+static unsigned long anmeldungFruehestens = 0;
+// Und noch eine Weile danach ist ein "kein Kontakt" kein Befund, sondern nur
+// zu frueh: dann wird still neu versucht, statt einen guten Stand mit einem
+// Fehler zu ueberschreiben.
+static const unsigned long ANMELDUNG_NACHSICHT_MS = 90000;
+static unsigned long verbundenSeit = 0;
+
+// Ist ein Fehlschlag jetzt noch der jungen Verbindung zuzuschreiben?
+static bool anmeldungZuFrueh() {
+  return verbundenSeit && millis() - verbundenSeit < ANMELDUNG_NACHSICHT_MS;
+}
 static unsigned long anmeldungPause   = 0;
 static bool anmeldungOk = false;
 static String anmeldungText = "noch nicht versucht";
@@ -1082,19 +1114,40 @@ static void anmeldungMerken(bool ok, const String& text) {
 }
 
 static void haAnmelden() {
-  if (WiFi.status() != WL_CONNECTED || anmeldungLaeuft) return;
+  if (!adresseDa() || anmeldungLaeuft) return;
+  if (anmeldungFruehestens && (long)(millis() - anmeldungFruehestens) < 0) return;
   if (anmeldungZuletzt != 0 && millis() - anmeldungZuletzt < anmeldungPause) return;
   anmeldungLaeuft = true;
 
   WiFiClient c;
   c.setConnectionTimeout(5000);
-  if (!c.connect(HA_HOST, HA_PORT)) { anmeldungLaeuft = false; anmeldungMerken(false, "Home Assistant nicht erreichbar"); return; }
+  if (!c.connect(HA_HOST, HA_PORT)) {
+    anmeldungLaeuft = false;
+    if (anmeldungZuFrueh()) {
+      // Die Verbindung ist noch jung: gleich noch einmal, ohne Befund.
+      anmeldungFruehestens = millis() + ANMELDUNG_SCHONZEIT_MS;
+      Serial.println("Anmeldung: noch kein Kontakt, Verbindung ist jung - neuer Versuch");
+      return;
+    }
+    anmeldungMerken(false, "Home Assistant nicht erreichbar");
+    return;
+  }
 
   String antwort;
   anmeldungSchritt = 1;
   int code = haSchritt(c, "/api/config/config_entries/flow", "{\"handler\":\"ha_wecker\"}", antwort);
   if (code == 401) { c.stop(); anmeldungLaeuft = false; anmeldungMerken(false, "Token abgelehnt (401)"); return; }
-  if (code != 200) { c.stop(); anmeldungLaeuft = false; anmeldungMerken(false, "Antwort " + String(code) + " auf den Einrichtungsablauf"); return; }
+  if (code != 200) {
+    c.stop();
+    anmeldungLaeuft = false;
+    if (!code && anmeldungZuFrueh()) {
+      anmeldungFruehestens = millis() + ANMELDUNG_SCHONZEIT_MS;
+      Serial.println("Anmeldung: keine Antwort, Verbindung ist jung - neuer Versuch");
+      return;
+    }
+    anmeldungMerken(false, "Antwort " + String(code) + " auf den Einrichtungsablauf");
+    return;
+  }
 
   const String flow = jsonWert(antwort, "flow_id");
   if (!flow.length()) { c.stop(); anmeldungLaeuft = false; anmeldungMerken(false, "keine flow_id in der Antwort"); return; }
@@ -1105,6 +1158,11 @@ static void haAnmelden() {
   if (code != 200 || antwort.indexOf("\"step_id\":\"saeule\"") < 0) {
     c.stop();
     anmeldungLaeuft = false;
+    if (!code && anmeldungZuFrueh()) {
+      anmeldungFruehestens = millis() + ANMELDUNG_SCHONZEIT_MS;
+      Serial.println("Anmeldung: Abbruch in Schritt 2, Verbindung ist jung - neuer Versuch");
+      return;
+    }
     anmeldungMerken(false, "HA Wecker kennt keine Signalsaeule (Antwort " + String(code) + ")");
     return;
   }
@@ -1118,6 +1176,11 @@ static void haAnmelden() {
   const bool schon = antwort.indexOf("already_configured") >= 0;
   if (code == 200 && (neu || schon)) {
     anmeldungMerken(true, ip + (neu ? " - Geraet neu angelegt" : " - Adresse steht"));
+    return;
+  }
+  if (!code && anmeldungZuFrueh()) {
+    anmeldungFruehestens = millis() + ANMELDUNG_SCHONZEIT_MS;
+    Serial.println("Anmeldung: Abbruch in Schritt 3, Verbindung ist jung - neuer Versuch");
     return;
   }
   anmeldungMerken(false, "abgelehnt (" + String(code) + "): " + antwort.substring(0, 60));
@@ -1134,14 +1197,25 @@ static void haAnmelden() {
 // ohne Saeule.
 static bool serverLaeuft = false;
 
+// Hat die Verbindung schon eine Adresse? Nach einem Neuverbinden steht
+// WL_CONNECTED, bevor DHCP fertig ist. Wer dann den Server startet, bindet
+// ihn an 0.0.0.0 und meldet sich bei Home Assistant mit einer Adresse, die
+// es nicht gibt - am 21.11.2026 beim Stille-Wachhund genau so gesehen
+// ("Server laeuft, IP 0.0.0.0", danach "HA Wecker kennt keine Signalsaeule").
+static bool adresseDa() {
+  return WiFi.status() == WL_CONNECTED && WiFi.localIP()[0] != 0;
+}
+
 static void serverSicherstellen() {
-  if (serverLaeuft || WiFi.status() != WL_CONNECTED) return;
+  if (serverLaeuft || !adresseDa()) return;
   server.begin();
   sseServer.begin();
   serverLaeuft = true;
   Serial.print("Server laeuft, IP ");
   Serial.println(WiFi.localIP());
   anmeldungZuletzt = 0;     // nach jedem Verbinden einmal anmelden
+  anmeldungFruehestens = millis() + ANMELDUNG_SCHONZEIT_MS;
+  verbundenSeit = millis();
 }
 
 static void wlanVerbinden() {
@@ -1162,9 +1236,16 @@ static void wlanVerbinden() {
     Serial.print(".");
   }
   if (WiFi.status() == WL_CONNECTED) {
+    // Auf die Adresse warten: DHCP braucht nach dem Verbinden noch einen
+    // Augenblick, und ohne Adresse ist die Verbindung nichts wert.
+    for (uint8_t i = 0; i < 20 && WiFi.localIP()[0] == 0; i++) delay(250);
     Serial.print(" verbunden, RSSI ");
-    Serial.println(WiFi.RSSI());
+    Serial.print(WiFi.RSSI());
+    Serial.print(", IP ");
+    Serial.println(WiFi.localIP());
     wlanFehl = 0;
+    // Einen Schalter fuer den Stromsparbetrieb hat WiFiS3 nicht (anders als
+    // WiFiNINA): nichts abzuschalten, der Koprozessor entscheidet selbst.
     serverSicherstellen();
   } else {
     Serial.println(" nicht erreichbar");
@@ -1355,6 +1436,8 @@ static String stateJson() {
   s += ",\"ohne_netz_s\":" + String(ohneNetzSeit ? (millis() - ohneNetzSeit) / 1000 : 0);
   s += ",\"wlan_versuche\":" + String(wlanVersuche);
   s += ",\"wlan_neustarts\":" + String(wlanNeustarts);
+  s += ",\"stille_neustarts\":" + String(stilleNeustarts);
+  s += ",\"stille_s\":" + String(letzteAnfrage ? (millis() - letzteAnfrage) / 1000 : 0);
   s += ",\"funk\":{\"netze\":" + String(funkNetze);
   s += ",\"mein_kanal\":" + String(funkMeinKanal);
   s += ",\"mein_rssi\":" + String(funkMeinRssi);
@@ -1495,6 +1578,10 @@ static void ssePflegen() {
     letzteAnnahme = millis();
     sseAnnehmen();
   }
+  // Ein offener Ereignisstrom ist auch ein Lebenszeichen - Home Assistant
+  // haelt ihn, solange es die Saeule sieht.
+  for (uint8_t i = 0; i < SSE_MAX; i++)
+    if (sseKlienten[i] && sseKlienten[i].connected()) { letzteAnfrage = millis(); break; }
   uint32_t jetzt = signatur();
   if (jetzt != letzteSignatur) {
     letzteSignatur = jetzt;
@@ -1569,6 +1656,7 @@ static void sendeSeite(WiFiClient& c) {
 static void httpBedienen() {
   WiFiClient c = server.available();
   if (!c) return;
+  letzteAnfrage = millis();      // jemand spricht mit uns: alles in Ordnung
 
   // Kurze Frist: ohne sie wartet readStringUntil bis zu einer vollen Sekunde
   // auf einen Klienten, der nichts mehr schickt - und so lange stuende das
@@ -1874,6 +1962,26 @@ static void ohneNetzPruefen() {
   Serial.println("Kein Netz, keine Uhrzeit - Grundbild gruen (Matrix zeigt den Punkt)");
 }
 
+// Niemand fragt mehr etwas? Dann ist die Verbindung nur noch auf dem Papier
+// vorhanden. Der Koprozessor wird ganz abgeschaltet und neu angefangen - das
+// ist das Einzige, was in diesem Zustand hilft.
+static void stillePruefen() {
+  if (WiFi.status() != WL_CONNECTED) return;      // das macht wlanVerbinden
+  if (!letzteAnfrage) { letzteAnfrage = millis(); return; }
+  if (millis() - letzteAnfrage < STILLE_MS) return;
+  if (stilleZuletzt && millis() - stilleZuletzt < STILLE_PAUSE_MS) return;
+  stilleZuletzt = millis();
+  stilleNeustarts++;
+  Serial.print("Seit ");
+  Serial.print((millis() - letzteAnfrage) / 1000);
+  Serial.println(" s fragt niemand etwas - Verbindung wird neu gemacht");
+  WiFi.end();
+  serverLaeuft = false;
+  delay(1500);
+  letzteAnfrage = millis();      // der neuen Verbindung ihre Frist geben
+  wlanVerbinden();
+}
+
 // Lebt die Saeule gerade ohne Netz? Das sagt die Matrix mit einem Punkt.
 static bool ohneNetz() {
   return stillGestartet && zeitStunde < 0 && ohneNetzSeit
@@ -1975,6 +2083,7 @@ void loop() {
     httpBedienen();
     ssePflegen();
     nachholenPruefen();           // still gestartet, weil die Zeit fehlte?
+    stillePruefen();              // verbunden, aber spricht noch jemand?
   } else {
     static unsigned long letzterVersuch = 0;
     if (millis() - letzterVersuch > 20000) {

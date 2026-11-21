@@ -445,6 +445,18 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   und `nachholenPruefen` nimmt beides zurueck, wenn die Zeit doch kommt und
   es wirklich Nacht ist. Wer hier etwas aendert: ein Signalgeraet, das nichts
   anzeigt, ist schlimmer als eines, das das Falsche anzeigt.
+- **Verbunden ist nicht erreichbar.** Zwei Mal hat die Saeule mit IP im Netz
+  gestanden und auf nichts geantwortet (18.11.2026) - darum der
+  Stille-Wachhund (`stillePruefen`): bleibt es drei Minuten ohne HTTP-Anfrage
+  und ohne offenen Ereignisstrom, wird die Verbindung neu gemacht, hoechstens
+  alle fuenf Minuten. Wer hier etwas anfasst: HA fragt alle 15 s ab, die
+  Stille ist also ein verlaessliches Zeichen.
+- **Nach dem Verbinden erst die Adresse abwarten** (`adresseDa()`). `WL_CONNECTED`
+  kommt vor DHCP; ohne diese Pruefung bindet `server.begin()` an 0.0.0.0 und
+  die Selbstanmeldung traegt eine Adresse ein, die es nicht gibt. Und in den
+  ersten 90 s danach ist ein Anmeldefehler **ohne** Antwortcode kein Befund,
+  sondern zu frueh - still neu versuchen, den guten Stand nicht
+  ueberschreiben.
 - **Der WLAN-Koprozessor des R4 muss hart neu gestartet werden.** Nach drei
   Fehlversuchen `WiFi.end()` und von vorn (`serverLaeuft` dabei zuruecksetzen,
   sonst laufen die Server nach dem Verbinden nicht wieder an). Ohne das
