@@ -474,6 +474,29 @@ und kommt sie erst danach, holt die Saeule die Vorfuehrung nach - aber nur,
 solange niemand etwas gestellt hat und es dann wirklich nicht zwischen 3 und
 7 Uhr ist.
 
+**Und ohne WLAN steht sie nicht mehr dunkel da (seit 1.16.0).** Das war der
+schlimmere Fall derselben Falle: ohne Netz gibt es keine Uhrzeit, eine
+unbekannte Uhrzeit galt als Nachtruhe - also keine Leuchte, keine Matrix,
+Betriebsart manuell. Die Saeule sah damit aus wie ein Geraet **ohne Strom**,
+und zwar fuer immer. Am 21.11.2026 genau so: von 11:23 bis 15:07 war sie weg
+und kam erst am USB-Kabel wieder.
+
+Jetzt geht sie auch ohne Uhrzeit in Betrieb und zeigt in zwei Stufen, dass
+sie lebt: nach **20 s** einen Punkt unten links auf der Matrix („ich laufe,
+mir fehlt das Netz"), nach **90 s** dazu das gruene Grundbild - ohne
+Vorfuehrung, denn es koennte Viertel vor fuenf sein. Die Abwaegung: die
+Steckdose ist nachts aus, wer also Strom hat und keine Uhr kennt, steht fast
+immer im Tag. Kommt die Zeit spaeter doch und es ist wirklich Nacht, geht
+beides sofort wieder aus.
+
+Dazu wird das WLAN **beharrlich** versucht: alle 20 s, und nach drei
+Fehlversuchen wird der WLAN-Koprozessor des R4 ganz abgeschaltet und neu
+angefangen (`WiFi.end()`), weil er sonst in seinem halben Zustand haengt und
+auch dann weiter scheitert, wenn das Netz laengst wieder da ist. Die Zaehler
+stehen in `/api/state`: `wlan_versuche`, `wlan_neustarts`, `ohne_netz` und
+`ohne_netz_s`. Am Geraet gemessen (SSID absichtlich falsch): Versuch 1-3
+scheitern, dann der Neustart des Koprozessors, nach 90 s das Grundbild.
+
 **Stiller Start (die Technik dahinter, seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,

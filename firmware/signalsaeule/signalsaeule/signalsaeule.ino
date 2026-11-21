@@ -36,7 +36,11 @@
   Vorlauf eine Minute vor dem Weckruf - laesst etwas leuchten. Vorher darf in
   einem Schlafzimmer nichts angehen. Ausserhalb dieses Fensters fuehrt sie
   beim Start normal vor und steht danach auf Auto. Die Uhrzeit holt sie sich
-  per NTP (RUHE_VON_UHR / RUHE_BIS_UHR).
+  per NTP (RUHE_VON_UHR / RUHE_BIS_UHR). Ist die Zeit nicht zu holen, weil
+  das WLAN fehlt, bleibt die Saeule nicht dunkel: nach 20 s zeigt die Matrix
+  einen Punkt unten links ("ich lebe, mir fehlt das Netz"), nach 90 s kommt
+  das gruene Grundbild dazu, und kommt die Uhrzeit spaeter doch und es ist
+  wirklich Nacht, geht beides sofort wieder aus (ab 1.16.0).
 
   Betriebsart
 
@@ -87,7 +91,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.15.0";
+static const char* VERSION  = "1.16.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -152,6 +156,31 @@ static int8_t zeitStunde = -1;           // lokale Stunde, -1 = unbekannt
 static bool stillGestartet = false;
 static bool unberuehrt = true;
 static unsigned long zeitVersuch = 0;
+
+// Ohne WLAN gibt es keine Uhrzeit, und eine unbekannte Uhrzeit galt als
+// Nachtruhe: keine Leuchte, keine Matrix, Betriebsart manuell. Die Saeule
+// stand damit **fuer immer dunkel** da, sobald das WLAN nicht zu haben war -
+// und sah aus wie ein Geraet ohne Strom. Am 21.11.2026 genau so passiert:
+// von 11:23 bis 15:07 war sie weg, und erst am USB-Kabel kam sie wieder.
+//
+// Darum zwei Stufen, wenn die Zeit fehlt. Nach KEIN_NETZ_MATRIX_MS zeigt die
+// Matrix, dass das Geraet lebt und nur das Netz fehlt (ein Punkt unten links,
+// zwoelf mal acht Leuchtpunkte stoeren niemanden). Nach KEIN_NETZ_BILD_MS
+// kommt das Grundbild dazu - gruen, ohne Vorfuehrung. Die Abwaegung: die
+// Steckdose der Saeule ist nachts aus, wer also Strom hat und keine Uhr
+// kennt, steht fast immer im Tag. Und kommt die Zeit doch noch und es ist
+// wirklich Nacht, geht alles sofort wieder aus (nachholenPruefen).
+static const unsigned long KEIN_NETZ_MATRIX_MS = 20000;
+static const unsigned long KEIN_NETZ_BILD_MS   = 90000;
+static unsigned long ohneNetzSeit = 0;      // ab wann ohne Uhrzeit, 0 = nie
+static bool ohneNetzBild = false;           // Grundbild steht schon
+
+// WLAN-Versuche. Der Koprozessor des R4 verschluckt sich: nach mehreren
+// Fehlversuchen hilft nur, ihn ganz abzuschalten und neu anzufangen.
+static const uint8_t WLAN_FEHL_BIS_NEUSTART = 3;
+static uint16_t wlanVersuche = 0;
+static uint16_t wlanNeustarts = 0;
+static uint8_t  wlanFehl = 0;
 
 // Letzter Sonntag im Maerz bzw. Oktober (gilt 1900-2099).
 static int letzterSonntag(int jahr, bool maerz) {
@@ -743,9 +772,12 @@ static void matrixAdresse(uint8_t letztes) {
 
 static uint8_t matrixBild = 0xFF;      // Signatur des zuletzt gezeichneten Bildes
 
+static bool ohneNetz();     // vorab
+
 static void matrixSpiegeln() {
   uint8_t sig = 0;
   for (uint8_t i = 0; i < ANZAHL; i++) if (istAn[i]) sig |= (uint8_t)(1 << i);
+  if (ohneNetz()) sig ^= 0x80;        // der Punkt gehoert zur Signatur
   if (sig == matrixBild) return;       // nur zeichnen, wenn sich etwas aendert
   matrixBild = sig;
 
@@ -761,6 +793,10 @@ static void matrixSpiegeln() {
     matrix.rect(11, 0, 1, 8);
   }
   if (istAn[IDX_TON]) matrix.rect(5, 0, 2, 1);
+  // Kein Netz: ein Punkt unten links. Damit sieht man am Geraet, dass es
+  // laeuft und nur das WLAN fehlt - vorher war die Matrix dabei leer, und
+  // eine leere Matrix ist von "kein Strom" nicht zu unterscheiden.
+  if (ohneNetz()) matrix.rect(0, 7, 1, 1);
   matrix.endDraw();
 }
 
@@ -1110,8 +1146,12 @@ static void wlanVerbinden() {
     serverSicherstellen();        // nachziehen, falls er noch nicht laeuft
     return;
   }
+  wlanVersuche++;
   Serial.print("WLAN ");
   Serial.print(WLAN_SSID);
+  Serial.print(" (Versuch ");
+  Serial.print(wlanVersuche);
+  Serial.print(") ");
   WiFi.setHostname(HOSTNAME);
   WiFi.begin(WLAN_SSID, WLAN_PASS);
   for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) {
@@ -1119,10 +1159,22 @@ static void wlanVerbinden() {
     Serial.print(".");
   }
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
+    Serial.print(" verbunden, RSSI ");
+    Serial.println(WiFi.RSSI());
+    wlanFehl = 0;
     serverSicherstellen();
   } else {
     Serial.println(" nicht erreichbar");
+    // Der Koprozessor bleibt sonst in seinem halben Zustand haengen und
+    // scheitert auch dann weiter, wenn das Netz laengst wieder da ist.
+    if (++wlanFehl >= WLAN_FEHL_BIS_NEUSTART) {
+      wlanFehl = 0;
+      wlanNeustarts++;
+      Serial.println("WLAN-Koprozessor wird neu gestartet");
+      WiFi.end();
+      serverLaeuft = false;      // die Server muessen danach wieder anlaufen
+      delay(1500);
+    }
   }
 }
 
@@ -1204,6 +1256,10 @@ static String stateJson() {
 
   s += ",\"stunde\":" + String(zeitStunde);
   s += ",\"nachtruhe\":" + String(nachtruhe() ? "true" : "false");
+  s += ",\"ohne_netz\":" + String(ohneNetz() ? "true" : "false");
+  s += ",\"ohne_netz_s\":" + String(ohneNetzSeit ? (millis() - ohneNetzSeit) / 1000 : 0);
+  s += ",\"wlan_versuche\":" + String(wlanVersuche);
+  s += ",\"wlan_neustarts\":" + String(wlanNeustarts);
   s += ",\"ha_anmeldung\":{\"ok\":" + String(anmeldungOk ? "true" : "false");
   s += ",\"text\":" + jsonText(anmeldungText.c_str());
   s += ",\"schritt\":" + String(anmeldungSchritt);
@@ -1676,10 +1732,46 @@ static void nachholenPruefen() {
     }
   }
   stillGestartet = false;
-  if (nachtruhe()) return;        // es ist wirklich Nacht: still bleiben
+  if (nachtruhe()) {
+    // Es war doch Nacht. Dann nimmt die Saeule das Grundbild, das sie ohne
+    // Uhrzeit gezeigt hat, sofort wieder zurueck.
+    if (ohneNetzBild) {
+      Serial.println("Zeit kam spaeter - es ist Nachtruhe, Grundbild geht aus");
+      autoModus = false;
+      for (uint8_t i = 0; i < STUFEN; i++) manuell[i] = false;
+      manuellTaktAus();
+    }
+    ohneNetzBild = false;
+    ohneNetzSeit = 0;
+    return;
+  }
+  ohneNetzBild = false;
+  ohneNetzSeit = 0;
   Serial.println("Zeit kam spaeter - Vorfuehrung wird nachgeholt");
   startSeit = millis();
   phase = PH_VORFUEHREN;
+}
+
+// Ohne Uhrzeit (also praktisch: ohne WLAN) soll die Saeule nicht aussehen wie
+// ein Geraet ohne Strom. Erst zeigt die Matrix, dass sie lebt, dann kommt das
+// gruene Grundbild dazu. Gestellt wird nichts mehr, sobald jemand selbst
+// eingreift oder die Zeit doch kommt (nachholenPruefen).
+static void ohneNetzPruefen() {
+  if (zeitStunde >= 0 || !stillGestartet) return;
+  if (!unberuehrt) { ohneNetzSeit = 0; return; }
+  if (!ohneNetzSeit) ohneNetzSeit = millis();
+  if (ohneNetzBild) return;
+  if (millis() - ohneNetzSeit < KEIN_NETZ_BILD_MS) return;
+  ohneNetzBild = true;
+  autoModus = true;
+  statusSetzen(RUHE, false);     // gruen, ohne Ansage
+  Serial.println("Kein Netz, keine Uhrzeit - Grundbild gruen (Matrix zeigt den Punkt)");
+}
+
+// Lebt die Saeule gerade ohne Netz? Das sagt die Matrix mit einem Punkt.
+static bool ohneNetz() {
+  return stillGestartet && zeitStunde < 0 && ohneNetzSeit
+         && millis() - ohneNetzSeit >= KEIN_NETZ_MATRIX_MS;
 }
 
 void loop() {
@@ -1728,6 +1820,16 @@ void loop() {
     }
 
     stillGestartet = zeitStunde < 0;
+    if (stillGestartet) {
+      // Keine Uhrzeit, weil kein Netz: nicht vorfuehren (es koennte Viertel
+      // vor fuenf sein), aber auch nicht wie ein totes Geraet dastehen -
+      // darum in Betrieb gehen und ohneNetzPruefen() uebernehmen lassen.
+      ohneNetzSeit = millis();
+      ohneNetzBild = false;
+      matrixBild = 0xFF;
+      phase = PH_BETRIEB;
+      return;
+    }
     if (nachtruhe()) {
       // Zwischen drei und sieben still: keine Vorfuehrung, keine Matrix,
       // Betriebsart manuell. So bleibt es, bis der Weckablauf etwas sagt.
@@ -1774,6 +1876,7 @@ void loop() {
       wlanVerbinden();
     }
   }
+  ohneNetzPruefen();        // auch und gerade ohne Netz
 
   if (diagLaeuft()) {
     diagnoseSchritt();

@@ -435,6 +435,22 @@ Die README beschreibt alles fuer Nutzer; hier stehen nur die Fallstricke.
   vermessen, heizen, dann der Rest als `ruestet`. Der **Nachlauf geht vor dem
   Endspurt** - sonst wird aus dem Zumachen am Ende wieder `ruestet` oder
   `endspurt` (am 20.11.2026 am laufenden Druck gesehen).
+- **Eine fehlende Uhrzeit darf nie „dauerhaft still" heissen - und schon gar
+  nicht „dauerhaft dunkel".** Ohne WLAN gibt es keine Zeit, und ohne Zeit galt
+  Nachtruhe: keine Leuchte, keine Matrix, Betriebsart manuell. Die Saeule war
+  damit von einem Geraet ohne Strom nicht zu unterscheiden, fuer immer (am
+  21.11.2026 vier Stunden lang, Max: „arduino am strom startet nicht wlan
+  nicht verbunden nix geht"). Seit 1.16.0 gibt es stattdessen zwei Stufen
+  (`ohneNetzPruefen`): Matrix-Punkt nach 20 s, gruenes Grundbild nach 90 s,
+  und `nachholenPruefen` nimmt beides zurueck, wenn die Zeit doch kommt und
+  es wirklich Nacht ist. Wer hier etwas aendert: ein Signalgeraet, das nichts
+  anzeigt, ist schlimmer als eines, das das Falsche anzeigt.
+- **Der WLAN-Koprozessor des R4 muss hart neu gestartet werden.** Nach drei
+  Fehlversuchen `WiFi.end()` und von vorn (`serverLaeuft` dabei zuruecksetzen,
+  sonst laufen die Server nach dem Verbinden nicht wieder an). Ohne das
+  scheitert er auch dann weiter, wenn das Netz zurueck ist. Nachweisen laesst
+  sich das nur mit absichtlich falscher SSID in `arduino_secrets.h` - danach
+  die echte Datei zurueck, sie steht nicht im Repo.
 - **Blinken gehoert ins Geraet, nicht nach Home Assistant.** Seit Firmware
   1.15.0 nimmt `/api/stufen` je Lampe `periode` und `periode:versatz` in ms,
   getaktet vom Zeitgeber alle 10 ms. Ein Takt ueber HTTP waere ein
