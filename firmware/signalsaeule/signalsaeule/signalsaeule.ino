@@ -100,7 +100,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.21.0";
+static const char* VERSION  = "1.22.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -212,6 +212,24 @@ static volatile bool wdScharf = false;
 // Eine lange, aber erlaubte Wartezeit anmelden: der Wachhund zaehlt neu.
 static void wdFrisch() {
   schleifeBegann = millis();
+}
+
+// Zwischen Stapel und Haufen liegen auf diesem Geraet nur wenige Kilobyte
+// (die Selbstdiagnose nennt unter 2000 Byte eine Beanstandung). Reisst der
+// Abstand, stuerzt die Saeule mitten in einer Antwort ab. Ein sauberer
+// Neustart ist besser, und der Zaehler sagt hinterher, dass es daran lag.
+static const int RAM_NOT_BYTES = 1200;
+static uint16_t ramNeustarts = 0;
+static int freierRam();     // vorab
+
+static void ramPruefen() {
+  if (freierRam() >= RAM_NOT_BYTES) return;
+  ramNeustarts++;
+  Serial.print("Nur noch ");
+  Serial.print(freierRam());
+  Serial.println(" Byte frei - Neustart, bevor es kracht");
+  Serial.flush();
+  NVIC_SystemReset();
 }
 // Neustart auf Zuruf. Am 21.11.2026 half nur noch der Stecker, weil es keinen
 // Weg gab, die Saeule aus der Ferne neu zu starten - und am Netzteil steht
@@ -1281,16 +1299,21 @@ static void haAnmelden() {
 static bool serverLaeuft = false;
 
 // Hat die Verbindung schon eine Adresse? Nach einem Neuverbinden steht
-// WL_CONNECTED, bevor DHCP fertig ist. Wer dann den Server startet, bindet
-// ihn an 0.0.0.0 und meldet sich bei Home Assistant mit einer Adresse, die
-// es nicht gibt - am 21.11.2026 beim Stille-Wachhund genau so gesehen
-// ("Server laeuft, IP 0.0.0.0", danach "HA Wecker kennt keine Signalsaeule").
+// WL_CONNECTED, bevor DHCP fertig ist; die Selbstanmeldung braucht die
+// Adresse, der Server nicht - er lauscht im Koprozessor auf allen.
 static bool adresseDa() {
   return WiFi.status() == WL_CONNECTED && WiFi.localIP()[0] != 0;
 }
 
+// **Der Server wird gestartet, sobald die Verbindung steht - ohne Bedingung.**
+// Am 21.11.2026 habe ich hier `adresseDa()` verlangt, weil die Logzeile
+// "Server laeuft, IP 0.0.0.0" haesslich war. Das war ein schwerer Fehler:
+// kam die Adresse nicht (oder erst viel spaeter), wurde der Server **nie**
+// gestartet, und die Saeule stand mit Verbindung im Netz, antwortete auf Ping
+// und lehnte jede Anfrage auf Port 80 und 8081 ab - von 16:27 bis 17:09, bis
+// Max ihr den Strom nahm. Eine haessliche Logzeile ist dagegen nichts.
 static void serverSicherstellen() {
-  if (serverLaeuft || !adresseDa()) return;
+  if (serverLaeuft || WiFi.status() != WL_CONNECTED) return;
   server.begin();
   sseServer.begin();
   serverLaeuft = true;
@@ -1468,7 +1491,7 @@ static bool sollAn(uint8_t i) {
 
 static String stateJson() {
   String s;
-  s.reserve(3700);   // mit "farbe" und Takt je Ausgang reichen 3400 nicht mehr
+  s.reserve(3200);   // so gross wird es wirklich; mehr anzufordern kostet nur Platz
   s += "{\"name\":\"Signals\xc3\xa4ule\",\"typ\":\"saeule\",\"version\":\"" + String(VERSION) + "\"";
   s += ",\"mac\":\"";
   uint8_t mac[6];
@@ -1519,21 +1542,21 @@ static String stateJson() {
 
   s += ",\"stunde\":" + String(zeitStunde);
   s += ",\"nachtruhe\":" + String(nachtruhe() ? "true" : "false");
+  // Diagnose sparsam: jedes Feld kostet Heap, und zwischen Stapel und Haufen
+  // liegen nur wenige Kilobyte. Was nichts zu sagen hat, bleibt weg.
   s += ",\"ohne_netz\":" + String(ohneNetz() ? "true" : "false");
-  s += ",\"ohne_netz_s\":" + String(ohneNetzSeit ? (millis() - ohneNetzSeit) / 1000 : 0);
   s += ",\"wlan_versuche\":" + String(wlanVersuche);
   s += ",\"wlan_neustarts\":" + String(wlanNeustarts);
   s += ",\"stille_neustarts\":" + String(stilleNeustarts);
+  s += ",\"ram_neustarts\":" + String(ramNeustarts);
   s += ",\"start_grund\":" + jsonText(startGrund);
-  s += ",\"start_roh\":" + String(startRoh);
-  s += ",\"stille_s\":" + String(letzteAnfrage ? (millis() - letzteAnfrage) / 1000 : 0);
-  s += ",\"funk\":{\"netze\":" + String(funkNetze);
-  s += ",\"mein_kanal\":" + String(funkMeinKanal);
-  s += ",\"mein_rssi\":" + String(funkMeinRssi);
-  s += ",\"eigen_best\":" + String(funkEigenBest);
-  s += ",\"eigen_kanal\":" + String(funkEigenKanal);
-  s += ",\"eigen_anzahl\":" + String(funkEigenAnzahl);
-  s += ",\"vor_s\":" + String(funkZuletzt ? (millis() - funkZuletzt) / 1000 : 0) + "}";
+  if (funkNetze >= 0) {
+    s += ",\"funk\":{\"netze\":" + String(funkNetze);
+    s += ",\"eigen_best\":" + String(funkEigenBest);
+    s += ",\"eigen_kanal\":" + String(funkEigenKanal);
+    s += ",\"eigen_anzahl\":" + String(funkEigenAnzahl);
+    s += ",\"vor_s\":" + String((millis() - funkZuletzt) / 1000) + "}";
+  }
   s += ",\"ha_anmeldung\":{\"ok\":" + String(anmeldungOk ? "true" : "false");
   s += ",\"text\":" + jsonText(anmeldungText.c_str());
   s += ",\"schritt\":" + String(anmeldungSchritt);
@@ -1604,10 +1627,19 @@ static unsigned long sseLeben = 0;
 static uint32_t letzteSignatur = 0xFFFFFFFFu;
 
 static void sseSenden() {
-  String daten = "data: " + stateJson() + "\n\n";
+  // Erst nachsehen, ob ueberhaupt jemand zuhoert: ohne Klienten war das
+  // bisher ein JSON von 3,8 kB bei jeder Aenderung, umsonst.
+  uint8_t offen = 0;
+  for (uint8_t i = 0; i < SSE_MAX; i++)
+    if (sseKlienten[i] && sseKlienten[i].connected()) offen++;
+  if (!offen) return;
+  const String daten = stateJson();        // einmal bauen, nicht verketten
   for (uint8_t i = 0; i < SSE_MAX; i++) {
-    if (sseKlienten[i] && sseKlienten[i].connected())
+    if (sseKlienten[i] && sseKlienten[i].connected()) {
+      sseKlienten[i].print("data: ");
       sseKlienten[i].print(daten);
+      sseKlienten[i].print("\n\n");
+    }
   }
 }
 
@@ -1637,17 +1669,16 @@ static void sseAnnehmen() {
     String zeile = neu.readStringUntil('\n');
     if (zeile.length() <= 1) break;          // Ende der Kopfzeilen
   }
-  String antwort =
-      "HTTP/1.1 200 OK\r\n"
-      "Content-Type: text/event-stream\r\n"
-      "Cache-Control: no-store\r\n"
-      "Access-Control-Allow-Origin: *\r\n"
-      "Connection: keep-alive\r\n\r\n"
-      "retry: 3000\n\n"
-      "data: ";
-  antwort += stateJson();
-  antwort += "\n\n";
-  neu.write((const uint8_t*)antwort.c_str(), antwort.length());
+  // Auch hier nichts zusammenkopieren: Kopf, dann das JSON, dann der Schluss
+  neu.print("HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/event-stream\r\n"
+            "Cache-Control: no-store\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Connection: keep-alive\r\n\r\n"
+            "retry: 3000\n\n"
+            "data: ");
+  neu.print(stateJson());
+  neu.print("\n\n");
 
   for (uint8_t i = 0; i < SSE_MAX; i++) {
     if (!sseKlienten[i] || !sseKlienten[i].connected()) {
@@ -1724,9 +1755,15 @@ static String kopfBauen(int code, const char* typ, long laenge) {
 }
 
 static void sendeJson(WiFiClient& c, int code, const String& body) {
-  String alles = kopfBauen(code, "application/json; charset=utf-8", body.length());
-  alles += body;
-  c.write((const uint8_t*)alles.c_str(), alles.length());
+  // Kopf und Rumpf **nacheinander** schreiben, nicht erst zusammenkopieren.
+  // Die Kopie verdoppelte den Bedarf: 3,8 kB JSON wurden zu 7,6 kB auf einem
+  // Geraet, bei dem zwischen Stapel und Haufen nur 2,6 kB Platz waren. Genau
+  // daran ist die Saeule am 21.11.2026 jede Minute abgestuerzt (Start-Grund
+  // "Software", also ein Absturz, kein Haenger) - und zwar erst, seit das
+  // JSON an einem Tag um fuenfzehn Felder gewachsen war.
+  const String kopf = kopfBauen(code, "application/json; charset=utf-8", body.length());
+  c.write((const uint8_t*)kopf.c_str(), kopf.length());
+  c.write((const uint8_t*)body.c_str(), body.length());
 }
 
 static void sendeSeite(WiFiClient& c) {
@@ -2061,6 +2098,26 @@ static void ohneNetzPruefen() {
 // Niemand fragt mehr etwas? Dann ist die Verbindung nur noch auf dem Papier
 // vorhanden. Der Koprozessor wird ganz abgeschaltet und neu angefangen - das
 // ist das Einzige, was in diesem Zustand hilft.
+// Verbunden, aber nach einer halben Minute noch keine Adresse? Dann ist die
+// Verbindung nichts wert und wird neu gemacht - vorher stand die Saeule so
+// bis in alle Ewigkeit.
+static const unsigned long ADRESSE_FRIST_MS = 30000;
+static unsigned long verbundenOhneAdresse = 0;
+
+static void adressePruefen() {
+  if (WiFi.status() != WL_CONNECTED) { verbundenOhneAdresse = 0; return; }
+  if (adresseDa()) { verbundenOhneAdresse = 0; return; }
+  if (!verbundenOhneAdresse) { verbundenOhneAdresse = millis(); return; }
+  if (millis() - verbundenOhneAdresse < ADRESSE_FRIST_MS) return;
+  verbundenOhneAdresse = 0;
+  Serial.println("Verbunden, aber keine Adresse - Verbindung wird neu gemacht");
+  WiFi.end();
+  serverLaeuft = false;
+  delay(1500);
+  wdFrisch();
+  wlanVerbinden();
+}
+
 static void stillePruefen() {
   if (WiFi.status() != WL_CONNECTED) return;      // das macht wlanVerbinden
   if (!letzteAnfrage) { letzteAnfrage = millis(); return; }
@@ -2181,6 +2238,7 @@ void loop() {
     httpBedienen();
     ssePflegen();
     nachholenPruefen();           // still gestartet, weil die Zeit fehlte?
+    adressePruefen();             // verbunden, aber ohne Adresse?
     stillePruefen();              // verbunden, aber spricht noch jemand?
   } else {
     static unsigned long letzterVersuch = 0;
@@ -2190,6 +2248,7 @@ void loop() {
     }
   }
   ohneNetzPruefen();        // auch und gerade ohne Netz
+  ramPruefen();             // und bevor der Platz ausgeht
 
   if (funkWunsch) {
     funkWunsch = false;
