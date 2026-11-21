@@ -497,6 +497,17 @@ stehen in `/api/state`: `wlan_versuche`, `wlan_neustarts`, `ohne_netz` und
 `ohne_netz_s`. Am Geraet gemessen (SSID absichtlich falsch): Versuch 1-3
 scheitern, dann der Neustart des Koprozessors, nach 90 s das Grundbild.
 
+**Wie die Funklage am Standort wirklich ist (gemessen am 21.11.2026).**
+`POST /api/funk` laesst die Saeule selbst scannen - nur dort, wo sie steht,
+hat die Messung Wert. Ergebnis, drei Mal gleich: sieben Netze in Reichweite,
+das **eigene Netz aber nur einmal** und mit **-81 bis -83 dBm** auf
+**Kanal 1**; im Betrieb stehen -73 dBm an. Es gibt also keinen zweiten
+Zugangspunkt des Hausnetzes in Reichweite, auf den sie ausweichen koennte.
+Auf demselben Kanal 1 funkt ein Fremdnetz mit **-71 dBm** - zehn Dezibel
+**stuerker** als das eigene. Kanal 6 ist frei, auf Kanal 11 liegen vier
+weitere Netze. Zum Vergleich: der 3D-Drucker im selben Zimmer hat -57 dBm,
+die Leiterbahnantenne des R4 hoert also deutlich schlechter als er.
+
 **Stiller Start (die Technik dahinter, seit Firmware 1.2.0).** Die Saeule haengt an einer
 schaltbaren Steckdose, die kurz vor dem Weckruf angeht (Abschnitt 6b). Darum
 bleibt beim Einschalten **alles dunkel**: keine Startanimation, keine Matrix,
@@ -613,6 +624,14 @@ POST /api/status?status=ruhe|hinweis|achtung|stoerung|alarm   (-> Auto)
 POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
                                 Ton und Pause (erste Zahl ist ein Ton)
 POST /api/test?an=1|0           Testmodus
+POST /api/funk                  Funklage am Standort messen (ab 1.17.0).
+                                Die Antwort kommt sofort, der Scan laeuft
+                                danach - er nimmt dem Koprozessor die
+                                Verbindung, und damit waere die offene
+                                Anfrage weg. Die Liste der Netze kommt
+                                seriell, die Zahlen stehen danach in
+                                /api/state unter "funk"; danach verbindet
+                                sich die Saeule selbst wieder
 POST /api/diagnose              Selbstdiagnose starten
 POST /api/alarm/stop            alles aus, Betriebsart Manuell
 ```

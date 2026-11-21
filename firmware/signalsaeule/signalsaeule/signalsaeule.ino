@@ -80,6 +80,9 @@
     POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
                                       Ton und Pause (erste Zahl ist ein Ton)
   POST /api/test?an=1|0           Testmodus
+    POST /api/funk                  Funklage am Standort messen: Scan, die
+                                    Liste der Netze kommt seriell, die Zahlen
+                                    stehen danach in /api/state unter "funk"
     POST /api/diagnose              Selbstdiagnose starten
     POST /api/alarm/stop            alles aus, Betriebsart manuell
 */
@@ -91,7 +94,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.16.0";
+static const char* VERSION  = "1.17.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -1194,6 +1197,98 @@ static String jsonText(const char* s) {
   return out;
 }
 
+// --------------------------------------------------------- Funklage
+
+// Die Saeule kommt an ihrem Platz nur mit -73 bis -78 dBm ins Netz, der
+// 3D-Drucker im selben Zimmer mit -57. Um das zu beurteilen, muss man dort
+// messen, wo die Saeule steht - also misst sie selbst. Der Scan dauert ein
+// paar Sekunden und laeuft nur auf Anforderung.
+//
+// Die Liste geht **seriell** raus und nicht in die Antwort: der Heap hat rund
+// drei Kilobyte frei, und ein langer String waere hier das Riskantere. Ueber
+// HTTP kommt die Kurzfassung - wie viele Netze, der eigene Pegel, und wie
+// stark das eigene Netz am besten zu haben waere.
+static void wlanVerbinden();            // steht weiter unten
+
+static int8_t  funkNetze = -1;          // zuletzt gezaehlte Netze, -1 = nie
+static int32_t funkEigenBest = 0;       // bester Pegel des eigenen Netzes
+static uint8_t funkEigenKanal = 0;      // und auf welchem Kanal er stand
+static uint8_t funkEigenAnzahl = 0;     // so oft kam das eigene Netz vor
+// WiFiS3 sagt nicht, auf welchem Kanal die laufende Verbindung steht. Der
+// Scan sagt es: der Eintrag mit unserer BSSID ist der Zugangspunkt, an dem
+// wir wirklich haengen - und das ist bei mehreren Repeatern die eigentliche
+// Frage.
+static uint8_t funkMeinKanal = 0;
+static int32_t funkMeinRssi = 0;
+static uint32_t funkZuletzt = 0;        // wann gescannt wurde (millis)
+// Gescannt wird **nach** der Antwort, nicht davor: der Scan nimmt dem
+// Koprozessor die Verbindung, und damit war auch die offene Anfrage weg -
+// der Aufrufer bekam nie eine Antwort (am 21.11.2026 gemessen). Darum merkt
+// der Endpunkt den Wunsch nur an, die Schleife fuehrt ihn aus, und die Zahlen
+// holt man mit dem naechsten /api/state ab (wie bei der Selbstdiagnose).
+static bool funkWunsch = false;
+
+static void funkMessen() {
+  Serial.println("Funklage: Scan laeuft");
+  int8_t n = WiFi.scanNetworks();
+  funkNetze = n;
+  funkZuletzt = millis();
+  funkEigenBest = 0;
+  funkEigenKanal = 0;
+  funkEigenAnzahl = 0;
+  funkMeinKanal = 0;
+  funkMeinRssi = 0;
+  uint8_t meine[6] = {0};
+  if (WiFi.status() == WL_CONNECTED) WiFi.BSSID(meine);
+  if (n <= 0) {
+    Serial.println("Funklage: kein Netz gefunden");
+    return;
+  }
+  Serial.print("Funklage: ");
+  Serial.print(n);
+  Serial.println(" Netze");
+  for (int8_t i = 0; i < n; i++) {
+    const char* ssid = WiFi.SSID(i);
+    const int32_t rssi = WiFi.RSSI(i);
+    const uint8_t kanal = WiFi.channel(i);
+    uint8_t bssid[6] = {0};
+    WiFi.BSSID(i, bssid);
+    char zeile[96];
+    snprintf(zeile, sizeof(zeile),
+             "  %-22s K%-3u %4ld dBm  %02X:%02X:%02X:%02X:%02X:%02X",
+             ssid ? ssid : "?", (unsigned)kanal, (long)rssi,
+             bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+    Serial.println(zeile);
+    if (ssid && strcmp(ssid, WLAN_SSID) == 0) {
+      funkEigenAnzahl++;
+      if (!funkEigenBest || rssi > funkEigenBest) {
+        funkEigenBest = rssi;
+        funkEigenKanal = kanal;
+      }
+      if (memcmp(meine, bssid, 6) == 0) {
+        funkMeinKanal = kanal;
+        funkMeinRssi = rssi;
+        Serial.println("    ^ daran haengt die Saeule gerade");
+      }
+    }
+  }
+  Serial.print("Funklage: eigenes Netz ");
+  Serial.print(funkEigenAnzahl);
+  Serial.print("x, bester Pegel ");
+  Serial.print(funkEigenBest);
+  Serial.print(" dBm auf Kanal ");
+  Serial.println(funkEigenKanal);
+}
+
+// Der Scan kostet die Verbindung: der Koprozessor des R4 schaltet dafuer in
+// den Suchbetrieb und kommt ohne Zutun erst beim naechsten Anlauf zurueck.
+// Darum gleich wieder verbinden, statt die Saeule bis zu zwanzig Sekunden
+// aus dem Netz zu nehmen (am 21.11.2026 gemessen).
+static void funkMessenUndZurueck() {
+  funkMessen();
+  if (WiFi.status() != WL_CONNECTED) wlanVerbinden();
+}
+
 static bool sollAn(uint8_t i) {
   // Der Ton zuerst: im Testmodus laeuft alles, nur er nicht
   if (i == IDX_TON) return tonAn;
@@ -1260,6 +1355,13 @@ static String stateJson() {
   s += ",\"ohne_netz_s\":" + String(ohneNetzSeit ? (millis() - ohneNetzSeit) / 1000 : 0);
   s += ",\"wlan_versuche\":" + String(wlanVersuche);
   s += ",\"wlan_neustarts\":" + String(wlanNeustarts);
+  s += ",\"funk\":{\"netze\":" + String(funkNetze);
+  s += ",\"mein_kanal\":" + String(funkMeinKanal);
+  s += ",\"mein_rssi\":" + String(funkMeinRssi);
+  s += ",\"eigen_best\":" + String(funkEigenBest);
+  s += ",\"eigen_kanal\":" + String(funkEigenKanal);
+  s += ",\"eigen_anzahl\":" + String(funkEigenAnzahl);
+  s += ",\"vor_s\":" + String(funkZuletzt ? (millis() - funkZuletzt) / 1000 : 0) + "}";
   s += ",\"ha_anmeldung\":{\"ok\":" + String(anmeldungOk ? "true" : "false");
   s += ",\"text\":" + jsonText(anmeldungText.c_str());
   s += ",\"schritt\":" + String(anmeldungSchritt);
@@ -1667,6 +1769,10 @@ static void httpBedienen() {
       s += "]}";
       sendeJson(c, 200, s);
     }
+  } else if (pfad == "/api/funk") {
+    // Scan am Standort der Saeule. Die Liste steht seriell, hier die Zahlen.
+    funkWunsch = true;
+    sendeJson(c, 200, stateJson());
   } else if (pfad == "/api/diagnose") {
     if (!diagLaeuft()) diagnoseStarten();
     sendeJson(c, 200, stateJson());
@@ -1877,6 +1983,11 @@ void loop() {
     }
   }
   ohneNetzPruefen();        // auch und gerade ohne Netz
+
+  if (funkWunsch) {
+    funkWunsch = false;
+    funkMessenUndZurueck();
+  }
 
   if (diagLaeuft()) {
     diagnoseSchritt();
