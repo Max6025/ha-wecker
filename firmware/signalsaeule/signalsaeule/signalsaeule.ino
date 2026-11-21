@@ -85,6 +85,7 @@
     POST /api/piep?muster=400,500,800   Hinweiston: Dauern in ms, abwechselnd
                                       Ton und Pause (erste Zahl ist ein Ton)
   POST /api/test?an=1|0           Testmodus
+    POST /api/neustart              Geraet neu starten (Antwort zuerst)
     POST /api/funk                  Funklage am Standort messen: Scan, die
                                     Liste der Netze kommt seriell, die Zahlen
                                     stehen danach in /api/state unter "funk"
@@ -99,7 +100,7 @@
 #include "arduino_secrets.h"
 #include "seite.h"
 
-static const char* VERSION  = "1.19.0";
+static const char* VERSION  = "1.21.0";
 static const char* HOSTNAME = "signalsaeule";
 static const uint16_t SSE_PORT = 8081;
 
@@ -198,11 +199,26 @@ static void startGrundLesen() {
 // aber keinen Server mehr offen: der Hauptprozessor war stehengeblieben, und
 // ohne Kabel war nichts zu machen. Danach darf das nicht mehr vorkommen.
 //
-// Die Frist ist mit Absicht weit: der WLAN-Aufbau blockiert zehn Sekunden,
-// die Zeitsuche neun, die Anmeldung bis fuenfzehn und der Funkscan rund
-// zehn - alles zusammen bleibt deutlich unter einer Minute.
-static const uint32_t WD_FRIST_MS = 90000;
+// Die Frist war erst 90 s, weil der WLAN-Aufbau zehn Sekunden blockiert, die
+// Zeitsuche neun, die Anmeldung bis fuenfzehn und der Funkscan rund zehn.
+// Besser ist, diese Wartezeiten **anzumelden** (`wdFrisch()`): dann trifft
+// der Wachhund nur das, was wirklich steht, und darf viel schneller
+// zuschlagen. Am 21.11.2026 gemessen: an ihrem neuen Platz hat die Saeule
+// -89 dBm und bleibt dabei etwa jede zweite Minute im Funkstapel stehen -
+// mit 45 s Frist ist sie nach gut einer Minute wieder da statt nach zweieinhalb.
+static const uint32_t WD_FRIST_MS = 45000;
 static volatile bool wdScharf = false;
+
+// Eine lange, aber erlaubte Wartezeit anmelden: der Wachhund zaehlt neu.
+static void wdFrisch() {
+  schleifeBegann = millis();
+}
+// Neustart auf Zuruf. Am 21.11.2026 half nur noch der Stecker, weil es keinen
+// Weg gab, die Saeule aus der Ferne neu zu starten - und am Netzteil steht
+// sie nicht neben dem Rechner. Antwort zuerst, Neustart danach (sonst kommt
+// beim Aufrufer nichts an), und der Grund steht hinterher in "start_grund".
+static bool neustartWunsch = false;
+static uint32_t neustartAb = 0;
 
 #include <time.h>
 
@@ -491,6 +507,7 @@ static bool eingerastet() { return !wechselAktiv || wechselZeit() >= wechselDaue
 
 static void sseSenden();   // vorab
 static bool adresseDa();   // vorab
+static void wdFrisch();    // vorab
 
 static void statusSetzen(Status neu, bool ansage = true, bool erzwingen = false) {
   if (neu == status && ansage && !erzwingen) return;
@@ -1104,6 +1121,7 @@ static void warten(unsigned long ms) {
   while (millis() < bis) {
     if (WiFi.status() == WL_CONNECTED) httpBedienen();
     delay(1);
+    wdFrisch();            // geplantes Warten ist kein Haenger
   }
 }
 
@@ -1299,11 +1317,12 @@ static void wlanVerbinden() {
   for (int i = 0; i < 20 && WiFi.status() != WL_CONNECTED; i++) {
     delay(500);
     Serial.print(".");
+    wdFrisch();            // der Aufbau darf zehn Sekunden brauchen
   }
   if (WiFi.status() == WL_CONNECTED) {
     // Auf die Adresse warten: DHCP braucht nach dem Verbinden noch einen
     // Augenblick, und ohne Adresse ist die Verbindung nichts wert.
-    for (uint8_t i = 0; i < 20 && WiFi.localIP()[0] == 0; i++) delay(250);
+    for (uint8_t i = 0; i < 20 && WiFi.localIP()[0] == 0; i++) { delay(250); wdFrisch(); }
     Serial.print(" verbunden, RSSI ");
     Serial.print(WiFi.RSSI());
     Serial.print(", IP ");
@@ -1323,6 +1342,7 @@ static void wlanVerbinden() {
       WiFi.end();
       serverLaeuft = false;      // die Server muessen danach wieder anlaufen
       delay(1500);
+      wdFrisch();
     }
   }
 }
@@ -1376,6 +1396,7 @@ static bool funkWunsch = false;
 
 static void funkMessen() {
   Serial.println("Funklage: Scan laeuft");
+  wdFrisch();              // der Scan dauert ein paar Sekunden
   int8_t n = WiFi.scanNetworks();
   funkNetze = n;
   funkZuletzt = millis();
@@ -1405,6 +1426,7 @@ static void funkMessen() {
              ssid ? ssid : "?", (unsigned)kanal, (long)rssi,
              bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
     Serial.println(zeile);
+    wdFrisch();
     if (ssid && strcmp(ssid, WLAN_SSID) == 0) {
       funkEigenAnzahl++;
       if (!funkEigenBest || rssi > funkEigenBest) {
@@ -1924,6 +1946,11 @@ static void httpBedienen() {
       s += "]}";
       sendeJson(c, 200, s);
     }
+  } else if (pfad == "/api/neustart") {
+    neustartWunsch = true;
+    neustartAb = millis();
+    Serial.println("Neustart auf Zuruf");
+    sendeJson(c, 200, "{\"ok\":true,\"neustart\":true}");
   } else if (pfad == "/api/funk") {
     // Scan am Standort der Saeule. Die Liste steht seriell, hier die Zahlen.
     funkWunsch = true;
@@ -2047,6 +2074,7 @@ static void stillePruefen() {
   WiFi.end();
   serverLaeuft = false;
   delay(1500);
+  wdFrisch();
   letzteAnfrage = millis();      // der neuen Verbindung ihre Frist geben
   wlanVerbinden();
 }
@@ -2166,6 +2194,12 @@ void loop() {
   if (funkWunsch) {
     funkWunsch = false;
     funkMessenUndZurueck();
+  }
+
+  // Eine halbe Sekunde Vorlauf, damit die Antwort das Haus verlaesst
+  if (neustartWunsch && millis() - neustartAb > 500) {
+    Serial.flush();
+    NVIC_SystemReset();
   }
 
   if (diagLaeuft()) {

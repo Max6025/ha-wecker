@@ -6,7 +6,12 @@ LOG=/tmp/starttest.log
 : > $LOG
 ok=0; fehl=0
 for runde in $(seq 1 8); do
-  arduino-cli upload -b arduino:renesas_uno:unor4wifi $SK/signalsaeule -p /dev/ttyACM0 >/dev/null 2>&1
+  # Neustart per /api/neustart (ab Firmware 1.20.0). Vorher lief das ueber
+  # einen Upload - der braucht ein Kabel, und der Port wechselt nach jedem
+  # Upload die Nummer: lief er ins Leere, meldete der Test "OK nach 0s", ohne
+  # dass ueberhaupt neu gestartet wurde (am 21.11.2026 so passiert).
+  curl -s -X POST --max-time 5 http://192.168.1.81/api/neustart >/dev/null 2>&1
+  sleep 3
   start=$(date +%s)
   erreicht=""
   for versuch in $(seq 1 20); do
